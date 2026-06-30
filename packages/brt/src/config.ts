@@ -1,0 +1,503 @@
+import * as consts from './consts'
+import { ProjectTemplates } from './project-templates'
+import type { CommandOption, CommandSchema } from './typings'
+
+// @botpress/chat 0.5.5 does not export this union; it selects the transport internally.
+type ServerEventsProtocol = 'sse' | 'websocket'
+
+// command options
+
+const port = {
+  type: 'number',
+  description: 'The port to use',
+} satisfies CommandOption
+
+const workDir = {
+  type: 'string',
+  description: 'The path to the project',
+  default: consts.defaultWorkDir,
+} satisfies CommandOption
+
+const noBuild = {
+  type: 'boolean',
+  description: 'Skip the build step',
+  default: false,
+} satisfies CommandOption
+
+const dryRun = {
+  type: 'boolean',
+  description: 'Ask the API not to perform the actual operation',
+  default: false,
+} as const satisfies CommandOption
+
+const apiUrl = {
+  type: 'string',
+  description: 'The URL of the botruntime server',
+} satisfies CommandOption
+
+const token = {
+  type: 'string',
+  description: 'You Personal Access Token ',
+} satisfies CommandOption
+
+const workspaceId = {
+  type: 'string',
+  description: 'The Workspace Id to deploy to',
+} satisfies CommandOption
+
+const secrets = {
+  type: 'string',
+  description: 'Values for the bot or integration secrets',
+  array: true,
+  default: [],
+} satisfies CommandOption
+
+const botRef = {
+  type: 'string',
+  description: 'The bot ID. Bot Name is not supported.',
+  demandOption: true,
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const packageRef = {
+  type: 'string',
+  description:
+    'The package ID or name with optional version. The package can be either an integration or an interface. Ex: teams, teams@0.2.0, llm@5.1.0',
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const integrationRef = {
+  ...packageRef,
+  demandOption: true,
+  description: 'The integration ID or name with optional version. Ex: teams or teams@0.2.0',
+} satisfies CommandOption
+
+const interfaceRef = {
+  ...packageRef,
+  demandOption: true,
+  description: 'The interface ID or name and version. Ex: llm@5.1.0',
+} satisfies CommandOption
+
+const pluginRef = {
+  ...packageRef,
+  demandOption: true,
+  description: 'The plugin ID or name and version. Ex: knowledge@0.0.1',
+} satisfies CommandOption
+
+const sourceMap = {
+  type: 'boolean',
+  description: 'Generate sourcemaps',
+  default: false,
+} satisfies CommandOption
+
+const minify = {
+  type: 'boolean',
+  description: 'Minify the bundled code',
+  default: true,
+} satisfies CommandOption
+
+const dev = {
+  type: 'boolean',
+  description: 'List only dev bots / dev integrations',
+  default: false,
+} satisfies CommandOption
+
+const watch = {
+  type: 'boolean',
+  description: 'Watch project files and hot reload on changes',
+  default: true,
+} satisfies CommandOption
+
+// base schemas
+
+const globalSchema = {
+  verbose: {
+    type: 'boolean',
+    description: 'Enable verbose logging',
+    alias: 'v',
+    default: false,
+  },
+  confirm: {
+    type: 'boolean',
+    description: 'Confirm all prompts',
+    alias: 'y',
+    default: false,
+  },
+  json: {
+    type: 'boolean',
+    description: 'Prevent logging anything else than raw json in stdout. Useful for piping output to other tools',
+    default: false,
+  },
+  botpressHome: {
+    type: 'string',
+    description: 'The path to the botruntime home directory',
+    default: consts.defaultBotpressHome,
+  },
+  profile: {
+    type: 'string',
+    description: 'The CLI profile defined in the $BRT_BOTPRESS_HOME/profiles.json',
+    alias: 'p',
+  },
+} satisfies CommandSchema
+
+const projectSchema = {
+  ...globalSchema,
+  workDir,
+} satisfies CommandSchema
+
+const credentialsSchema = {
+  apiUrl,
+  workspaceId,
+  token,
+} satisfies CommandSchema
+
+const secretsSchema = {
+  secrets,
+} satisfies CommandSchema
+
+// command schemas
+
+const generateSchema = {
+  ...projectSchema,
+} satisfies CommandSchema
+
+const bundleSchema = {
+  ...projectSchema,
+  sourceMap,
+  minify,
+} satisfies CommandSchema
+
+const buildSchema = {
+  ...projectSchema,
+  sourceMap,
+  minify,
+} satisfies CommandSchema
+
+const readSchema = {
+  ...projectSchema,
+} satisfies CommandSchema
+
+const serveSchema = {
+  ...projectSchema,
+  ...secretsSchema,
+  port,
+} satisfies CommandSchema
+
+const deploySchema = {
+  ...projectSchema,
+  ...credentialsSchema,
+  ...secretsSchema,
+  botId: { type: 'string', description: 'The bot ID to deploy. Only used when deploying a bot' },
+  noBuild,
+  dryRun,
+  createNewBot: {
+    type: 'boolean',
+    description: 'Create a new bot when deploying. Only used when deploying a bot',
+  },
+  sourceMap,
+  minify,
+  visibility: {
+    type: 'string',
+    choices: ['public', 'private', 'unlisted'] as const,
+    description:
+      'The visibility of the project. By default, projects are always private. Unlisted visibility is only supported for integrations and plugins.',
+    default: 'private',
+  },
+  public: {
+    type: 'boolean',
+    description: 'DEPRECATED: Please use "--visibility public" instead.',
+    default: false,
+    deprecated: true,
+  } satisfies CommandOption,
+  allowDeprecated: {
+    type: 'boolean',
+    description: 'Allow deprecated features in the project',
+    default: false,
+  },
+  url: {
+    type: 'string',
+    description: 'Custom URL for the integration. Only used when deploying an integration',
+  },
+  bypassBreakingChangeDetection: {
+    type: 'boolean',
+    hidden: true,
+    default: false,
+  },
+} as const satisfies CommandSchema
+
+const devSchema = {
+  ...projectSchema,
+  ...credentialsSchema,
+  ...secretsSchema,
+  sourceMap,
+  minify,
+  watch,
+  port,
+  tunnelUrl: {
+    type: 'string',
+    description: 'The tunnel HTTP URL to use',
+    default: consts.defaultTunnelUrl,
+  },
+  tunnelId: {
+    type: 'string',
+    description: 'The tunnel ID to use. The ID will be generated if not specified',
+  },
+  noSecretCaching: {
+    type: 'boolean',
+    description: 'Do not save the secrets locally',
+    default: false,
+    alias: 'nsc',
+  },
+} satisfies CommandSchema
+
+const addSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  packageRef,
+  installPath: {
+    type: 'string',
+    description: 'The path where to install the package',
+    default: consts.defaultInstallPath,
+  },
+  useDev: {
+    type: 'boolean',
+    description: 'If a dev version of the package is found, use it',
+    default: false,
+  },
+  alias: {
+    type: 'string',
+    description: 'The alias to install the package with',
+  },
+} satisfies CommandSchema
+
+const removeSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  workDir,
+  alias: {
+    idx: 0,
+    positional: true,
+    type: 'string',
+    description: 'The alias of the package to uninstall',
+  },
+} satisfies CommandSchema
+
+const loginSchema = {
+  ...globalSchema,
+  token,
+  workspaceId,
+  apiUrl: { ...apiUrl, default: consts.defaultBotpressApiUrl },
+} satisfies CommandSchema
+
+const logoutSchema = {
+  ...globalSchema,
+} satisfies CommandSchema
+
+const createBotSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  name: { type: 'string', description: 'The name of the bot to create' },
+  ifNotExists: {
+    type: 'boolean',
+    description: 'Do not create if a bot with the same name already exists',
+    default: false,
+  },
+} satisfies CommandSchema
+
+const getBotSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  botRef,
+} satisfies CommandSchema
+
+const deleteBotSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  botRef,
+} satisfies CommandSchema
+
+const listBotsSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  dev,
+} satisfies CommandSchema
+
+const getIntegrationSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  integrationRef,
+} satisfies CommandSchema
+
+const listIntegrationsSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  name: { type: 'string', description: 'The name filter when listing integrations' },
+  versionNumber: { type: 'string', description: 'The version filter when listing integrations' },
+  owned: { type: 'boolean', description: 'List only owned integrations' },
+  public: { type: 'boolean', description: 'List only public integrations' },
+  limit: { type: 'number', description: 'Limit the number of integrations returned' },
+  dev,
+} satisfies CommandSchema
+
+const deleteIntegrationSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  integrationRef,
+} satisfies CommandSchema
+
+const getInterfaceSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  interfaceRef,
+} satisfies CommandSchema
+
+const listInterfacesSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+} satisfies CommandSchema
+
+const deleteInterfaceSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  interfaceRef,
+} satisfies CommandSchema
+
+const getPluginSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  pluginRef,
+} satisfies CommandSchema
+
+const listPluginsSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  name: { type: 'string', description: 'The name filter when listing plugins' },
+  versionNumber: { type: 'string', description: 'The version filter when listing plugins' },
+} satisfies CommandSchema
+
+const deletePluginSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  pluginRef,
+} satisfies CommandSchema
+
+const initSchema = {
+  ...globalSchema,
+  workDir,
+  type: { type: 'string', choices: ['bot', 'integration', 'plugin'] as const },
+  template: {
+    type: 'string',
+    choices: ProjectTemplates.getAllChoices(),
+    description: 'The template to use',
+  },
+  name: { type: 'string', description: 'The name of the project' },
+} satisfies CommandSchema
+
+const lintSchema = {
+  ...projectSchema,
+} satisfies CommandSchema
+
+const chatSchema = {
+  ...globalSchema,
+  ...credentialsSchema,
+  chatApiUrl: {
+    type: 'string',
+    description: 'The URL of the chat server',
+  },
+  botId: {
+    type: 'string',
+    positional: true,
+    idx: 0,
+    description: 'The bot ID to chat with',
+  },
+  protocol: {
+    choices: ['sse', 'websocket'] satisfies ReadonlyArray<ServerEventsProtocol>,
+    default: 'sse' as const,
+    description: 'The protocol to use for long lived connections',
+  },
+} satisfies CommandSchema
+
+const listProfilesSchema = {
+  ...globalSchema,
+  displayToken: {
+    type: 'boolean',
+    description: 'Display the token in each of the brt profiles',
+    default: false,
+  },
+} satisfies CommandSchema
+
+const activeProfileSchema = {
+  ...globalSchema,
+  displayToken: {
+    type: 'boolean',
+    description: 'Display the token in the brt profile',
+    default: false,
+  },
+} satisfies CommandSchema
+
+const useProfileSchema = {
+  ...globalSchema,
+  profileToUse: {
+    type: 'string',
+    description: 'The CLI profile defined in the $BRT_BOTPRESS_HOME/profiles.json',
+    positional: true,
+    idx: 0,
+  },
+} satisfies CommandSchema
+
+const getProfileSchema = {
+  ...globalSchema,
+  profileToGet: {
+    type: 'string',
+    description: 'The CLI profile defined in the $BRT_BOTPRESS_HOME/profiles.json',
+    positional: true,
+    idx: 0,
+  },
+  displayToken: {
+    type: 'boolean',
+    description: 'Display the token in the brt profile',
+    default: false,
+  },
+} satisfies CommandSchema
+
+// exports
+
+export const schemas = {
+  global: globalSchema,
+  project: projectSchema,
+  credentials: credentialsSchema,
+  secrets: secretsSchema,
+  login: loginSchema,
+  logout: logoutSchema,
+  createBot: createBotSchema,
+  getBot: getBotSchema,
+  deleteBot: deleteBotSchema,
+  listBots: listBotsSchema,
+  getIntegration: getIntegrationSchema,
+  listIntegrations: listIntegrationsSchema,
+  deleteIntegration: deleteIntegrationSchema,
+  getInterface: getInterfaceSchema,
+  listInterfaces: listInterfacesSchema,
+  deleteInterface: deleteInterfaceSchema,
+  getPlugin: getPluginSchema,
+  listPlugins: listPluginsSchema,
+  deletePlugin: deletePluginSchema,
+  init: initSchema,
+  generate: generateSchema,
+  bundle: bundleSchema,
+  build: buildSchema,
+  read: readSchema,
+  serve: serveSchema,
+  deploy: deploySchema,
+  add: addSchema,
+  remove: removeSchema,
+  dev: devSchema,
+  lint: lintSchema,
+  chat: chatSchema,
+  listProfiles: listProfilesSchema,
+  activeProfile: activeProfileSchema,
+  useProfile: useProfileSchema,
+  getProfile: getProfileSchema,
+} as const

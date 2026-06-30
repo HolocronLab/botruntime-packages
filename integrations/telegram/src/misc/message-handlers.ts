@@ -1,0 +1,255 @@
+import { RuntimeError } from '@botpress/sdk'
+import { Markup, Telegraf, Telegram } from 'telegraf'
+import { getStoredBotToken } from '../botToken'
+import { makeTelegraf } from './telegraf'
+import { markdownHtmlToTelegramPayloads, stdMarkdownToTelegramHtml } from './markdown-to-telegram-html'
+import type { AckFunction, MessageHandlerProps, TelegramMessage } from './types'
+import { ackMessage, getChat, mapToRuntimeErrorAndThrow, sendCard } from './utils'
+
+const sendHtmlTextMessage = async (client: Telegraf, ack: AckFunction, chat: string, html: string) => {
+  const message = await client.telegram
+    .sendMessage(chat, html, { parse_mode: 'HTML' })
+    .catch(mapToRuntimeErrorAndThrow('Fail to send message'))
+  await ackMessage(message, ack)
+}
+
+type SendMediaMethod = (chatId: number | string, media: string, extra?: { caption?: string }) => Promise<TelegramMessage>
+
+const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'file'>({
+  props,
+  url,
+  send,
+  fallback,
+}: {
+  props: MessageHandlerProps<T>
+  url: string
+  send: (telegram: Telegram) => SendMediaMethod
+  fallback?: () => Promise<void>
+}) => {
+  const { ctx, conversation, ack, logger, payload, client } = props
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  const sendFn = send(telegraf.telegram)
+  const opts = 'caption' in payload ? { caption: (payload as { caption?: string }).caption } : undefined
+  logger.forBot().debug(`calling ${sendFn.name} to Telegram chat ${chat}: ${url}`)
+  let message: TelegramMessage
+  try {
+    message = await sendFn
+      .call(telegraf.telegram, chat, url, opts)
+      .catch(mapToRuntimeErrorAndThrow(`Failed to ${sendFn.name}`))
+  } catch (err) {
+    if (fallback) {
+      await fallback()
+      return
+    }
+    logger
+      .forBot()
+      .warn(
+        `Telegram could not send the media using ${sendFn.name}, sending it as a plain text link instead: ${String(err)}`
+      )
+    const text = opts?.caption ? `${opts.caption}\n${url}` : url
+    message = await telegraf.telegram
+      .sendMessage(chat, text)
+      .catch(mapToRuntimeErrorAndThrow('Fail to send media link fallback'))
+  }
+  await ackMessage(message, ack)
+}
+
+export const handleTextMessage = async (props: MessageHandlerProps<'text'>) => {
+  const { payload, ctx, conversation, ack, logger, client } = props
+  const { text } = payload
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  logger.forBot().debug(`Sending markdown message to Telegram chat ${chat}:`, text)
+  const { html, extractedData } = stdMarkdownToTelegramHtml(text)
+
+  if (!extractedData.images || extractedData.images.length === 0) {
+    await sendHtmlTextMessage(telegraf, ack, chat, html)
+    return
+  }
+
+  const payloads = markdownHtmlToTelegramPayloads(html, extractedData.images)
+
+  for (const part of payloads) {
+    if (part.type === 'text') {
+      await sendHtmlTextMessage(telegraf, ack, chat, part.text)
+    } else {
+      await handleImageMessage({ ...props, payload: { imageUrl: part.imageUrl }, type: 'image' })
+    }
+  }
+}
+
+export const handleImageMessage = async (props: MessageHandlerProps<'image'>) => {
+  await sendContentOrFallback({ props, url: props.payload.imageUrl, send: (t) => t.sendPhoto })
+}
+
+export const handleAudioMessage = async (props: MessageHandlerProps<'audio'>) => {
+  // If voice fails, retry as audio; if that also fails, fall back to a plain text link.
+  await sendContentOrFallback({
+    props,
+    url: props.payload.audioUrl,
+    send: (t) => t.sendVoice,
+    fallback: () => sendContentOrFallback({ props, url: props.payload.audioUrl, send: (t) => t.sendAudio }),
+  })
+}
+
+export const handleVideoMessage = async (props: MessageHandlerProps<'video'>) => {
+  await sendContentOrFallback({ props, url: props.payload.videoUrl, send: (t) => t.sendVideo })
+}
+
+export const handleFileMessage = async (props: MessageHandlerProps<'file'>) => {
+  await sendContentOrFallback({ props, url: props.payload.fileUrl, send: (t) => t.sendDocument })
+}
+
+export const handleLocationMessage = async ({
+  payload,
+  ctx,
+  conversation,
+  ack,
+  logger,
+  client,
+}: MessageHandlerProps<'location'>) => {
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  logger.forBot().debug(`Sending location message to Telegram chat ${chat}:`, {
+    latitude: payload.latitude,
+    longitude: payload.longitude,
+  })
+  const message = await telegraf.telegram
+    .sendLocation(chat, payload.latitude, payload.longitude)
+    .catch(mapToRuntimeErrorAndThrow('Fail to send location'))
+  await ackMessage(message, ack)
+}
+
+export const handleCardMessage = async ({
+  payload,
+  ctx,
+  conversation,
+  ack,
+  logger,
+  client,
+}: MessageHandlerProps<'card'>) => {
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  logger.forBot().debug(`Sending card message to Telegram chat ${chat}:`, payload)
+  await sendCard(payload, telegraf, chat, ack)
+}
+
+export const handleCarouselMessage = async ({
+  payload,
+  ctx,
+  conversation,
+  ack,
+  logger,
+  client,
+}: MessageHandlerProps<'carousel'>) => {
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  logger.forBot().debug(`Sending carousel message to Telegram chat ${chat}:`, payload)
+  for (const item of payload.items) {
+    await sendCard(item, telegraf, chat, ack)
+  }
+}
+
+export const handleDropdownMessage = async ({
+  payload,
+  ctx,
+  conversation,
+  ack,
+  logger,
+  client,
+}: MessageHandlerProps<'dropdown'>) => {
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  const buttons = payload.options.map((choice) => Markup.button.callback(choice.label, choice.value))
+  logger.forBot().debug(`Sending dropdown message to Telegram chat ${chat}:`, payload)
+  const message = await telegraf.telegram
+    .sendMessage(chat, payload.text, Markup.keyboard(buttons).oneTime())
+    .catch(mapToRuntimeErrorAndThrow('Fail to send message'))
+  await ackMessage(message, ack)
+}
+
+export const handleChoiceMessage = async ({
+  payload,
+  ctx,
+  conversation,
+  ack,
+  logger,
+  client,
+}: MessageHandlerProps<'choice'>) => {
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  logger.forBot().debug(`Sending choice message to Telegram chat ${chat}:`, payload)
+  const buttons = payload.options.map((choice) => Markup.button.callback(choice.label, choice.value))
+  const message = await telegraf.telegram
+    .sendMessage(chat, payload.text, Markup.keyboard(buttons).oneTime())
+    .catch(mapToRuntimeErrorAndThrow('Fail to send message'))
+  await ackMessage(message, ack)
+}
+
+// GAP (request_contact outbound): one-tap "share phone" reply keyboard (definitions/channels.ts).
+// The tap returns as an inbound `contact` update handled in utils.convertTelegramMessageToBotpressMessage.
+export const handleContactRequestMessage = async ({
+  payload,
+  ctx,
+  conversation,
+  ack,
+  logger,
+  client,
+}: MessageHandlerProps<'contactRequest'>) => {
+  const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
+  const telegraf = makeTelegraf(botToken)
+  const chat = getChat(conversation)
+  const label = payload.buttonLabel ?? 'Поделиться номером'
+  logger.forBot().debug(`Sending contact request to Telegram chat ${chat}`)
+  const keyboard = Markup.keyboard([Markup.button.contactRequest(label)]).oneTime().resize()
+  const message = await telegraf.telegram
+    .sendMessage(chat, payload.text, keyboard)
+    .catch(mapToRuntimeErrorAndThrow('Fail to send contact request'))
+  await ackMessage(message, ack)
+}
+
+export const handleBlocMessage = async ({
+  client,
+  payload,
+  ctx,
+  conversation,
+  ...rest
+}: MessageHandlerProps<'bloc'>) => {
+  if (payload.items.length > 20) {
+    throw new RuntimeError('Telegram only allows 20 messages to be sent every 60 seconds')
+  }
+
+  for (const item of payload.items) {
+    switch (item.type) {
+      case 'text':
+        await handleTextMessage({ ...rest, type: item.type, client, payload: item.payload, ctx, conversation })
+        break
+      case 'image':
+        await handleImageMessage({ ...rest, type: item.type, client, payload: item.payload, ctx, conversation })
+        break
+      case 'audio':
+        await handleAudioMessage({ ...rest, type: item.type, client, payload: item.payload, ctx, conversation })
+        break
+      case 'video':
+        await handleVideoMessage({ ...rest, type: item.type, client, payload: item.payload, ctx, conversation })
+        break
+      case 'file':
+        await handleFileMessage({ ...rest, type: item.type, client, payload: item.payload, ctx, conversation })
+        break
+      case 'location':
+        await handleLocationMessage({ ...rest, type: item.type, client, payload: item.payload, ctx, conversation })
+        break
+      default:
+        // @ts-ignore — exhaustiveness guard at runtime for unknown bloc item types
+        throw new RuntimeError(`Unsupported message type: ${item?.type ?? 'Unknown'}`)
+    }
+  }
+}

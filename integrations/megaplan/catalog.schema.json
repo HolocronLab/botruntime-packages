@@ -1,0 +1,19 @@
+{
+  "fields": {
+    "baseUrl": {
+      "type": "string",
+      "required": true,
+      "secret": false
+    },
+    "username": {
+      "type": "string",
+      "required": true,
+      "secret": true
+    },
+    "password": {
+      "type": "string",
+      "required": true,
+      "secret": true
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "fields": {
+    "yadiskToken": {
+      "type": "string",
+      "required": true,
+      "secret": true
+    },
+    "yadiskFolder": {
+      "type": "string",
+      "required": false,
+      "secret": false
+    }
+  }
+}

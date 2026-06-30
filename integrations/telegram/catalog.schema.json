@@ -1,0 +1,9 @@
+{
+  "fields": {
+    "botToken": {
+      "type": "string",
+      "required": true,
+      "secret": true
+    }
+  }
+}
