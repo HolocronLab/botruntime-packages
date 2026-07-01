@@ -1,0 +1,35 @@
+# oapi-codegen config — generate the Go ServerInterface for the botruntime cloudapi
+# from the frozen canonical OpenAPI spec (see docs/adr/0005). Tested with oapi-codegen v2.6.0.
+#
+# The Go cloudapi lives in the *botforge* repo, NOT here. From botforge, run against the
+# spec published by this repo (vendor the JSON or add this repo as a submodule/dep):
+#
+#   oapi-codegen -config oapi-codegen.yaml \
+#     <path>/botruntime-packages/packages/botruntime-api/openapi/openapi.json
+#
+# The generated ServerInterface makes the Go COMPILER enforce endpoint correspondence:
+# add / rename / remove a path in the spec => Go build fails until the handlers match.
+# See docs/handoff/go-cloudapi-serverinterface.md for the full wiring.
+
+package: cloudapi
+output: gen/botruntime_api.gen.go
+generate:
+  models: true
+  strict-server: true
+  # Pick ONE server flavor to match botforge's HTTP router:
+  std-http-server: true      # net/http (Go 1.22+ ServeMux)
+  # chi-server: true
+  # echo-server: true
+  # gin-server: true
+output-options:
+  skip-prune: false
+  skip-fmt: false
+
+# Surface notes:
+# - The client-facing contract is /v1 (admin + runtime + files + tables + public).
+#   openapi/openapi.json is the merged canonical document (paths == public.json's superset:
+#   ~71 client path templates / 130 raw /v1 paths); admin(82) and runtime(27) are subsets.
+# - billing is versioned separately under /v2 (openapi/billing.json) — generate it into a
+#   distinct package if/when the Go side implements it.
+# - Wire contract preserved verbatim from upstream: /v1 paths, x-bot-id / x-integration-id /
+#   x-integration-alias / x-workspace-id headers.
