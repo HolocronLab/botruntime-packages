@@ -1,4 +1,4 @@
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 import * as utils from '../utils'
 
 type NameVersion = { name: string; version: string }

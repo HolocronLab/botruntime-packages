@@ -1,5 +1,5 @@
-import * as chat from '@botpress/chat'
-import * as client from '@botpress/client'
+import * as chat from '@holocronlab/botruntime-chat'
+import * as client from '@holocronlab/botruntime-client'
 import semver from 'semver'
 import { ApiClient } from '../api'
 import { Chat } from '../chat'

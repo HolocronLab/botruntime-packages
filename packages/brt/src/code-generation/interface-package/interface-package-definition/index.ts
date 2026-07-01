@@ -61,7 +61,7 @@ export class InterfacePackageDefinitionModule extends Module {
 
     content += [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       '',
       `import * as ${actionsModule.name} from "./${actionsImport}"`,
       `import * as ${channelsModule.name} from "./${channelsImport}"`,

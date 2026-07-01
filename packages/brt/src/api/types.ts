@@ -1,4 +1,4 @@
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 import { Logger } from '../logger'
 import { SafeOmit, Merge } from '../utils/type-utils'
 import { ApiClient } from './client'

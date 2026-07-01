@@ -1,10 +1,10 @@
-import * as chat from '@botpress/chat'
+import * as chat from '@holocronlab/botruntime-chat'
 import chalk from 'chalk'
 import * as readline from 'readline'
 import * as uuid from 'uuid'
 import * as utils from '../utils'
 
-// @botpress/chat 0.5.5 neither exports this union nor accepts a transport
+// @holocronlab/botruntime-chat 0.5.5 neither exports this union nor accepts a transport
 // selector on listenConversation; it picks the transport internally.
 type ServerEventsProtocol = 'sse' | 'websocket'
 

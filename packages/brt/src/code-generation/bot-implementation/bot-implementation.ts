@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as consts from '../consts'
 import { Module } from '../module'
 import { BotPluginsIndexModule } from './bot-plugins'
@@ -35,7 +35,7 @@ export class BotImplementationModule extends Module {
 
     return [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       `import * as ${typingsModule.name} from "./${typingsImport}"`,
       `import * as ${pluginsModule.name} from "./${pluginsImport}"`,
       '',

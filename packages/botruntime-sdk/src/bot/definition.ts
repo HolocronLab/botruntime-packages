@@ -1,0 +1,691 @@
+import { Table } from '@holocronlab/botruntime-client'
+import { stripRecurringFromEvents, resolveRecurringEvents } from '../common/recurring-events'
+import { SchemaTransformOptions } from '../common/types'
+import * as consts from '../consts'
+import { DefinitionError } from '../errors'
+import { IntegrationPackage, PluginPackage } from '../package'
+import { PluginInterfaceExtension, PluginIntegrationExtension } from '../plugin'
+import { SchemaDefinition } from '../schema'
+import * as utils from '../utils'
+import { ValueOf, Writable, Merge, StringKeys } from '../utils/type-utils'
+import { SDK_VERSION } from '../version'
+import { z } from '../zui'
+
+type BaseConfig = z.ZuiObjectSchema
+type BaseStates = Record<string, z.ZuiObjectOrRefSchema>
+type BaseEvents = Record<string, z.ZuiObjectOrRefSchema>
+type BaseActions = Record<string, z.ZuiObjectOrRefSchema>
+type BaseTables = Record<string, z.ZuiObjectOrRefSchema>
+type BaseWorkflows = Record<string, z.ZuiObjectSchema>
+
+export type TagDefinition = {
+  title?: string
+  description?: string
+}
+
+export type StateType = 'conversation' | 'user' | 'bot' | 'workflow'
+
+export type StateDefinition<TState extends BaseStates[string] = BaseStates[string]> = SchemaDefinition<TState> & {
+  type: StateType
+  expiry?: number
+}
+
+/*
+ * @deprecate
+ */
+export type RecurringEventDefinition<TEvents extends BaseEvents = BaseEvents> = {
+  [K in keyof TEvents]: {
+    type: K
+    payload: z.infer<TEvents[K]>
+    schedule: { cron: string }
+  }
+}[keyof TEvents]
+
+export type EventDefinition<TEvent extends BaseEvents[string] = BaseEvents[string]> = SchemaDefinition<TEvent> & {
+  recurrence?: {
+    cron: string
+    payload: z.input<TEvent>
+  }
+  attributes?: Record<string, string>
+}
+
+export type ConfigurationDefinition<TConfig extends BaseConfig = BaseConfig> = SchemaDefinition<TConfig>
+
+export type UserDefinition = {
+  tags?: Record<string, TagDefinition>
+}
+
+export type ConversationDefinition = {
+  tags?: Record<string, TagDefinition>
+}
+
+export type MessageDefinition = {
+  tags?: Record<string, TagDefinition>
+}
+
+export type SecretDefinition = {
+  optional?: boolean
+  description?: string
+}
+
+export type ActionDefinition<TAction extends BaseActions[string] = BaseActions[string]> = {
+  title?: string
+  description?: string
+  input: SchemaDefinition<TAction>
+  output: SchemaDefinition<z.ZuiObjectOrRefSchema> // cannot infer both input and output types (typescript limitation)
+  attributes?: Record<string, string>
+}
+
+export type WorkflowDefinition<TWorkflow extends BaseWorkflows[string] = BaseWorkflows[string]> = {
+  title?: string
+  description?: string
+  input: SchemaDefinition<TWorkflow>
+  output: SchemaDefinition<z.ZuiObjectSchema> // cannot infer both input and output types (typescript limitation)
+  tags?: Record<string, TagDefinition>
+}
+
+export type TableDefinition<TTable extends BaseTables[string] = BaseTables[string]> = Merge<
+  Omit<Table, 'id' | 'createdAt' | 'updatedAt' | 'name'>,
+  {
+    schema: TTable
+  }
+>
+
+export type ResolvedIntegrationConfigInstance<I extends IntegrationPackage = IntegrationPackage> = {
+  enabled?: boolean
+  alias: string
+  disabledChannels?: StringKeys<NonNullable<I['definition']['channels']>>[]
+} & (
+  | {
+      configurationType?: null
+      configuration: z.input<NonNullable<I['definition']['configuration']>['schema']>
+    }
+  | ValueOf<{
+      [K in StringKeys<NonNullable<I['definition']['configurations']>>]: {
+        configurationType: K
+        configuration: z.input<NonNullable<I['definition']['configurations']>[K]['schema']>
+      }
+    }>
+)
+
+type IntegrationConfigInstance<I extends IntegrationPackage = IntegrationPackage> = Omit<
+  ResolvedIntegrationConfigInstance<I>,
+  'alias'
+> & { alias?: string }
+
+type _ResolvedPluginConfigInstance<P extends PluginPackage = PluginPackage> = {
+  alias: string
+  configuration: z.input<NonNullable<P['definition']['configuration']>['schema']>
+  interfaces: {
+    [I in keyof NonNullable<P['definition']['interfaces']>]: PluginInterfaceExtension
+  }
+  integrations: {
+    [I in keyof NonNullable<P['definition']['integrations']>]: PluginIntegrationExtension
+  }
+}
+
+type PluginConfigInstance<P extends PluginPackage = PluginPackage> = Omit<
+  _ResolvedPluginConfigInstance<P>,
+  'alias' | 'integrations' | 'interfaces'
+> & {
+  alias?: string
+  /** Backing integrations for the plugin's dependencies */
+  dependencies: {
+    [K in StringKeys<NonNullable<P['definition']['interfaces']>>]: {
+      /**
+       * Alias of the integration to use to fullfil this dependency.
+       *
+       * This is the alias given when adding the integration to the bot
+       * via `addIntegration()`.
+       */
+      integrationAlias: string
+      /**
+       * Alias of the interface within the integration.
+       *
+       * This is the alias defined by the integration package for the
+       * interface it implements.
+       */
+      integrationInterfaceAlias: string
+    }
+  } & {
+    [K in StringKeys<NonNullable<P['definition']['integrations']>>]: {
+      /**
+       * Alias of the integration to use to fullfil this dependency.
+       *
+       * This is the alias given when adding the integration to the bot
+       * via `addIntegration()`.
+       */
+      integrationAlias: string
+    }
+  }
+}
+
+export type IntegrationInstance = IntegrationPackage & ResolvedIntegrationConfigInstance
+export type PluginInstance = PluginPackage & _ResolvedPluginConfigInstance
+
+export type BotDefinitionProps<
+  TStates extends BaseStates = BaseStates,
+  TEvents extends BaseEvents = BaseEvents,
+  TActions extends BaseActions = BaseActions,
+  TTables extends BaseTables = BaseTables,
+  TWorkflows extends BaseWorkflows = BaseWorkflows,
+> = {
+  integrations?: {
+    [K: string]: IntegrationInstance
+  }
+  plugins?: {
+    [K: string]: PluginInstance
+  }
+  user?: UserDefinition
+  conversation?: ConversationDefinition
+  message?: MessageDefinition
+  states?: {
+    [K in keyof TStates]: StateDefinition<TStates[K]>
+  }
+  configuration?: ConfigurationDefinition
+  events?: {
+    [K in keyof TEvents]: EventDefinition<TEvents[K]>
+  }
+  /** @deprecated Use the `recurrence` field on each event in `events` instead. */
+  recurringEvents?: Record<string, RecurringEventDefinition<TEvents>>
+  actions?: {
+    [K in keyof TActions]: ActionDefinition<TActions[K]>
+  }
+  tables?: {
+    [K in keyof TTables]: TableDefinition<TTables[K]>
+  }
+
+  secrets?: Record<string, SecretDefinition>
+
+  /**
+   * # EXPERIMENTAL
+   * This API is experimental and may change in the future.
+   */
+  workflows?: {
+    [K in keyof TWorkflows]: WorkflowDefinition<TWorkflows[K]>
+  }
+
+  attributes?: Record<string, string>
+
+  __advanced?: SchemaTransformOptions
+}
+
+export class BotDefinition<
+  TStates extends BaseStates = BaseStates,
+  TEvents extends BaseEvents = BaseEvents,
+  TActions extends BaseActions = BaseActions,
+  TTables extends BaseTables = BaseTables,
+  TWorkflows extends BaseWorkflows = BaseWorkflows,
+> {
+  public readonly integrations: this['props']['integrations']
+  public readonly plugins: this['props']['plugins']
+  public readonly user: this['props']['user']
+  public readonly conversation: this['props']['conversation']
+  public readonly message: this['props']['message']
+  public readonly states: this['props']['states']
+  public readonly configuration: this['props']['configuration']
+  public readonly events: this['props']['events']
+  public readonly recurringEvents: this['props']['recurringEvents']
+  public readonly actions: this['props']['actions']
+  public readonly tables: this['props']['tables']
+  public readonly secrets: this['props']['secrets']
+  public readonly workflows: this['props']['workflows']
+  public readonly attributes: this['props']['attributes']
+  public readonly __advanced: this['props']['__advanced']
+
+  /** Bot definition with plugins merged into it */
+  public readonly withPlugins: Pick<
+    this['props'],
+    'user' | 'conversation' | 'message' | 'states' | 'events' | 'recurringEvents' | 'actions' | 'tables' | 'workflows'
+  >
+
+  public constructor(public readonly props: BotDefinitionProps<TStates, TEvents, TActions, TTables, TWorkflows>) {
+    const events = stripRecurringFromEvents(
+      props.events as Record<string, EventDefinition> | undefined
+    ) as this['props']['events']
+    const recurringEvents = resolveRecurringEvents(
+      props.events as Record<string, EventDefinition>,
+      props.recurringEvents as BotDefinitionProps['recurringEvents']
+    )
+
+    this.integrations = props.integrations
+    this.plugins = props.plugins
+    this.user = props.user
+    this.conversation = props.conversation
+    this.message = props.message
+    this.states = props.states
+    this.configuration = props.configuration
+    this.events = events
+    this.recurringEvents = recurringEvents
+    this.actions = props.actions
+    this.tables = props.tables
+    this.secrets = props.secrets
+    this.workflows = props.workflows
+    this.attributes = props.attributes
+    this.__advanced = props.__advanced
+
+    this.withPlugins = {
+      user: props.user,
+      conversation: props.conversation,
+      message: props.message,
+      states: props.states,
+      events,
+      recurringEvents,
+      actions: props.actions,
+      tables: props.tables,
+      workflows: props.workflows,
+    }
+  }
+
+  public get metadata() {
+    return { sdkVersion: SDK_VERSION } as const
+  }
+
+  public readonly clone?: (overrides?: Partial<BotDefinitionProps>) => BotDefinition = (overrides?) => {
+    // TODO: make non-optional on next major (CLI and SDK share the same major, so the CLI can always rely on clone being present)
+    return new BotDefinition({
+      ...this.props,
+      integrations: this.integrations,
+      plugins: this.plugins,
+      ...overrides,
+    } as BotDefinitionProps)
+  }
+
+  public addIntegration<I extends IntegrationPackage>(integrationPkg: I, config?: IntegrationConfigInstance<I>): this {
+    const self = this as Writable<BotDefinition>
+    if (!self.integrations) {
+      self.integrations = {}
+    }
+
+    const integrationAlias = config?.alias ?? integrationPkg.name
+
+    if (self.integrations[integrationAlias]) {
+      throw new DefinitionError(`Another integration with alias "${integrationAlias}" is already installed in the bot`)
+    }
+
+    const configurationType = config && 'configurationType' in config ? config.configurationType : undefined
+    const rawConfiguration = config && 'configuration' in config ? (config.configuration ?? {}) : {}
+
+    const configSchema = configurationType
+      ? integrationPkg.definition.configurations?.[configurationType]?.schema
+      : integrationPkg.definition.configuration?.schema
+
+    // Use safeParse to avoid throwing on validation errors at definition time (e.g. genenv placeholders
+    // or extra keys in catchall(z.never()) schemas). Spread rawConfiguration first to preserve unknown
+    // keys, then overlay the parsed result so that z.default() values are applied for omitted fields.
+    const parseResult = configSchema ? configSchema.safeParse(rawConfiguration) : null
+    const configuration = parseResult?.success ? { ...rawConfiguration, ...parseResult.data } : rawConfiguration
+
+    self.integrations[integrationAlias] = {
+      ...integrationPkg,
+      alias: integrationAlias,
+      enabled: config?.enabled,
+      configurationType,
+      configuration,
+      disabledChannels: config?.disabledChannels,
+    }
+    return this
+  }
+
+  public addPlugin<P extends PluginPackage>(pluginPkg: P, config: PluginConfigInstance<P>): this {
+    const self = this as Writable<BotDefinition>
+    if (!self.plugins) {
+      self.plugins = {}
+    }
+
+    const pluginAlias = config.alias ?? pluginPkg.name
+
+    if (self.plugins[pluginAlias]) {
+      throw new DefinitionError(`Another plugin with alias "${pluginAlias}" is already installed in the bot`)
+    }
+    // Resolve backing integrations for plugin interfaces:
+    const interfaces: Record<string, PluginInterfaceExtension> = Object.fromEntries(
+      Object.entries(config.dependencies ?? {})
+        .filter(([_, dep]) => 'integrationInterfaceAlias' in dep)
+        .map(([pluginIfaceAlias, pluginIfaceConfig]) => {
+          const integrationInstance = this.integrations?.[pluginIfaceConfig.integrationAlias]
+
+          if (!integrationInstance) {
+            const availableIntegrations = Object.keys(this.integrations ?? {}).join(', ') || '(none)'
+
+            throw new DefinitionError(
+              `Interface with alias "${pluginIfaceAlias}" of plugin with alias "${pluginAlias}" ` +
+                `references integration with alias "${pluginIfaceConfig.integrationAlias}" which is not installed. ` +
+                'Please make sure to add the integration via addIntegration() before calling addPlugin().\n' +
+                `Available integration aliases: ${availableIntegrations}`
+            )
+          }
+
+          const integrationInterfaceExtension =
+            integrationInstance.definition.interfaces?.[pluginIfaceConfig.integrationInterfaceAlias]
+
+          if (!integrationInterfaceExtension) {
+            const availableInterfaces =
+              Object.keys(integrationInstance.definition.interfaces ?? {}).join(', ') || '(none)'
+
+            throw new DefinitionError(
+              `Interface with alias "${pluginIfaceConfig.integrationInterfaceAlias}" does not exist in integration ` +
+                `"${integrationInstance.name}" referenced by interface with alias "${pluginIfaceAlias}" of plugin ` +
+                `with alias "${pluginAlias}".\nAvailable interface aliases: ${availableInterfaces}`
+            )
+          }
+
+          return [
+            pluginIfaceAlias,
+            {
+              ...integrationInterfaceExtension,
+              id: integrationInstance.id,
+              name: integrationInstance.name,
+              version: integrationInstance.version,
+              ...pluginIfaceConfig,
+            } satisfies PluginInterfaceExtension,
+          ]
+        })
+    )
+
+    // Resolve backing integrations for plugin integrations:
+    const integrations: Record<string, PluginIntegrationExtension> = Object.fromEntries(
+      Object.entries(config.dependencies ?? {})
+        .filter(([_, dep]) => !('integrationInterfaceAlias' in dep))
+        .map(([pluginIntegAlias, pluginIntegConfig]) => {
+          const integrationInstance = this.integrations?.[pluginIntegConfig.integrationAlias]
+
+          if (!integrationInstance) {
+            const availableIntegrations = Object.keys(this.integrations ?? {}).join(', ') || '(none)'
+
+            throw new Error(
+              `Integration with alias "${pluginIntegAlias}" of plugin with alias "${pluginAlias}" ` +
+                `references integration with alias "${pluginIntegConfig.integrationAlias}" which is not installed. ` +
+                'Please make sure to add the integration via addIntegration() before calling addPlugin().\n' +
+                `Available integration aliases: ${availableIntegrations}`
+            )
+          }
+
+          return [
+            pluginIntegAlias,
+            { ...integrationInstance, ...pluginIntegConfig } satisfies PluginIntegrationExtension,
+          ]
+        })
+    )
+
+    const rawPluginConfiguration = config.configuration ?? {}
+    const pluginConfigSchema = pluginPkg.definition.configuration?.schema
+    // Use safeParse to avoid throwing on validation errors at definition time (e.g. genenv placeholders
+    // or extra keys in catchall(z.never()) schemas). Spread rawPluginConfiguration first to preserve
+    // unknown keys, then overlay the parsed result so that z.default() values are applied for omitted fields.
+    const pluginParseResult = pluginConfigSchema ? pluginConfigSchema.safeParse(rawPluginConfiguration) : null
+    const pluginConfiguration = pluginParseResult?.success
+      ? { ...rawPluginConfiguration, ...pluginParseResult.data }
+      : rawPluginConfiguration
+
+    self.plugins[pluginAlias] = {
+      ...pluginPkg,
+      alias: pluginAlias,
+      configuration: pluginConfiguration,
+      interfaces,
+      integrations,
+    }
+
+    self.withPlugins.user = this._mergeUser(self.withPlugins.user, pluginPkg.definition.user)
+    self.withPlugins.conversation = this._mergeConversation(
+      self.withPlugins.conversation,
+      pluginPkg.definition.conversation
+    )
+    self.withPlugins.message = this._mergeMessage(self.withPlugins.message, pluginPkg.definition.message)
+    self.withPlugins.recurringEvents = this._mergeRecurringEvents(
+      self.withPlugins.recurringEvents,
+      pluginPkg.definition.recurringEvents
+    )
+    self.withPlugins.tables = this._mergeTables(self.withPlugins.tables, pluginPkg.definition.tables)
+    self.withPlugins.workflows = this._mergeWorkflows(self.withPlugins.workflows, pluginPkg.definition.workflows)
+
+    self.withPlugins.states = this._mergeStates(
+      self.withPlugins.states,
+      this._prefixKeysWithPluginAlias(pluginPkg.definition.states, pluginAlias)
+    )
+    self.withPlugins.events = this._mergeEvents(
+      self.withPlugins.events,
+      this._prefixKeysWithPluginAlias(pluginPkg.definition.events, pluginAlias)
+    )
+    self.withPlugins.actions = this._mergeActions(
+      self.withPlugins.actions,
+      this._prefixKeysWithPluginAlias(pluginPkg.definition.actions, pluginAlias)
+    )
+
+    return this
+  }
+
+  private _mergeUser = (
+    user1: BotDefinitionProps['user'],
+    user2: BotDefinitionProps['user']
+  ): BotDefinitionProps['user'] => {
+    return {
+      tags: {
+        ...user1?.tags,
+        ...user2?.tags,
+      },
+    }
+  }
+
+  private _mergeConversation = (
+    conversation1: BotDefinitionProps['conversation'],
+    conversation2: BotDefinitionProps['conversation']
+  ): BotDefinitionProps['conversation'] => {
+    return {
+      tags: {
+        ...conversation1?.tags,
+        ...conversation2?.tags,
+      },
+    }
+  }
+
+  private _mergeMessage = (
+    message1: BotDefinitionProps['message'],
+    message2: BotDefinitionProps['message']
+  ): BotDefinitionProps['message'] => {
+    return {
+      tags: {
+        ...message1?.tags,
+        ...message2?.tags,
+      },
+    }
+  }
+
+  private _mergeStates = (
+    states1: BotDefinitionProps['states'],
+    states2: BotDefinitionProps['states']
+  ): BotDefinitionProps['states'] => {
+    return {
+      ...states1,
+      ...states2,
+    }
+  }
+
+  private _mergeEvents = (
+    events1: BotDefinitionProps['events'],
+    events2: BotDefinitionProps['events']
+  ): BotDefinitionProps['events'] => {
+    return {
+      ...events1,
+      ...events2,
+    }
+  }
+
+  private _mergeRecurringEvents = (
+    recurringEvents1: BotDefinitionProps['recurringEvents'],
+    recurringEvents2: BotDefinitionProps['recurringEvents']
+  ): BotDefinitionProps['recurringEvents'] => {
+    return {
+      ...recurringEvents1,
+      ...recurringEvents2,
+    }
+  }
+
+  private _mergeActions = (
+    actions1: BotDefinitionProps['actions'],
+    actions2: BotDefinitionProps['actions']
+  ): BotDefinitionProps['actions'] => {
+    return {
+      ...actions1,
+      ...actions2,
+    }
+  }
+
+  private _mergeTables = (
+    tables1: BotDefinitionProps['tables'],
+    tables2: BotDefinitionProps['tables']
+  ): BotDefinitionProps['tables'] => {
+    return {
+      ...tables1,
+      ...tables2,
+    }
+  }
+
+  private _mergeWorkflows = (
+    workflows1: BotDefinitionProps['workflows'],
+    workflows2: BotDefinitionProps['workflows']
+  ): BotDefinitionProps['workflows'] => {
+    return {
+      ...workflows1,
+      ...workflows2,
+    }
+  }
+
+  private _prefixKeysWithPluginAlias = <TRecord extends Record<string, unknown>>(
+    obj: TRecord | undefined,
+    pluginAlias: string
+  ): TRecord =>
+    utils.records.mapKeys(obj ?? {}, (key) => `${pluginAlias}${consts.PLUGIN_PREFIX_SEPARATOR}${key}`) as TRecord
+
+  /**
+   * Returns a copy of the bot definition where all interface entity references
+   * are resolved to the base entity schema as extended by the backing
+   * integration.
+   */
+  public dereferencePluginEntities(): this {
+    const zuiReferenceMap = this._buildZuiReferenceMap()
+
+    return {
+      ...this,
+      withPlugins: {
+        ...this.withPlugins,
+        events: this._dereferenceDefinitionSchemas(this.withPlugins.events, zuiReferenceMap),
+        states: this._dereferenceDefinitionSchemas(this.withPlugins.states, zuiReferenceMap),
+        tables: this._dereferenceDefinitionSchemas(this.withPlugins.tables, zuiReferenceMap),
+        actions: this._dereferenceActionDefinitionSchemas(this.withPlugins.actions, zuiReferenceMap),
+      },
+      plugins: Object.fromEntries(
+        (Object.entries(this.plugins ?? {}) as [pluginAlias: string, PluginInstance][]).map(
+          ([pluginAlias, pluginInstance]) => [
+            pluginAlias,
+            {
+              ...pluginInstance,
+              definition: {
+                ...pluginInstance.definition,
+                configuration: this._dereferenceDefinitionSchema(
+                  pluginInstance.definition.configuration,
+                  zuiReferenceMap
+                ),
+                events: this._dereferenceDefinitionSchemas(pluginInstance.definition.events, zuiReferenceMap),
+                states: this._dereferenceDefinitionSchemas(pluginInstance.definition.states, zuiReferenceMap),
+                tables: this._dereferenceDefinitionSchemas(pluginInstance.definition.tables, zuiReferenceMap),
+                actions: this._dereferenceActionDefinitionSchemas(pluginInstance.definition.actions, zuiReferenceMap),
+              },
+            },
+          ]
+        )
+      ),
+    } as typeof this
+  }
+
+  private _buildZuiReferenceMap(): Record<string, z.ZodTypeAny> {
+    const zuiReferenceMap: Record<string, z.ZodTypeAny> = {}
+
+    const installedPlugins = Object.entries(this.plugins ?? {}) as [pluginAlias: string, PluginInstance][]
+
+    for (const [pluginAlias, pluginInstance] of installedPlugins) {
+      const pluginInterfaceExtensions = Object.entries(pluginInstance.interfaces ?? {}) as [
+        interfaceAlias: string,
+        PluginInterfaceExtension,
+      ][]
+
+      for (const [interfaceAlias, pluginInterfaceExtension] of pluginInterfaceExtensions) {
+        const backingIntegration = this.integrations?.[pluginInterfaceExtension.integrationAlias]
+
+        if (!backingIntegration) {
+          throw new DefinitionError(
+            `Interface with alias "${interfaceAlias}" of plugin with alias "${pluginAlias}" references integration "${pluginInterfaceExtension.name}" which is not installed`
+          )
+        }
+
+        const entityExtensions = Object.entries(pluginInterfaceExtension.entities ?? {}) as [
+          entityAlias: string,
+          {
+            name: string
+          },
+        ][]
+
+        for (const [entityAlias, { name: interfaceEntityName }] of entityExtensions) {
+          const entitySchema = backingIntegration.definition.entities?.[interfaceEntityName]?.schema
+
+          if (!entitySchema) {
+            // This should never happen
+            throw new Error(
+              `Interface entity "${interfaceEntityName}" does not exist in integration "${backingIntegration.name}"`
+            )
+          }
+
+          zuiReferenceMap[`interface:${interfaceAlias}/entities/${entityAlias}`] = entitySchema
+        }
+      }
+    }
+
+    return zuiReferenceMap
+  }
+
+  private _dereferenceZuiSchema(
+    schema: z.ZuiObjectOrRefSchema,
+    zuiReferenceMap: Record<string, z.ZodTypeAny>
+  ): z.ZuiObjectSchema {
+    return schema.dereference(zuiReferenceMap) as z.ZuiObjectSchema
+  }
+
+  private _dereferenceDefinitionSchemas<TDefinitionRecord extends Record<string, { schema: z.ZuiObjectOrRefSchema }>>(
+    definitions: TDefinitionRecord | undefined,
+    zuiReferenceMap: Record<string, z.ZodTypeAny>
+  ): TDefinitionRecord {
+    return Object.fromEntries(
+      Object.entries(definitions ?? {}).map(([key, definition]) => [
+        key,
+        this._dereferenceDefinitionSchema(definition, zuiReferenceMap),
+      ])
+    ) as TDefinitionRecord
+  }
+
+  private _dereferenceDefinitionSchema<TDefinition extends { schema: z.ZuiObjectOrRefSchema } | undefined>(
+    definition: TDefinition,
+    zuiReferenceMap: Record<string, z.ZodTypeAny>
+  ): TDefinition {
+    return definition
+      ? { ...definition, schema: this._dereferenceZuiSchema(definition.schema, zuiReferenceMap) }
+      : definition
+  }
+
+  private _dereferenceActionDefinitionSchemas<
+    TDefinitionRecord extends Record<
+      string,
+      { input: { schema: z.ZuiObjectOrRefSchema }; output: { schema: z.ZuiObjectOrRefSchema } }
+    >,
+  >(definitions: TDefinitionRecord | undefined, zuiReferenceMap: Record<string, z.ZodTypeAny>): TDefinitionRecord {
+    return Object.fromEntries(
+      Object.entries(definitions ?? {}).map(([key, definition]) => [
+        key,
+        {
+          ...definition,
+          input: { schema: this._dereferenceZuiSchema(definition.input.schema, zuiReferenceMap) },
+          output: { schema: this._dereferenceZuiSchema(definition.output.schema, zuiReferenceMap) },
+        },
+      ])
+    ) as TDefinitionRecord
+  }
+}

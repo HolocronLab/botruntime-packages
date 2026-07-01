@@ -1,4 +1,4 @@
-import { z } from '@botpress/sdk'
+import { z } from '@holocronlab/botruntime-sdk'
 
 export const CONFIG_ENV_KEY = 'CHILD_PROCESS_CONFIGURATION'
 

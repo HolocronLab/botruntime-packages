@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as apiUtils from '../api'
 import commandDefinitions from '../command-definitions'
 import * as errors from '../errors'

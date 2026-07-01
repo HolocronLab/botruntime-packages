@@ -1,4 +1,4 @@
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 
 // TODO: we probably shouldnt retry on 500 errors, but this is a temporary fix for the botpress repo CI
 const HTTP_STATUS_TO_RETRY_ON = [429, 500, 502, 503, 504]

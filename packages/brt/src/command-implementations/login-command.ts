@@ -1,4 +1,4 @@
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 import * as fs from 'fs'
 import * as paging from '../api/paging'
 import type commandDefinitions from '../command-definitions'

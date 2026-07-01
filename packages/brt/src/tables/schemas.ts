@@ -1,6 +1,6 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 
-// FIXME: The table column schemas are defined in @bpinternal/tables-api, but
+// FIXME: The table column schemas are defined in the upstream tables-api package, but
 //        they're not exported, so we have to redefine them here. Ideally, we
 //        should have a single source of truth for these types.
 

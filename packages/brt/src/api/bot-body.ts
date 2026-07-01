@@ -1,5 +1,5 @@
-import * as client from '@botpress/client'
-import * as sdk from '@botpress/sdk'
+import * as client from '@holocronlab/botruntime-client'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as errors from '../errors'
 import * as utils from '../utils'
 import * as types from './types'

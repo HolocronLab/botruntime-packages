@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as consts from '../../consts'
 import { Module, ModuleProps } from '../../module'
 import { PluginTypingsModule } from '../../plugin-implementation/plugin-typings'
@@ -33,7 +33,7 @@ class BundleDtsModule extends Module {
 
     return [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       `import * as ${this._typingsModule.name} from "./${typingsImport}"`,
       `type TPlugin = sdk.DefaultPlugin<${this._typingsModule.name}.${this._typingsModule.exportName}>`,
       'export default new sdk.Plugin<TPlugin>({})',
@@ -95,7 +95,7 @@ export class BotPluginModule extends Module {
     const typingsImport = this._typingsModule.import(this)
     return [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       'import bundle from "./bundle"',
       `import * as ${this._typingsModule.name} from "./${typingsImport}"`,
       `import * as ${this._configModule.name} from "./${configImport}"`,

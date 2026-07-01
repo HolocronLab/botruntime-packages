@@ -1,4 +1,4 @@
-import * as verel from '@bpinternal/verel'
+import * as verel from '@holocronlab/botruntime-verel'
 import * as errors from '../errors'
 
 export const getStringResult = ({ code, data }: { code: string; data: Record<string, any> }) => {

@@ -1,4 +1,4 @@
-import { z, IntegrationDefinition } from '@botpress/sdk'
+import { z, IntegrationDefinition } from '@holocronlab/botruntime-sdk'
 import { integrationName } from './package.json'
 
 export default new IntegrationDefinition({

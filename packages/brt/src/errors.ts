@@ -1,4 +1,4 @@
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 import axios, { AxiosError } from 'axios'
 import { VError } from 'verror'
 import * as consts from './consts'

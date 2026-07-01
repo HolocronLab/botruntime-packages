@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import semver from 'semver'
 import * as utils from './utils'
 

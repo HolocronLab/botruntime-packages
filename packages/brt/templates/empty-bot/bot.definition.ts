@@ -1,2 +1,2 @@
-import { BotDefinition } from '@botpress/sdk'
+import { BotDefinition } from '@holocronlab/botruntime-sdk'
 export default new BotDefinition({})

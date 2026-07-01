@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as errors from '../errors'
 import { describe, expect, it } from 'vitest'
 import { validateBotDefinition } from './validate-bot'

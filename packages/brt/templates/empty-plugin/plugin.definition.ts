@@ -1,4 +1,4 @@
-import { PluginDefinition } from '@botpress/sdk'
+import { PluginDefinition } from '@holocronlab/botruntime-sdk'
 import { pluginName } from './package.json'
 
 export default new PluginDefinition({

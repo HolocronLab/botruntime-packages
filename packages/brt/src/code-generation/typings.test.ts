@@ -1,5 +1,5 @@
 import * as apiUtils from '../api'
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 import * as utils from '../utils'
 import { IntegrationDefinition, InterfaceDefinition, PluginDefinition } from './typings'
 import { test } from 'vitest'

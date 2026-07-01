@@ -1,5 +1,5 @@
-import { z } from '@botpress/sdk'
-import type { YargsConfig } from '@bpinternal/yargs-extra'
+import { z } from '@holocronlab/botruntime-sdk'
+import type { YargsConfig } from '@holocronlab/botruntime-yargs-extra'
 import chalk from 'chalk'
 import * as fs from 'fs'
 import latestVersion from 'latest-version'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import yargs, { cleanupConfig } from '@bpinternal/yargs-extra'
+import yargs, { cleanupConfig } from '@holocronlab/botruntime-yargs-extra'
 import { schemas } from './config'
 
 const watchSchema = { watch: schemas.dev.watch }

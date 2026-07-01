@@ -2,7 +2,7 @@ import * as consts from './consts'
 import { ProjectTemplates } from './project-templates'
 import type { CommandOption, CommandSchema } from './typings'
 
-// @botpress/chat 0.5.5 does not export this union; it selects the transport internally.
+// @holocronlab/botruntime-chat 0.5.5 does not export this union; it selects the transport internally.
 type ServerEventsProtocol = 'sse' | 'websocket'
 
 // command options

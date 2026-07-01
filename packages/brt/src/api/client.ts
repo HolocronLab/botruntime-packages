@@ -1,4 +1,4 @@
-import * as client from '@botpress/client'
+import * as client from '@holocronlab/botruntime-client'
 import semver from 'semver'
 import yn from 'yn'
 import * as errors from '../errors'

@@ -105,7 +105,7 @@ export class IntegrationPackageDefinitionModule extends Module {
 
     content += [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       '',
       `import * as ${defaultConfigModule.name} from "./${defaultConfigImport}"`,
       `import * as ${configurationsModule.name} from "./${configurationsImport}"`,

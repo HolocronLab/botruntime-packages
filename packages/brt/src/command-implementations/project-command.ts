@@ -1,6 +1,6 @@
-import type * as client from '@botpress/client'
-import * as sdk from '@botpress/sdk'
-import type { YargsConfig } from '@bpinternal/yargs-extra'
+import type * as client from '@holocronlab/botruntime-client'
+import * as sdk from '@holocronlab/botruntime-sdk'
+import type { YargsConfig } from '@holocronlab/botruntime-yargs-extra'
 import chalk from 'chalk'
 import fs from 'fs'
 import _ from 'lodash'
@@ -815,7 +815,7 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
       }
 
       const { pkgJson: projectPkgJson } = readProjectPkgJsonResult
-      const sdkPackageName = '@botpress/sdk'
+      const sdkPackageName = '@holocronlab/botruntime-sdk'
       const actualSdkVersion = utils.pkgJson.findDependency(projectPkgJson, sdkPackageName)
       if (!actualSdkVersion) {
         this.logger.debug(`Could not find dependency "${sdkPackageName}" in project package.json`)

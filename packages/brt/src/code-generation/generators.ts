@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import { JSONSchema7 } from 'json-schema'
 import _ from 'lodash'
 import * as prettier from 'prettier'
@@ -33,7 +33,7 @@ export const jsonSchemaToTypescriptZuiSchema = async (
 
   let code = [
     consts.GENERATED_HEADER,
-    'import { z } from "@botpress/sdk"',
+    'import { z } from "@holocronlab/botruntime-sdk"',
     `export const ${name} = ${typescriptValuesToRecordString(allProps)}`,
   ].join('\n')
   code = await prettier.format(code, { parser: 'typescript' })

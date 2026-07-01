@@ -17,7 +17,7 @@ const generateIntegrationPackageModule = (
 
   return [
     consts.GENERATED_HEADER,
-    'import * as sdk from "@botpress/sdk"',
+    'import * as sdk from "@holocronlab/botruntime-sdk"',
     '',
     `import definition from "${definitionImport}"`,
     '',

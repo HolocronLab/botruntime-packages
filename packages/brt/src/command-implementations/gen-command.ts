@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import chalk from 'chalk'
 import fslib from 'fs'
 import pathlib from 'path'

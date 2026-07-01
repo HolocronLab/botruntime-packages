@@ -1,5 +1,5 @@
 import { dereference } from '@apidevtools/json-schema-ref-parser'
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import { JSONSchema7 } from 'json-schema'
 
 type ZuiToJsonSchema = typeof sdk.z.transforms.toJSONSchemaLegacy

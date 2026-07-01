@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import { zuiSchemaToTypeScriptType } from '../../generators'
 import { Module, ReExportTypeModule } from '../../module'
 import * as strings from '../../strings'

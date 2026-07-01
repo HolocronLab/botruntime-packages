@@ -1,4 +1,4 @@
-import { prefixToObjectMap } from '@bpinternal/const'
+import { prefixToObjectMap } from '@holocronlab/botruntime-const'
 import * as uuid from 'uuid'
 
 const ULID_LENGTH = 26 // Reference: https://github.com/ulid/spec#canonical-string-representation

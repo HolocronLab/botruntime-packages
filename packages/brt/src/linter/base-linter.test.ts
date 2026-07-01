@@ -2,7 +2,7 @@ import { test, expect, describe, vi } from 'vitest'
 import { prepareCreateIntegrationBody } from '../api/integration-body'
 import * as utils from '../utils'
 import { IntegrationLinter } from './integration-linter'
-import { IntegrationDefinition, type IntegrationDefinitionProps, z } from '@botpress/sdk'
+import { IntegrationDefinition, type IntegrationDefinitionProps, z } from '@holocronlab/botruntime-sdk'
 
 const EMPTY_STRING = ''
 const TRUTHY_STRING = 'truthy'

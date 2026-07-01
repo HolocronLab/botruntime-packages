@@ -1,4 +1,4 @@
-import { TunnelTail, ClientCloseEvent, ClientErrorEvent, errors } from '@bpinternal/tunnel'
+import { TunnelTail, ClientCloseEvent, ClientErrorEvent, errors } from '@holocronlab/botruntime-tunnel'
 import { BotpressCLIError } from '../errors'
 import { Logger } from '../logger'
 import { EventEmitter } from './event-emitter'

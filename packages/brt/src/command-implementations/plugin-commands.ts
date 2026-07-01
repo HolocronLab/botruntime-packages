@@ -1,4 +1,4 @@
-import type * as client from '@botpress/client'
+import type * as client from '@holocronlab/botruntime-client'
 import chalk from 'chalk'
 import _ from 'lodash'
 import type commandDefinitions from '../command-definitions'

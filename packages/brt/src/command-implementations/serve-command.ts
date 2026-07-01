@@ -1,4 +1,4 @@
-import type { Bot as BotImpl, Integration as IntegrationImpl } from '@botpress/sdk'
+import type { Bot as BotImpl, Integration as IntegrationImpl } from '@holocronlab/botruntime-sdk'
 import * as fs from 'fs'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'

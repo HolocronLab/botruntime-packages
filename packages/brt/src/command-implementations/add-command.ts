@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as fslib from 'fs'
 import * as pathlib from 'path'
 import * as apiUtils from '../api'

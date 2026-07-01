@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as consts from '../consts'
 import * as mod from '../module'
 import { SecretIndexModule } from '../secret-module'

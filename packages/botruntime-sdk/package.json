@@ -1,0 +1,58 @@
+{
+  "name": "@holocronlab/botruntime-sdk",
+  "version": "6.13.0",
+  "description": "SDK for building bots and integrations on botruntime",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "readme.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
+    "directory": "packages/botruntime-sdk"
+  },
+  "scripts": {
+    "check:type": "tsc -p ./tsconfig.json --noEmit",
+    "build:type": "tsc -p ./tsconfig.package.json --emitDeclarationOnly --declaration",
+    "build:browser": "ts-node -T ./build.ts --browser",
+    "build:node": "ts-node -T ./build.ts --node",
+    "build": "npm run build:type && npm run build:node && npm run build:browser",
+    "test": "vitest --run"
+  },
+  "keywords": [],
+  "author": "HolocronLab",
+  "license": "MIT",
+  "dependencies": {
+    "@holocronlab/botruntime-client": "file:../botruntime-client",
+    "@holocronlab/botruntime-zui": "file:../botruntime-zui",
+    "browser-or-node": "^2.1.1",
+    "semver": "^7.3.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.4",
+    "@types/semver": "^7.3.11",
+    "esbuild": "^0.25.10",
+    "esbuild-plugin-polyfill-node": "^0.3.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "esbuild": "^0.16.12"
+  },
+  "peerDependenciesMeta": {
+    "esbuild": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,5 +1,5 @@
 import type { PositionalOptions } from 'yargs'
-import type { YargsConfig, YargsSchema } from '@bpinternal/yargs-extra'
+import type { YargsConfig, YargsSchema } from '@holocronlab/botruntime-yargs-extra'
 
 export type CommandPositionalOption = PositionalOptions & { positional: true; idx: number }
 export type CommandNamedOption = YargsSchema[string] & { positional?: false }

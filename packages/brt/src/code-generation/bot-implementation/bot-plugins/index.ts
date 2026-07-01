@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as consts from '../../consts'
 import * as mod from '../../module'
 import * as strings from '../../strings'
@@ -33,7 +33,7 @@ export class BotPluginsIndexModule extends mod.Module {
 
     return [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       ...modules.map(({ importAlias, importFrom }) => `import * as ${importAlias} from "./${importFrom}";`),
       ...modules.map(({ importAlias, importFrom }) => `export * as ${importAlias} from "./${importFrom}";`),
       '',

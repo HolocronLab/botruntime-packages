@@ -1,4 +1,4 @@
-import type * as client from '@botpress/client'
+import type * as client from '@holocronlab/botruntime-client'
 import chalk from 'chalk'
 import * as fs from 'fs'
 import * as pathlib from 'path'

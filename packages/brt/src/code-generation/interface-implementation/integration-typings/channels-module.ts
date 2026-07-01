@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import { GENERATED_HEADER, INDEX_FILE } from '../../consts'
 import { zuiSchemaToTypeScriptType, stringifySingleLine } from '../../generators'
 import { Module, ReExportTypeModule } from '../../module'

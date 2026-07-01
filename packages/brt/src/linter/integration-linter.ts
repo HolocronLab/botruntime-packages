@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import { CreateIntegrationRequestBody } from '../api'
 import { type Logger } from '../logger'
 import { BaseLinter } from './base-linter'

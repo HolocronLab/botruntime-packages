@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as consts from '../consts'
 import { Module } from '../module'
 import { PluginTypingsModule } from './plugin-typings'
@@ -22,7 +22,7 @@ export class PluginImplementationModule extends Module {
 
     return [
       consts.GENERATED_HEADER,
-      'import * as sdk from "@botpress/sdk"',
+      'import * as sdk from "@holocronlab/botruntime-sdk"',
       `import * as ${this._typingsModule.name} from "./${typingsImport}"`,
       `export * from "./${typingsImport}"`,
       '',

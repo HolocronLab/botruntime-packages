@@ -13,7 +13,7 @@ const generateInterfacePackageModule = (definitionImport: string, pkg: types.Int
   const tsVersion = gen.primitiveToTypescriptValue(pkg.version)
   return [
     consts.GENERATED_HEADER,
-    'import * as sdk from "@botpress/sdk"',
+    'import * as sdk from "@holocronlab/botruntime-sdk"',
     '',
     `import definition from "${definitionImport}"`,
     '',

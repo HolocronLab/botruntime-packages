@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import { INDEX_FILE } from '../../consts'
 import { zuiSchemaToTypeScriptType } from '../../generators'
 import { Module } from '../../module'

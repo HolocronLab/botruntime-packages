@@ -5,7 +5,7 @@ import {
   ActionDefinition,
   z,
   EventDefinition,
-} from '@botpress/sdk'
+} from '@holocronlab/botruntime-sdk'
 import * as apiUtils from '../api'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'

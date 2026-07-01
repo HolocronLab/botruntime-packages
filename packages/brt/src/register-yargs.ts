@@ -1,4 +1,4 @@
-import { YargsArgv, YargsConfig, cleanupConfig, parseEnv } from '@bpinternal/yargs-extra'
+import { YargsArgv, YargsConfig, cleanupConfig, parseEnv } from '@holocronlab/botruntime-yargs-extra'
 import type { Argv } from 'yargs'
 import _ from 'lodash'
 import * as tree from './command-tree'

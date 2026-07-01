@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import * as utils from '../../../utils'
 import * as consts from '../../consts'
 import { IntegrationTypingsModule } from '../../integration-implementation/integration-typings'
