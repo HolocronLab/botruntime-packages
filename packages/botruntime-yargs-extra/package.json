@@ -9,7 +9,7 @@
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/holocronlab/botruntime-packages",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
     "directory": "packages/botruntime-yargs-extra"
   },
   "license": "MIT",
