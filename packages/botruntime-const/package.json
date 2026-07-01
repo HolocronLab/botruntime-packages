@@ -1,0 +1,27 @@
+{
+  "name": "@holocronlab/botruntime-const",
+  "version": "0.1.0",
+  "description": "Resource-id prefix map used to validate botruntime resource ids (e.g. bot_, kb_).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/holocronlab/botruntime-packages",
+    "directory": "packages/botruntime-const"
+  },
+  "scripts": {
+    "check:type": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@holocronlab/botruntime-yargs-extra",
+  "description": "Utils functions that leverage yargs.",
+  "version": "0.0.21",
+  "author": "HolocronLab",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/holocronlab/botruntime-packages",
+    "directory": "packages/botruntime-yargs-extra"
+  },
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@types/yargs": "^17.0.32",
+    "decamelize": "5.0.1",
+    "json-schema": "^0.4.0",
+    "lodash": "^4.17.21",
+    "yargs": "^17.7.2",
+    "yn": "4.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
