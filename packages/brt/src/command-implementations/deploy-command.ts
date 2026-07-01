@@ -2,9 +2,18 @@ import * as client from '@holocronlab/botruntime-client'
 import * as sdk from '@holocronlab/botruntime-sdk'
 import chalk from 'chalk'
 import * as fs from 'fs'
+import * as path from 'path'
 import semver from 'semver'
 import * as apiUtils from '../api'
+import { CloudapiClient } from '../api/cloudapi-client'
+import * as adkBundle from '../adk-bundle'
+import * as botsStore from '../bots-store'
+import { cloudInfo, cloudWarn } from '../cloud-io'
+import * as cloudProfileResolve from '../cloud-profile-resolve'
+import * as cloudLink from '../cloud-project-link'
 import type commandDefinitions from '../command-definitions'
+import * as declaredCommands from '../declared-commands'
+import * as declaredTables from '../declared-tables'
 import * as errors from '../errors'
 import * as tables from '../tables'
 import * as utils from '../utils'
@@ -14,6 +23,17 @@ import { ProjectCommand } from './project-command'
 export type DeployCommandDefinition = typeof commandDefinitions.deploy
 export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   public async run(): Promise<void> {
+    // --adk gates the bespoke-cloudapi-wire ADK-bundle deploy path (ported
+    // from the (deleted) thin brt CLI's commands/deploy.ts). This is a
+    // SEPARATE surface from the Botpress-shaped deploy below: it targets a
+    // bot.json/bot.local.json-linked bot via CloudapiClient instead of
+    // @holocronlab/botruntime-client, and never touches botDefinition.ts /
+    // integration.definition.ts. The default (Botpress-shaped) deploy below
+    // is unchanged and still runs whenever --adk is not passed.
+    if (this.argv.adk) {
+      return this._deployAdkBundle()
+    }
+
     const api = await this.ensureLoginAndCreateClient(this.argv)
 
     if (!this.argv.noBuild) {
@@ -546,5 +566,140 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     })
 
     return fetchedBot
+  }
+
+  // ---------------------------------------------------------------------
+  // brt deploy --adk — provision-if-needed -> build-if-needed -> PUT bundle
+  // -> verify(sha256) -> sync tables. Contract-identical to the (deleted)
+  // thin brt CLI's commands/deploy.ts against the SAME bespoke cloudapi wire
+  // (see src/api/cloudapi-client.ts). Endpoints hit:
+  //   POST /v1/admin/provision-bot     (only when no botId is linked/given)
+  //   PUT  /v1/admin/bots/{id}         (the bundle, code inline)
+  //   GET  /internal/bots/{id}/bundle  (round-trip verify; needs internalToken)
+  // ---------------------------------------------------------------------
+  private async _deployAdkBundle(): Promise<void> {
+    const dir = this.projectPaths.abs.workDir
+    const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
+    let link: cloudLink.BotLink = cloudLink.loadLinkIfPresent(dir, linkEnv) ?? {}
+
+    const { name: profileName, profile } = await cloudProfileResolve.resolveProfile({
+      argvProfile: this.argv.profile,
+      getActiveProfile: () => this.globalCache.get('activeProfile'),
+      readProfile: (n) => this.readProfileFromFS(n),
+    })
+    const apiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile, link)
+    const botsStorePath = this.globalPaths.abs.botsStoreFile
+
+    let botId: string
+    let perBotKey: string
+    if (this.argv.botId === undefined && link.botId === undefined) {
+      // 1. provision once (no botId yet, and no --bot-id override). Persist
+      // the key BEFORE the link, atomically, so a crash leaves a recoverable
+      // bot rather than an orphan with a lost key.
+      cloudInfo(`provision new bot on ${apiUrl} ...`)
+      const machineClient = new CloudapiClient(apiUrl, profile.token)
+      const prov = await machineClient.provisionBot(this.argv.name)
+      botId = String(prov.botId)
+      perBotKey = prov.apiKey
+      if (!botId || !perBotKey) {
+        throw new errors.BotpressCLIError(`provision returned no botId/apiKey: ${JSON.stringify(prov)}`)
+      }
+
+      const store = botsStore.readBotsStore(botsStorePath)
+      botsStore.setBotCreds(store, profileName, botId, { apiKey: perBotKey })
+      botsStore.writeBotsStore(botsStorePath, store)
+
+      link = { ...link, botId: prov.botId, workspaceId: prov.workspaceId, apiUrl }
+      cloudLink.saveLink(dir, linkEnv, link)
+      cloudInfo(`provisioned botId=${botId} workspaceId=${prov.workspaceId}`)
+    } else {
+      botId = this.argv.botId ?? String(link.botId)
+      const store = botsStore.readBotsStore(botsStorePath)
+      const creds = botsStore.getBotCreds(store, profileName, botId)
+      if (!creds?.apiKey) {
+        throw new errors.BotpressCLIError(
+          `bot ${botId} is linked but its per-bot key is missing from ${botsStorePath} (profile "${profileName}") — ` +
+            `run \`brt link --bot-id ${botId} --key-stdin\`, or re-provision (drop ${cloudLink.linkFileName(linkEnv)} to orphan the old bot)`
+        )
+      }
+      perBotKey = creds.apiKey
+    }
+
+    // 2. build if needed
+    const bundlePath = this.argv.noBuild ? adkBundle.requireExistingBundle(dir) : await adkBundle.ensureBundle(dir, false)
+    const code = await fs.promises.readFile(bundlePath, 'utf-8')
+    const localHash = adkBundle.sha256(code)
+    cloudInfo(`bundle ${bundlePath} (${code.length} bytes, sha256 ${localHash.slice(0, 12)}…)`)
+
+    const commands = declaredCommands.extractDeclaredCommands(dir)
+    cloudInfo(
+      commands.length === 0 ? 'commands: none declared' : `commands: ${commands.map((c) => '/' + c.command).join(', ')}`
+    )
+
+    // 3. PUT bundle under the per-bot key
+    const bot = new CloudapiClient(apiUrl, perBotKey)
+    cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId}`)
+    await bot.putBundle(botId, this.argv.name ?? botId, code, commands)
+
+    // 4. verify round-trip by sha256 (length alone would pass on a corrupt/raced copy)
+    const internalToken = profile.internalToken
+    if (internalToken) {
+      const pulled = await bot.getBundle(botId, internalToken)
+      const pulledHash = adkBundle.sha256(pulled.code ?? '')
+      if (pulledHash !== localHash) {
+        throw new errors.BotpressCLIError(`verify MISMATCH: deployed sha256 ${localHash} != pulled ${pulledHash}`)
+      }
+      cloudInfo(`verified round-trip (versionId=${pulled.versionId})`)
+    } else {
+      cloudWarn(
+        'verify skipped: no internalToken in profile (/internal/* is gated by X-Internal-Token on prod). ' +
+          'This is expected for external developers, not an error.'
+      )
+    }
+
+    // 5. synchronize declared tables (mirrors the Botpress-shaped deploy's own
+    // bundle-then-tables order above): without this step the bot's first
+    // table write 404s and the web console shows no tables.
+    await this._syncAdkTables(dir, bot, botId)
+
+    this._writeAdkLastDeploy(dir, { botId, sha256: localHash, at: new Date().toISOString() })
+
+    cloudInfo('deploy OK.')
+    cloudInfo('next: brt integrations install <name@version> --config-stdin   then   brt integrations register <webhookId>')
+  }
+
+  // syncTables creates declared tables that do not yet exist on cloudapi.
+  // Existing tables are left untouched (column migration is out of scope); a
+  // create failure aborts loudly naming the offending table. Idempotent: a
+  // re-run sees them all listed and creates nothing.
+  private async _syncAdkTables(dir: string, bot: CloudapiClient, botId: string): Promise<void> {
+    const declared = declaredTables.extractDeclaredTables(dir)
+    if (declared.length === 0) {
+      cloudInfo('tables: none declared')
+      return
+    }
+    cloudInfo(`synchronizing ${declared.length} table(s)…`)
+    const existing = new Set((await bot.listTables(botId)).tables.map((t) => t.name))
+    let created = 0
+    for (const table of declared) {
+      if (existing.has(table.name)) {
+        cloudInfo(`  ${table.name}: up to date`)
+        continue
+      }
+      try {
+        await bot.createTable(botId, table.name, table.schema)
+      } catch (thrown) {
+        throw errors.BotpressCLIError.wrap(thrown, `table "${table.name}": create failed`)
+      }
+      created++
+      cloudInfo(`  ${table.name}: created`)
+    }
+    cloudInfo(`tables synchronized (${created} created, ${declared.length - created} up to date)`)
+  }
+
+  private _writeAdkLastDeploy(dir: string, rec: { botId: string; sha256: string; at: string }): void {
+    const outDir = path.join(dir, '.brt')
+    fs.mkdirSync(outDir, { recursive: true })
+    fs.writeFileSync(path.join(outDir, 'last-deploy.json'), JSON.stringify(rec, null, 2) + '\n')
   }
 }

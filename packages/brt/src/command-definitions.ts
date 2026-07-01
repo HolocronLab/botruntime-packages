@@ -19,6 +19,21 @@ export default {
       get: { description: 'Get integration', schema: config.schemas.getIntegration },
       delete: { description: 'Delete integration', schema: config.schemas.deleteIntegration, alias: 'rm' },
       list: { description: 'List integrations', schema: config.schemas.listIntegrations, alias: 'ls' },
+      // Bespoke cloudapi wire (one channel per bot.json-linked bot), ported
+      // from the (deleted) thin brt CLI's commands/integrations.ts. Added
+      // alongside get/list/delete above under new, non-colliding names.
+      install: {
+        description: 'Install an integration on the bot.json-linked bot (bespoke cloudapi wire)',
+        schema: config.schemas.cloudIntegrationInstall,
+      },
+      register: {
+        description: "Register an installed integration's webhook (bespoke cloudapi wire)",
+        schema: config.schemas.cloudIntegrationRegister,
+      },
+      publish: {
+        description: 'Publish an integration definition + bundle to the catalog (bespoke cloudapi wire)',
+        schema: config.schemas.cloudIntegrationPublish,
+      },
     },
   },
   interfaces: {
@@ -73,6 +88,24 @@ export default {
         description: 'Get a specific profile by name',
         schema: config.schemas.getProfile,
       },
+    },
+  },
+  link: {
+    description: 'Link this project to an existing bot on the bespoke cloudapi wire (writes bot.json)',
+    schema: config.schemas.cloudLink,
+  },
+  config: {
+    description: 'Per-bot config variables on the bespoke cloudapi wire (bot.json-linked bot)',
+    subcommands: {
+      set: { description: 'Set a config variable', schema: config.schemas.cloudConfigSet },
+      list: { description: 'List config variables', schema: config.schemas.cloudConfigList, alias: 'ls' },
+      rm: { description: 'Remove a config variable', schema: config.schemas.cloudConfigRm, alias: 'delete' },
+    },
+  },
+  secret: {
+    description: 'Per-bot secrets on the bespoke cloudapi wire (identical to config on the wire)',
+    subcommands: {
+      set: { description: 'Set a secret value', schema: config.schemas.cloudSecretSet },
     },
   },
 } satisfies DefinitionTree

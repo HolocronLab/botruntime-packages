@@ -1,0 +1,50 @@
+# Publish @holocronlab/brt to GitHub Packages. Trigger: tag brt-v* (points at any
+# branch/sha) or manual dispatch. Consumers: npm install @holocronlab/brt (needs an
+# @holocronlab:registry=npm.pkg.github.com npmrc + a token).
+name: publish-brt-package
+
+on:
+  push:
+    tags:
+      - "brt-v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch/sha to publish brt from"
+        required: false
+        default: fork-botpress-deps
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@holocronlab"
+
+      - name: Install and typecheck brt (file deps resolve locally in the checkout)
+        working-directory: packages/brt
+        run: bun install && bun run typecheck
+
+      - name: Rewrite brt local file deps to published registry versions
+        run: node scripts/prepare-brt-publish.mjs --write
+
+      - name: Publish brt to GitHub Packages
+        working-directory: packages/brt
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -110,6 +110,61 @@ const watch = {
   default: true,
 } satisfies CommandOption
 
+// bespoke cloudapi wire (brt config/secret/link) — see src/api/cloudapi-client.ts
+// and src/cloud-project-link.ts. Kept separate from the Botpress-shaped `botRef` /
+// `credentialsSchema` above: this addresses a bot via the bot.json/bot.local.json
+// link file + a per-bot key in bots.json, not via --token/--workspace-id.
+
+const cloudBotIdOverride = {
+  type: 'string',
+  description: 'The bot ID to target (overrides the linked bot.json/bot.local.json)',
+} satisfies CommandOption
+
+const cloudConfigVarName = {
+  type: 'string',
+  description: 'The config variable name (^[A-Za-z_][A-Za-z0-9_]*$)',
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const cloudValueFile = {
+  type: 'string',
+  description: 'Read the value from this file instead of stdin (never pass secrets via argv)',
+} satisfies CommandOption
+
+const cloudLocal = {
+  type: 'boolean',
+  description: 'Use bot.local.json instead of bot.json for the bot link',
+  default: false,
+} satisfies CommandOption
+
+const cloudIntegrationRef = {
+  type: 'string',
+  description: 'The integration name with an optional version, e.g. telegram or telegram@0.0.1',
+  positional: true,
+  idx: 0,
+  demandOption: true,
+} satisfies CommandOption
+
+const cloudWebhookId = {
+  type: 'string',
+  description: 'The webhookId returned by `brt integrations install`',
+  positional: true,
+  idx: 0,
+  demandOption: true,
+} satisfies CommandOption
+
+const cloudConfigFile = {
+  type: 'string',
+  description: 'Read the integration config JSON from this file instead of stdin',
+} satisfies CommandOption
+
+const cloudConfigStdin = {
+  type: 'boolean',
+  description: 'Read the integration config JSON from stdin',
+  default: false,
+} satisfies CommandOption
+
 // base schemas
 
 const globalSchema = {
@@ -189,7 +244,23 @@ const deploySchema = {
   ...projectSchema,
   ...credentialsSchema,
   ...secretsSchema,
-  botId: { type: 'string', description: 'The bot ID to deploy. Only used when deploying a bot' },
+  botId: {
+    type: 'string',
+    description:
+      'The bot ID to deploy (Botpress-shaped deploy), or an override for the linked bot.json/bot.local.json botId (--adk deploy)',
+  },
+  // --adk gates the bespoke-cloudapi-wire ADK-bundle deploy path (ported from
+  // the (deleted) thin brt CLI's commands/deploy.ts), added ALONGSIDE the
+  // Botpress-shaped deploy above: it targets a bot.json/bot.local.json-linked
+  // bot via CloudapiClient (PUT /v1/admin/bots/{id}) instead of the
+  // @holocronlab/botruntime-client ApiClient. See deploy-command.ts.
+  adk: {
+    type: 'boolean',
+    description: 'Deploy via the bespoke cloudapi ADK-bundle wire (bot.json-linked bot) instead of the default deploy',
+    default: false,
+  },
+  local: cloudLocal,
+  name: { type: 'string', description: 'Bot name (--adk deploy only; defaults to the bot ID)' },
   noBuild,
   dryRun,
   createNewBot: {
@@ -462,6 +533,99 @@ const getProfileSchema = {
   },
 } satisfies CommandSchema
 
+const cloudProjectSchema = {
+  ...projectSchema,
+  apiUrl,
+  botId: cloudBotIdOverride,
+  local: cloudLocal,
+} satisfies CommandSchema
+
+const cloudConfigSetSchema = {
+  ...cloudProjectSchema,
+  name: { ...cloudConfigVarName, demandOption: true },
+  valueFile: cloudValueFile,
+} satisfies CommandSchema
+
+const cloudConfigListSchema = {
+  ...cloudProjectSchema,
+} satisfies CommandSchema
+
+const cloudConfigRmSchema = {
+  ...cloudProjectSchema,
+  name: { ...cloudConfigVarName, demandOption: true },
+} satisfies CommandSchema
+
+const cloudSecretSetSchema = {
+  ...cloudProjectSchema,
+  name: { ...cloudConfigVarName, demandOption: true },
+  valueFile: cloudValueFile,
+} satisfies CommandSchema
+
+const cloudLinkSchema = {
+  ...cloudProjectSchema,
+  botId: {
+    ...cloudBotIdOverride,
+    demandOption: true,
+    description: 'The bot ID to link',
+  },
+  key: {
+    type: 'string',
+    description: 'The per-bot API key (prefer --key-stdin; a raw argv value can leak into shell history)',
+  },
+  keyStdin: {
+    type: 'boolean',
+    description: 'Read the per-bot API key from stdin',
+    default: false,
+  },
+  workspaceId,
+} satisfies CommandSchema
+
+// brt integrations install|register|publish — the bespoke-cloudapi-wire
+// integration channel commands, ported from the (deleted) thin brt CLI's
+// commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
+// `integrations get/list/delete` above; `install`/`register`/`publish` are
+// new subcommand names under the same `brt integrations` tree node, so there
+// is no collision.
+
+const cloudIntegrationInstallSchema = {
+  ...cloudProjectSchema,
+  ref: cloudIntegrationRef,
+  alias: { type: 'string', description: 'Alias for this integration installation (defaults to the integration name)' },
+  configFile: cloudConfigFile,
+  configStdin: cloudConfigStdin,
+} satisfies CommandSchema
+
+const cloudIntegrationRegisterSchema = {
+  ...cloudProjectSchema,
+  webhookId: cloudWebhookId,
+} satisfies CommandSchema
+
+const cloudIntegrationPublishSchema = {
+  ...projectSchema,
+  apiUrl,
+  name: {
+    type: 'string',
+    description: 'Integration name (skips reading integration.definition.ts; requires --versionNumber too)',
+  },
+  // Named versionNumber, not version: yargs reserves `--version` for its own
+  // CLI-version flag (see listIntegrationsSchema/listPluginsSchema for the
+  // same workaround elsewhere in this file).
+  versionNumber: {
+    type: 'string',
+    description: 'Integration version (skips reading integration.definition.ts; requires --name too)',
+  },
+  configSchemaFile: {
+    type: 'string',
+    description: 'Read the catalog config schema (the {fields:{...}} shape) from this JSON file',
+  },
+  noBundle: {
+    type: 'boolean',
+    description: 'Publish/update the integration definition only; skip building and uploading the bundle',
+    default: false,
+  },
+  noBuild,
+} satisfies CommandSchema
+
 // exports
 
 export const schemas = {
@@ -500,4 +664,13 @@ export const schemas = {
   activeProfile: activeProfileSchema,
   useProfile: useProfileSchema,
   getProfile: getProfileSchema,
+  cloudProject: cloudProjectSchema,
+  cloudConfigSet: cloudConfigSetSchema,
+  cloudConfigList: cloudConfigListSchema,
+  cloudConfigRm: cloudConfigRmSchema,
+  cloudSecretSet: cloudSecretSetSchema,
+  cloudLink: cloudLinkSchema,
+  cloudIntegrationInstall: cloudIntegrationInstallSchema,
+  cloudIntegrationRegister: cloudIntegrationRegisterSchema,
+  cloudIntegrationPublish: cloudIntegrationPublishSchema,
 } as const

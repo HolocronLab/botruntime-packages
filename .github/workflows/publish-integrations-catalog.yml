@@ -1,0 +1,60 @@
+# Publish integration definitions to the botruntime cloudapi catalog (bespoke wire:
+# brt integrations publish -> /v1/admin/integration-definitions). Manual dispatch only.
+# Requires repo secret BRT_API_KEY (a workspace-scoped api key). The token is passed via
+# the BRT_TOKEN env (mapped to --token by the CLI's env parser) so it never lands in argv.
+#
+# NOTE: this is an operational workflow that hits a live cloudapi; verify the exact
+# login/publish invocation against the running server during the operational smoke.
+name: publish-integrations-catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch/sha to publish integration definitions from"
+        required: false
+        default: fork-botpress-deps
+      api_url:
+        description: "cloudapi base URL"
+        required: false
+        default: https://botruntime.ru
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install brt dependencies
+        working-directory: packages/brt
+        run: bun install
+
+      - name: Install integration dependencies
+        run: |
+          (cd integrations/megaplan && bun install)
+          (cd integrations/yadisk && bun install)
+
+      - name: Authenticate brt (token via BRT_TOKEN env, never argv)
+        env:
+          BRT_TOKEN: ${{ secrets.BRT_API_KEY }}
+        run: |
+          test -n "$BRT_TOKEN"
+          bun packages/brt/src/cli.ts login --api-url "${{ inputs.api_url }}" -y
+
+      - name: Publish definitions
+        run: |
+          bun packages/brt/src/cli.ts integrations publish \
+            --workDir integrations/megaplan \
+            --config-schema-file integrations/megaplan/catalog.schema.json
+          bun packages/brt/src/cli.ts integrations publish \
+            --workDir integrations/yadisk \
+            --config-schema-file integrations/yadisk/catalog.schema.json

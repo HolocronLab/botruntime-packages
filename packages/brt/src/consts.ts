@@ -28,6 +28,9 @@ export const fromCliRootDir = {}
 
 export const fromHomeDir = {
   globalCacheFile: 'global.cache.json',
+  // per-bot API keys for the bespoke cloudapi wire (brt link / config / secret),
+  // namespaced by profile — see src/bots-store.ts.
+  botsStoreFile: 'bots.json',
 }
 
 export const fromOutDir = {

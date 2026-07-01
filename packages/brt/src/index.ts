@@ -26,6 +26,9 @@ export default {
     get: commandImplementations.integrations.subcommands.get,
     list: commandImplementations.integrations.subcommands.list,
     delete: commandImplementations.integrations.subcommands.delete,
+    install: commandImplementations.integrations.subcommands.install,
+    register: commandImplementations.integrations.subcommands.register,
+    publish: commandImplementations.integrations.subcommands.publish,
   },
   interfaces: {
     get: commandImplementations.interfaces.subcommands.get,
@@ -54,5 +57,14 @@ export default {
     active: commandImplementations.profiles.subcommands.active,
     use: commandImplementations.profiles.subcommands.use,
     get: commandImplementations.profiles.subcommands.get,
+  },
+  link: commandImplementations.link,
+  config: {
+    set: commandImplementations.config.subcommands.set,
+    list: commandImplementations.config.subcommands.list,
+    rm: commandImplementations.config.subcommands.rm,
+  },
+  secret: {
+    set: commandImplementations.secret.subcommands.set,
   },
 } satisfies CommandHandlers<typeof commandDefinitions>

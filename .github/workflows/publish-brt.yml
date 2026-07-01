@@ -1,0 +1,55 @@
+# Publish brt CLI as a GitHub Release asset (.tgz) — no merge to main required.
+# Trigger: tag brt-v* or manual dispatch. Install for a developer:
+#   bun add -g <release-asset-url>   (or download the .tgz + bun link). Requires bun >=1.3.
+name: publish-brt
+
+on:
+  push:
+    tags:
+      - "brt-v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch/sha to pack brt from"
+        required: false
+        default: fork-botpress-deps
+
+permissions:
+  contents: write
+
+jobs:
+  pack-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install + typecheck brt
+        working-directory: packages/brt
+        run: bun install && bun run typecheck
+
+      - name: Rewrite brt local file deps to published registry versions
+        run: node scripts/prepare-brt-publish.mjs --write
+
+      - name: Pack brt
+        working-directory: packages/brt
+        run: |
+          bun pm pack --destination "$GITHUB_WORKSPACE/dist-brt"
+          ls -la "$GITHUB_WORKSPACE/dist-brt"
+
+      - name: Publish prerelease with the tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in brt-v*) ;; *) TAG="brt-dev-${GITHUB_SHA::8}";; esac
+          gh release create "$TAG" dist-brt/*.tgz \
+            --prerelease --target "${{ github.sha }}" \
+            --title "brt CLI ($TAG)" \
+            --notes "brt dev-kit CLI for botruntime.ru. Install: bun add -g <this .tgz url>. Requires bun >=1.3." \
+            || gh release upload "$TAG" dist-brt/*.tgz --clobber

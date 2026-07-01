@@ -10,6 +10,8 @@ import * as bots from './bot-commands'
 import { BuildCommand } from './build-command'
 import { BundleCommand } from './bundle-command'
 import { ChatCommand } from './chat-command'
+import * as cloudConfig from './cloud-config-commands'
+import { LinkCommand } from './cloud-link-command'
 import { DeployCommand } from './deploy-command'
 import { DevCommand } from './dev-command'
 import { GenerateCommand } from './gen-command'
@@ -54,6 +56,9 @@ export default {
       get: getHandler(integrations.GetIntegrationCommand),
       list: getHandler(integrations.ListIntegrationsCommand),
       delete: getHandler(integrations.DeleteIntegrationCommand),
+      install: getHandler(integrations.CloudIntegrationInstallCommand),
+      register: getHandler(integrations.CloudIntegrationRegisterCommand),
+      publish: getHandler(integrations.CloudIntegrationPublishCommand),
     },
   },
   interfaces: {
@@ -88,6 +93,19 @@ export default {
       active: getHandler(profiles.ActiveProfileCommand),
       use: getHandler(profiles.UseProfileCommand),
       get: getHandler(profiles.GetProfileCommand),
+    },
+  },
+  link: getHandler(LinkCommand),
+  config: {
+    subcommands: {
+      set: getHandler(cloudConfig.ConfigSetCommand),
+      list: getHandler(cloudConfig.ConfigListCommand),
+      rm: getHandler(cloudConfig.ConfigRmCommand),
+    },
+  },
+  secret: {
+    subcommands: {
+      set: getHandler(cloudConfig.SecretSetCommand),
     },
   },
 } satisfies ImplementationTree<typeof commandDefinitions>

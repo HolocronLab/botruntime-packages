@@ -24,7 +24,18 @@ export type ConfigurableGlobalPaths = {
 export type ConstantGlobalPaths = typeof consts.fromHomeDir & typeof consts.fromCliRootDir
 export type AllGlobalPaths = ConfigurableGlobalPaths & ConstantGlobalPaths
 
-const profileCredentialSchema = z.object({ apiUrl: z.string(), workspaceId: z.string(), token: z.string() })
+// internalToken is optional and NOT written by any command in this fork (mirrors
+// the (deleted) thin brt CLI's rc.ts Profile.internalToken: an operator-managed
+// field, hand-added to profiles.json, that unlocks the /internal/* cloudapi
+// surface — see `brt deploy --adk`'s post-deploy bundle round-trip verification
+// in deploy-command.ts). Declared here (rather than left unknown) so it is
+// never silently stripped by this schema's default zod "strip" parsing.
+const profileCredentialSchema = z.object({
+  apiUrl: z.string(),
+  workspaceId: z.string(),
+  token: z.string(),
+  internalToken: z.string().optional(),
+})
 export type ProfileCredentials = z.infer<typeof profileCredentialSchema>
 
 class GlobalPaths extends utils.path.PathStore<keyof AllGlobalPaths> {
