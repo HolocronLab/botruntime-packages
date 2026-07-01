@@ -41,6 +41,13 @@ export function readBotsStore(filePath: string): BotsStore {
 
 // Atomic write: temp file + rename, then 0600 — a crash mid-write never strands a
 // minted key in a half-written file (mirrors thin rc.ts saveRc).
+//
+// CONCURRENCY: each write replaces the WHOLE store, and callers do read-mutate-write
+// (readBotsStore -> set -> writeBotsStore). Two brt commands mutating bots.json at the
+// same instant would last-writer-wins and could drop the other's just-minted key. This
+// matches the thin CLI and is acceptable because brt is a single-user, sequentially-run
+// dev CLI — it is NOT safe for concurrent invocations. If that ever changes, guard the
+// read-mutate-write with a file lock rather than widening this function.
 export function writeBotsStore(filePath: string, store: BotsStore): void {
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) {

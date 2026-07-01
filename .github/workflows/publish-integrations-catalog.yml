@@ -18,6 +18,9 @@ on:
         description: "cloudapi base URL"
         required: false
         default: https://botruntime.ru
+      workspace_id:
+        description: "workspace id to log into (required — a fresh runner has no cached workspace to select)"
+        required: true
 
 permissions:
   contents: read
@@ -48,7 +51,9 @@ jobs:
           BRT_TOKEN: ${{ secrets.BRT_API_KEY }}
         run: |
           test -n "$BRT_TOKEN"
-          bun packages/brt/src/cli.ts login --api-url "${{ inputs.api_url }}" -y
+          bun packages/brt/src/cli.ts login \
+            --api-url "${{ inputs.api_url }}" \
+            --workspaceId "${{ inputs.workspace_id }}" -y
 
       - name: Publish definitions
         run: |

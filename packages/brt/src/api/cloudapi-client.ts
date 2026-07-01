@@ -265,9 +265,12 @@ export class CloudapiClient {
   }
 
   // publishIntegrationBundle uploads the BUILT integration .cjs against a catalog definition
-  // (resolved by name@version in the caller's workspace scope). Mirrors putBundle for bots:
-  // content-addressed store + immutable version + current pointer flip, server-side. Idempotent
-  // upsert (re-publishing the same bytes dedups the blob; a new version row is still written).
+  // (resolved by name@version in the caller's workspace scope). The server dedups the blob by
+  // content hash but STILL writes a new version row per accepted call, so this is NOT safe to
+  // auto-retry: a timeout/5xx after the server already accepted the upload would, on retry,
+  // publish a duplicate version. Deliberate divergence from the thin CLI (which marked this
+  // idempotent) — a transient failure surfaces loudly for a deliberate re-run instead of
+  // silently creating duplicate versions.
   public async publishIntegrationBundle(
     name: string,
     version: string,
@@ -278,7 +281,7 @@ export class CloudapiClient {
       path: '/v1/admin/integrations/publish-bundle',
       body: { name, version, code },
       timeoutMs: BUNDLE_TIMEOUT_MS,
-      idempotent: true,
+      idempotent: false,
     })
   }
 

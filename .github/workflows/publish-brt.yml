@@ -46,10 +46,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Release against the SHA actually checked out (inputs.ref on dispatch), not the
+          # workflow's github.sha which may point at a different commit.
+          SHA="$(git rev-parse HEAD)"
           TAG="${GITHUB_REF_NAME}"
-          case "$TAG" in brt-v*) ;; *) TAG="brt-dev-${GITHUB_SHA::8}";; esac
+          case "$TAG" in brt-v*) ;; *) TAG="brt-dev-${SHA:0:8}";; esac
           gh release create "$TAG" dist-brt/*.tgz \
-            --prerelease --target "${{ github.sha }}" \
+            --prerelease --target "$SHA" \
             --title "brt CLI ($TAG)" \
             --notes "brt dev-kit CLI for botruntime.ru. Install: bun add -g <this .tgz url>. Requires bun >=1.3." \
             || gh release upload "$TAG" dist-brt/*.tgz --clobber
