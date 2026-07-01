@@ -21,12 +21,12 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@holocronlab/botruntime-client": "file:../botruntime-client",
     "axios": "^1.7.9",
     "exponential-backoff": "^3.1.1",
     "nanoevents": "^9.1.0"
   },
   "devDependencies": {
-    "@holocronlab/botruntime-client": "file:../botruntime-client",
     "@types/node": "^22.16.4",
     "esbuild": "^0.25.10",
     "rollup": "^4.60.4",

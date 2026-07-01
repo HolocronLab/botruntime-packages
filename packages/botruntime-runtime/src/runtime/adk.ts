@@ -33,7 +33,7 @@ function getStandaloneCognitive(): Cognitive {
       throw new Error('No bot ID found. Set ADK_BOT_ID environment variable, or run this script using "adk run".')
     }
 
-    const apiUrl = process.env.ADK_API_URL || 'https://api.botpress.cloud'
+    const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
     const workspaceId = process.env.ADK_WORKSPACE_ID || undefined
 
     // Create a vanilla client

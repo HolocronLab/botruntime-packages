@@ -19,7 +19,12 @@ function isBotpressUrl(fullUrl: string): boolean {
     const url = new URL(fullUrl)
     const host = url.hostname
 
-    return host.includes('api.botpress.cloud') || host.includes('api.botpress.dev')
+    return (
+      host.includes('botruntime.ru') ||
+      // still instrument the upstream cognitive API host (cognitive-v2 wire) until it is fully in-house
+      host.includes('api.botpress.cloud') ||
+      host.includes('api.botpress.dev')
+    )
   } catch {
     return false
   }

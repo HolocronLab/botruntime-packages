@@ -16,7 +16,7 @@ import { getSingleton } from './singletons'
  *    - BP_TOKEN or ADK_TOKEN for authentication
  *    - ADK_BOT_ID for the bot ID
  *    - ADK_WORKSPACE_ID for the workspace ID
- *    - ADK_API_URL for the API URL (defaults to https://api.botpress.cloud)
+ *    - ADK_API_URL for the API URL (defaults to https://botruntime.ru)
  *
  * @example
  * ```typescript
@@ -63,7 +63,7 @@ function getStandaloneClient(): Client {
       throw new Error('No bot ID found. Set ADK_BOT_ID environment variable, or run this script using "adk run".')
     }
 
-    const apiUrl = process.env.ADK_API_URL || 'https://api.botpress.cloud'
+    const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
     const workspaceId = process.env.ADK_WORKSPACE_ID || undefined
 
     return new Client({

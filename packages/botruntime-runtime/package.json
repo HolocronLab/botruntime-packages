@@ -51,6 +51,9 @@
     "./ui": {
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js"
+    },
+    "./_types/*": {
+      "types": "./dist/_types/*.d.ts"
     }
   },
   "scripts": {

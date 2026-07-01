@@ -210,7 +210,7 @@ export interface EvalRunnerConfig {
   runId?: string
   /** Pre-resolved chat integration webhook ID. Skips the getBot() discovery call when provided. */
   chatWebhookId?: string
-  /** Base URL for the chat service (e.g. https://chat.botpress.dev). Defaults to https://chat.botpress.cloud. */
+  /** Base URL for the chat service. Defaults to the botruntime chat host (https://botruntime.ru). */
   chatBaseUrl?: string
 }
 
