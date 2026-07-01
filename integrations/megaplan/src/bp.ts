@@ -2,8 +2,8 @@
 // the SDK implementation generics so handlers get typed ctx/input/output/client
 // without importing the generated dir. `bp build` regenerates `.botpress` for the
 // real bundle; this shim keeps the source tsc-clean standalone.
-import type * as sdk from '@botpress/sdk'
-import type { z } from '@botpress/sdk'
+import type * as sdk from '@holocronlab/botruntime-sdk'
+import type { z } from '@holocronlab/botruntime-sdk'
 import type { configSchema } from '../definitions/common'
 import type { StatePayload } from '../definitions/state'
 import type {

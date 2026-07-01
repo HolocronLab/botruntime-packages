@@ -1,4 +1,4 @@
-import { type StateDefinition, z } from '@botpress/sdk'
+import { type StateDefinition, z } from '@holocronlab/botruntime-sdk'
 
 // megaplanAuth — cross-invocation cache of the OAuth access token (mirrors the Go
 // client's in-memory cache; on our per-invocation runtime, integration state is the

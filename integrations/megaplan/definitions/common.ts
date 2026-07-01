@@ -1,4 +1,4 @@
-import { z } from '@botpress/sdk'
+import { z } from '@holocronlab/botruntime-sdk'
 
 // Per-install credentials (password grant): account URL + login. username/password
 // are .secret() so they are sealed and never echoed in the admin UI or logs.

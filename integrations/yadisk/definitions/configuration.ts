@@ -1,4 +1,4 @@
-import { z } from '@botpress/sdk'
+import { z } from '@holocronlab/botruntime-sdk'
 
 const relativeFolder = z
   .string()

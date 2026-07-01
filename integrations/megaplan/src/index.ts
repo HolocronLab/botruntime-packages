@@ -1,4 +1,4 @@
-import * as sdk from '@botpress/sdk'
+import * as sdk from '@holocronlab/botruntime-sdk'
 import actions from './actions'
 import { buildClient } from './actions/shared'
 import type { TMegaplan, IntegrationProps } from './bp'

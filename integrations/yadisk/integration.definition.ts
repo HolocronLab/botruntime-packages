@@ -1,4 +1,4 @@
-import { IntegrationDefinition } from '@botpress/sdk'
+import { IntegrationDefinition } from '@holocronlab/botruntime-sdk'
 import { actions } from './definitions/actions'
 import { configuration } from './definitions/configuration'
 

@@ -1,4 +1,4 @@
-import { z } from '@botpress/sdk'
+import { z } from '@holocronlab/botruntime-sdk'
 
 // Пути в action'ах — case-относительные (напр. lead-1/case-2/ddu/doc.jpg).
 // Префикс app:/<yadiskFolder>/ навешивает сама интеграция (см. src/paths.ts):

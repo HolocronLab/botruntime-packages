@@ -1,4 +1,4 @@
-import { type ActionDefinition, z } from '@botpress/sdk'
+import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 import { dealSchema, moneySchema, programStateSchema, refSchema } from './common'
 
 const createDealInput = z.object({

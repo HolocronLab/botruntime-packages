@@ -1,4 +1,4 @@
-import { type ActionDefinition, z } from '@botpress/sdk'
+import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 
 const addCommentInput = z.object({
   owner: z.enum(['deal', 'contractor', 'task']).title('Тип владельца'),

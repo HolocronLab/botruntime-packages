@@ -1,4 +1,4 @@
-import { Integration, type IntegrationProps } from '@botpress/sdk'
+import { Integration, type IntegrationProps } from '@holocronlab/botruntime-sdk'
 import { ok } from 'assert'
 import type { User } from 'telegraf/types'
 import { makeTelegraf } from './misc/telegraf'
@@ -140,27 +140,37 @@ const webhookHandler = async (props: HandlerProps) =>
     const fromUser = message.from as User
     const userName = getUserNameFromTelegramUser(fromUser)
 
-    const { conversation } = await client.getOrCreateConversation({
-      channel: 'channel',
-      tags: {
-        id: telegramConversationId.toString(),
-        fromUserId: telegramUserId.toString(),
-        fromUserUsername: fromUser.username,
-        fromUserName: userName,
-        chatId: telegramConversationId.toString(),
-      },
-      discriminateByTags: ['id'],
-    })
+    // Wrapped in mapToRuntimeErrorAndThrow (like every telegraf call below): the SDK's
+    // handlerErrorToHttpResponse (@holocronlab/botruntime-sdk 6.13.0+) only preserves the original
+    // status code for a RuntimeError/InvalidPayloadError — any other thrown ApiError (e.g. the
+    // client's own 401 when BP_TOKEN is unset) is now re-wrapped as an unexpected error and always
+    // reported as 500. Re-throwing as RuntimeError here keeps the honest 4xx for a client-reported
+    // failure instead of masking it as a generic server error.
+    const { conversation } = await client
+      .getOrCreateConversation({
+        channel: 'channel',
+        tags: {
+          id: telegramConversationId.toString(),
+          fromUserId: telegramUserId.toString(),
+          fromUserUsername: fromUser.username,
+          fromUserName: userName,
+          chatId: telegramConversationId.toString(),
+        },
+        discriminateByTags: ['id'],
+      })
+      .catch(mapToRuntimeErrorAndThrow('Fail to get or create conversation'))
 
     // Donor also fetched the avatar and client.updateUser({pictureUrl,name}). DROPPED: our cloudapi
     // does not serve PUT /v1/chat/users/:id, so updateUser would throw — and (in the donor's
     // swallow-all wrapper) silently drop a new user's FIRST message. The name is already set at
     // get-or-create; the avatar is non-essential. (Study GAP: updateUser unserved.)
-    const { user } = await client.getOrCreateUser({
-      tags: { id: telegramUserId.toString() },
-      ...(userName && { name: userName }),
-      discriminateByTags: ['id'],
-    })
+    const { user } = await client
+      .getOrCreateUser({
+        tags: { id: telegramUserId.toString() },
+        ...(userName && { name: userName }),
+        discriminateByTags: ['id'],
+      })
+      .catch(mapToRuntimeErrorAndThrow('Fail to get or create user'))
 
     const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
     const telegraf = makeTelegraf(botToken)
@@ -168,16 +178,18 @@ const webhookHandler = async (props: HandlerProps) =>
 
     logger.forBot().debug(`Received message from user ${telegramUserId}: ${JSON.stringify(message)}`)
 
-    await client.createMessage({
-      tags: {
-        id: messageId.toString(),
-        chatId: telegramConversationId.toString(),
-      },
-      type: bpMessage.type,
-      payload: bpMessage.payload,
-      userId: user.id,
-      conversationId: conversation.id,
-    })
+    await client
+      .createMessage({
+        tags: {
+          id: messageId.toString(),
+          chatId: telegramConversationId.toString(),
+        },
+        type: bpMessage.type,
+        payload: bpMessage.payload,
+        userId: user.id,
+        conversationId: conversation.id,
+      })
+      .catch(mapToRuntimeErrorAndThrow('Fail to create message'))
 
     return { status: 200 }
   })(props)

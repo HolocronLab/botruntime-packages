@@ -3,7 +3,7 @@
 // source is tsc-clean standalone and bundles with `bun build` (we do not run `bp build`; its
 // CLI/SDK pair is codegen-broken in this repo). The runtime `Integration` is constructed from
 // @botpress/sdk directly (src/index.ts) and cast to IntegrationProps — exactly the yadisk pattern.
-import type { IntegrationLogger } from '@botpress/sdk'
+import type { IntegrationLogger } from '@holocronlab/botruntime-sdk'
 
 export type Configuration = {
   botToken?: string

@@ -1,4 +1,4 @@
-import { z, type InterfacePackage } from '@botpress/sdk'
+import { z, type InterfacePackage } from '@holocronlab/botruntime-sdk'
 
 // Vendored equivalent of what `bp add` generates under bp_modules/typing-indicator from
 // interfaces/typing-indicator. We do NOT run `bp add` (the SDK/CLI version pair in this repo is

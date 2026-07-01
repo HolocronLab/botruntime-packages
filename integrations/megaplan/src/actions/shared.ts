@@ -1,4 +1,4 @@
-import { RuntimeError } from '@botpress/client'
+import { RuntimeError } from '@holocronlab/botruntime-client'
 import { MegaplanApiClient, type TokenStore } from '../megaplan-api'
 import type { ApiError } from '../types'
 import type { Context, Client } from '../bp'

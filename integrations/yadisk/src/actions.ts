@@ -1,7 +1,7 @@
 // Реализация actions интеграции. Каждое действие: конфиг → клиент, относительный
 // путь → абсолютный app:/, операция Диска. Деньги/ПДн тут не трогаем — это файловый
 // слой (H2: Диск — source of truth, наружу уходят ссылки).
-import { RuntimeError, type IntegrationLogger } from '@botpress/sdk'
+import { RuntimeError, type IntegrationLogger } from '@holocronlab/botruntime-sdk'
 import { clientFromConfig, type YadiskConfiguration } from './config'
 import { resolveAppPath } from './paths'
 

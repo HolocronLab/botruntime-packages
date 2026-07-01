@@ -2,7 +2,7 @@
 // IntegrationProps (=BaseIntegration), чтобы хэндлеры контекстно типизировались
 // без сгенерированного .botpress (там ctx.configuration/input — any; узкие типы
 // живут в actions.ts/config.ts). Только actions — входящих вебхуков нет.
-import { Integration, type IntegrationProps } from '@botpress/sdk'
+import { Integration, type IntegrationProps } from '@holocronlab/botruntime-sdk'
 import { createCaseFolder, downloadDocument, getLink, uploadDocument } from './actions'
 import { onRegister } from './setup'
 

@@ -1,4 +1,4 @@
-import { type ActionDefinition, z } from '@botpress/sdk'
+import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 
 const createTaskInput = z.object({
   name: z.string().min(1).title('Название'),

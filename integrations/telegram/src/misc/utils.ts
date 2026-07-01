@@ -1,4 +1,4 @@
-import { RuntimeError } from '@botpress/sdk'
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { AssertionError } from 'assert'
 import { ok } from 'assert'
 import _ from 'lodash'

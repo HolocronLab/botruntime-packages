@@ -1,4 +1,4 @@
-import { type ActionDefinition, z } from '@botpress/sdk'
+import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 
 const createTodoInput = z.object({
   dealId: z.string().min(1).title('ID сделки'),

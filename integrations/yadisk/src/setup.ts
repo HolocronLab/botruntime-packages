@@ -1,7 +1,7 @@
 // Lifecycle интеграции. register проверяет токен боевым вызовом (fail-loud при
 // install, а не при первом действии). unregister — no-op: вебхука и внешних
 // ресурсов у файловой интеграции нет, отключать нечего.
-import { RuntimeError, type IntegrationLogger } from '@botpress/sdk'
+import { RuntimeError, type IntegrationLogger } from '@holocronlab/botruntime-sdk'
 import { clientFromConfig, type YadiskConfiguration } from './config'
 
 export async function onRegister(cfg: YadiskConfiguration, logger: IntegrationLogger): Promise<void> {

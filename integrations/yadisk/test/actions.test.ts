@@ -1,7 +1,7 @@
 // Тесты слоя actions: ошибки контракта должны всплывать до записи в Диск или
 // возвращения пустых ссылок вызывающему.
 import { describe, expect, test } from 'bun:test'
-import type { IntegrationLogger } from '@botpress/sdk'
+import type { IntegrationLogger } from '@holocronlab/botruntime-sdk'
 import { getLink, uploadDocument } from '../src/actions'
 
 const logs: string[] = []

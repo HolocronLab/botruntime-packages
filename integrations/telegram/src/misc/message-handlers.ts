@@ -1,4 +1,4 @@
-import { RuntimeError } from '@botpress/sdk'
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { Markup, Telegraf, Telegram } from 'telegraf'
 import { getStoredBotToken } from '../botToken'
 import { makeTelegraf } from './telegraf'

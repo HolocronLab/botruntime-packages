@@ -1,4 +1,4 @@
-import { z, IntegrationDefinition } from '@botpress/sdk'
+import { z, IntegrationDefinition } from '@holocronlab/botruntime-sdk'
 import typingIndicator from './bp_modules/typing-indicator'
 import { telegramMessageChannels } from './definitions/channels'
 

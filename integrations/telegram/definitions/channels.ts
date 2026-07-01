@@ -1,4 +1,4 @@
-import { z, messages } from '@botpress/sdk'
+import { z, messages } from '@holocronlab/botruntime-sdk'
 
 const _textMessageDefinition = {
   ...messages.defaults.text,
