@@ -1,0 +1,61 @@
+import axiosRetry from 'axios-retry'
+import * as common from '../common'
+import * as gen from '../gen/runtime'
+import * as types from '../types'
+
+type IClient = common.types.Simplify<gen.Client>
+export type Operation = common.types.Operation<IClient>
+export type ClientInputs = common.types.Inputs<IClient>
+export type ClientOutputs = common.types.Outputs<IClient>
+
+export type ClientProps = common.types.CommonClientProps & {
+  token: string
+  botId: string
+  integrationId?: string
+  integrationAlias?: string
+}
+
+export class Client extends gen.Client {
+  public readonly config: Readonly<types.ClientConfig>
+
+  public constructor(clientProps: ClientProps) {
+    const clientConfig = common.config.getClientConfig(clientProps)
+    const axiosInstance = common.axios.createAxiosInstance(clientConfig)
+
+    super(axiosInstance, {
+      toApiError: common.errors.toApiError,
+    })
+
+    if (clientProps.retry) {
+      axiosRetry(axiosInstance, clientProps.retry)
+    }
+
+    this.config = clientConfig
+  }
+
+  public get list() {
+    type ListInputs = common.types.ListInputs<IClient>
+    return {
+      conversations: (props: ListInputs['listConversations']) =>
+        new common.listing.AsyncCollection(({ nextToken }) =>
+          this.listConversations({ nextToken, ...props }).then((r) => ({ ...r, items: r.conversations }))
+        ),
+      participants: (props: ListInputs['listParticipants']) =>
+        new common.listing.AsyncCollection(({ nextToken }) =>
+          this.listParticipants({ nextToken, ...props }).then((r) => ({ ...r, items: r.participants }))
+        ),
+      events: (props: ListInputs['listEvents']) =>
+        new common.listing.AsyncCollection(({ nextToken }) =>
+          this.listEvents({ nextToken, ...props }).then((r) => ({ ...r, items: r.events }))
+        ),
+      messages: (props: ListInputs['listMessages']) =>
+        new common.listing.AsyncCollection(({ nextToken }) =>
+          this.listMessages({ nextToken, ...props }).then((r) => ({ ...r, items: r.messages }))
+        ),
+      users: (props: ListInputs['listUsers']) =>
+        new common.listing.AsyncCollection(({ nextToken }) =>
+          this.listUsers({ nextToken, ...props }).then((r) => ({ ...r, items: r.users }))
+        ),
+    }
+  }
+}

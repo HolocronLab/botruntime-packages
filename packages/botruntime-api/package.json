@@ -1,0 +1,39 @@
+{
+  "name": "@holocronlab/botruntime-api",
+  "version": "1.108.0",
+  "description": "Build-time OpenAPI bootstrap re-exporting the upstream API definitions pinned to the opapi source of truth",
+  "private": true,
+  "type": "commonjs",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "files": [
+    "dist",
+    "openapi",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:type": "tsc --noEmit",
+    "gen": "ts-node ./emit-spec.ts"
+  },
+  "dependencies": {
+    "@botpress/api": "1.108.0",
+    "@bpinternal/opapi": "1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.4",
+    "typescript": "^6.0.3",
+    "ts-node": "^10.9.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botforge.git",
+    "directory": "packages/botruntime-api"
+  },
+  "author": "HolocronLab",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

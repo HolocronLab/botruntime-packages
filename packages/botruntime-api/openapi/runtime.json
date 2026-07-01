@@ -1,0 +1,5668 @@
+{
+  "openapi": "3.0.0",
+  "servers": [
+    {
+      "url": "https://api.botpress.cloud"
+    }
+  ],
+  "info": {
+    "title": "Botpress Runtime API",
+    "description": "API for Botpress Runtime",
+    "version": "1.108.0"
+  },
+  "paths": {
+    "/v1/chat/conversations": {
+      "post": {
+        "operationId": "createConversation",
+        "description": "Creates a new [Conversation](#schema_conversation). When creating a new [Conversation](#schema_conversation), the required tags must be provided. See the specific integration for more details.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/createConversationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createConversationResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createConversationBody"
+        }
+      },
+      "get": {
+        "operationId": "listConversations",
+        "description": "Retrieves a list of [Conversation](#schema_conversation) you’ve previously created. The conversations are returned in sorted order, with the most recent appearing first. The list can be filtered using [Tags](#tags).",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "sortField",
+            "in": "query",
+            "description": "Sort results by this field",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "description": "Sort results in this direction",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "description": "Filter by tags",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "participantIds",
+            "in": "query",
+            "description": "Filter by participant ids",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "integrationName",
+            "in": "query",
+            "description": "Filter by integration name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "Filter by integration channel name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "afterDate",
+            "in": "query",
+            "description": "Date in ISO 8601 string with UTC timezone after which the conversation was created (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "beforeDate",
+            "in": "query",
+            "description": "Date in ISO 8601 string with UTC timezone before which the conversation was created (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "minMessageCount",
+            "in": "query",
+            "description": "Filter conversations with a message count greater than or equal to this value (inclusive)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "maxMessageCount",
+            "in": "query",
+            "description": "Filter conversations with a message count less than or equal to this value (inclusive)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listConversationsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listConversationsResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/conversations/{id}": {
+      "get": {
+        "operationId": "getConversation",
+        "description": "Retrieves the [Conversation](#schema_conversation) object for a valid identifier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getConversationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getConversationResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      },
+      "put": {
+        "operationId": "updateConversation",
+        "description": "Update a [Conversation](#schema_conversation) object by setting the values of the parameters passed. Any parameters not provided will be left unchanged.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/updateConversationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/updateConversationResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/updateConversationBody"
+        }
+      },
+      "delete": {
+        "operationId": "deleteConversation",
+        "description": "Permanently deletes a [Conversation](#schema_conversation). It cannot be undone. Also immediately deletes corresponding [Messages](#schema_message).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/deleteConversationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/deleteConversationResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/conversations/get-or-create": {
+      "post": {
+        "operationId": "getOrCreateConversation",
+        "description": "Retrieves the [Conversation](#schema_conversation) object containing given tags. If the conversation does not exist, it will be created. Tags will be updated if they are set in the request body.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getOrCreateConversationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getOrCreateConversationResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/getOrCreateConversationBody"
+        }
+      }
+    },
+    "/v1/chat/conversations/{id}/participants": {
+      "get": {
+        "operationId": "listParticipants",
+        "description": "Retrieves a list of [Participant](#schema_participant) for a given [Conversation](#schema_conversation).",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listParticipantsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listParticipantsResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      },
+      "post": {
+        "operationId": "addParticipant",
+        "description": "Add a [Participant](#schema_participant) to a [Conversation](#schema_conversation).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/addParticipantResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/addParticipantResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/addParticipantBody"
+        }
+      }
+    },
+    "/v1/chat/conversations/{id}/participants/{userId}": {
+      "get": {
+        "operationId": "getParticipant",
+        "description": "Retrieves a [Participant](#schema_participant) from a [Conversation](#schema_conversation).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "User id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getParticipantResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getParticipantResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      },
+      "delete": {
+        "operationId": "removeParticipant",
+        "description": "Remove a [Participant](#schema_participant) from a [Conversation](#schema_conversation).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "User id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/removeParticipantResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/removeParticipantResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/events": {
+      "post": {
+        "operationId": "createEvent",
+        "description": "Creates a new [Event](#schema_event). When creating a new [Event](#schema_event), the required tags must be provided. See the specific integration for more details.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/createEventResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createEventResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createEventBody"
+        }
+      },
+      "get": {
+        "operationId": "listEvents",
+        "description": "Retrieves a list of [Event](#schema_event) you’ve previously created. The events are returned in sorted order, with the most recent appearing first.",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Filter by event type",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "description": "Filter by conversation id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "Filter by user id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "query",
+            "description": "Filter by message id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workflowId",
+            "in": "query",
+            "description": "Filter by workflow id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by status. Allowed values: pending, ignored, processed, failed.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "ignored",
+                "processed",
+                "failed",
+                "scheduled"
+              ]
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listEventsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listEventsResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/events/{id}": {
+      "get": {
+        "operationId": "getEvent",
+        "description": "Retrieves the [Event](#schema_event) object for a valid identifiers.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getEventResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getEventResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/events/scheduled/{id}": {
+      "delete": {
+        "operationId": "cancelScheduledEvent",
+        "description": "Permanently cancels a scheduled [Event](#schema_event). The event must be in a `scheduled` state.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/cancelScheduledEventResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/cancelScheduledEventResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/messages": {
+      "post": {
+        "operationId": "createMessage",
+        "description": "Creates a new [Message](#schema_message). When creating a new [Message](#schema_message), the required tags must be provided. See the specific integration for more details.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/createMessageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createMessageResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createMessageBody"
+        }
+      },
+      "get": {
+        "operationId": "listMessages",
+        "description": "Retrieves a list of [Message](#schema_message) you’ve previously created. The messages are returned in sorted order, with the most recent appearing first. The list can be filtered using [Tags](/docs/developers/concepts/tags).",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "description": "Conversation id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "description": "Filter by tags",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "afterDate",
+            "in": "query",
+            "description": "Date in ISO 8601 string with UTC timezone after which the message was created (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "beforeDate",
+            "in": "query",
+            "description": "Date in ISO 8601 string with UTC timezone before which the message was created (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listMessagesResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listMessagesResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/messages/get-or-create": {
+      "post": {
+        "operationId": "getOrCreateMessage",
+        "description": "Retrieves the [Message](#schema_message) object for given discriminating tags. If the message does not exist, it will be created. If the message already exists, its tags and payload will be updated with the provided values if they are defined.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getOrCreateMessageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getOrCreateMessageResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/getOrCreateMessageBody"
+        }
+      }
+    },
+    "/v1/chat/messages/{id}": {
+      "get": {
+        "operationId": "getMessage",
+        "description": "Retrieves the [Message](#schema_message) object for a valid identifier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the Message",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getMessageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getMessageResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      },
+      "put": {
+        "operationId": "updateMessage",
+        "description": "Updates a message tags and payload. The message type cannot be changed. Calling this operation from an integration, to update an incoming message, will not invoke the bot. The other way around it also true; Calling this operation from the bot, to update an outgoing message, will not invoke the integration.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/updateMessageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/updateMessageResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/updateMessageBody"
+        }
+      },
+      "delete": {
+        "operationId": "deleteMessage",
+        "description": "Permanently deletes a [Message](#schema_message). It cannot be undone.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/deleteMessageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/deleteMessageResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/initialize-incoming-message": {
+      "post": {
+        "operationId": "initializeIncomingMessage",
+        "description": "Initializes a user, conversation and sends a message to the conversation.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/initializeIncomingMessageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/initializeIncomingMessageResponse"
+          }
+        },
+        "tags": [
+          "experimental"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/initializeIncomingMessageBody"
+        }
+      }
+    },
+    "/v1/chat/messages/import-messages": {
+      "post": {
+        "operationId": "importMessages",
+        "description": "Imports messages if no matching messages already exist. On partial failure, returns an [Error](#errors) with both `resolvedMessages` and `failedMessages` arrays.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/importMessagesResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/importMessagesResponse"
+          }
+        },
+        "tags": [
+          "experimental"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/importMessagesBody"
+        }
+      }
+    },
+    "/v1/chat/users": {
+      "post": {
+        "operationId": "createUser",
+        "description": "Creates a new [User](#schema_user). When creating a new [User](#schema_user), the required tags must be provided. See the specific integration for more details.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/createUserResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createUserResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createUserBody"
+        }
+      },
+      "get": {
+        "operationId": "listUsers",
+        "description": "Retrieves a list of [User](#schema_user) previously created. The users are returned in sorted order, with the most recent appearing first. The list can be filtered using [Tags](/docs/developers/concepts/tags).",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "description": "Filter by conversation id. This will return all users that have participated in the conversation.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "description": "Filter by tags",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "afterDate",
+            "in": "query",
+            "description": "Date in ISO 8601 string with UTC timezone after which the user was created or updated (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "beforeDate",
+            "in": "query",
+            "description": "Date in ISO 8601 string with UTC timezone before which the user was created or updated (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rangeField",
+            "in": "query",
+            "description": "Field used for range filtering. Allowed values are \"updatedAt\" or \"createdAt\". Defaults to \"createdAt\" if omitted.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "createdAt"
+              ]
+            }
+          },
+          {
+            "name": "sortField",
+            "in": "query",
+            "description": "Sort results by this field",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "createdAt"
+              ]
+            }
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "description": "Sort results in this direction",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listUsersResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listUsersResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/users/{id}": {
+      "get": {
+        "operationId": "getUser",
+        "description": "Retrieves the [User](#schema_user) object for a valid identifier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getUserResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getUserResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      },
+      "put": {
+        "operationId": "updateUser",
+        "description": "Update a [User](#schema_user) object by setting the values of the parameters passed. Any parameters not provided will be left unchanged.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/updateUserResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/updateUserResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/updateUserBody"
+        }
+      },
+      "delete": {
+        "operationId": "deleteUser",
+        "description": "Permanently deletes a [User](#schema_user). It cannot be undone.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/deleteUserResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/deleteUserResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      }
+    },
+    "/v1/chat/users/get-or-create": {
+      "post": {
+        "operationId": "getOrCreateUser",
+        "description": "Retrieves the [User](#schema_user) object for given discriminating tags. If the user does not exist, it will be created. If the user already exists, its name, pictureUrl, attributes, and tags will be updated with the provided values.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getOrCreateUserResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getOrCreateUserResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/getOrCreateUserBody"
+        }
+      }
+    },
+    "/v1/chat/states/{type}/{id}/{name}/expiry": {
+      "post": {
+        "operationId": "setStateExpiry",
+        "description": "Updates the [State](#schema_state) expiry.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Represents the resource type that the state is related to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "conversation",
+                "user",
+                "bot",
+                "integration",
+                "workflow"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the State which will be either the botId, the userId or the conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the State which is declared inside the bot definition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setStateExpiryResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setStateExpiryResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setStateExpiryBody"
+        }
+      }
+    },
+    "/v1/chat/states/{type}/{id}/{name}": {
+      "get": {
+        "operationId": "getState",
+        "description": "Retrieves the [State](#schema_state) object for a valid identifier.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Represents the resource type that the state is related to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "conversation",
+                "user",
+                "bot",
+                "integration",
+                "workflow"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the State which will be either the botId, the userId or the conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the State which is declared inside the bot definition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getStateResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getStateResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ]
+      },
+      "post": {
+        "operationId": "setState",
+        "description": "Overrides the [State](#schema_state) object by setting the values of the parameters passed.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Represents the resource type that the state is related to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "conversation",
+                "user",
+                "bot",
+                "integration",
+                "workflow"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the State which will be either the botId, the userId or the conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the State which is declared inside the bot definition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setStateResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setStateResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setStateBody"
+        }
+      },
+      "patch": {
+        "operationId": "patchState",
+        "description": "Updates the [State](#schema_state) object by setting the values of the parameters passed.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Represents the resource type that the state is related to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "conversation",
+                "user",
+                "bot",
+                "integration",
+                "workflow"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the State which will be either the botId, the userId or the conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the State which is declared inside the bot definition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/patchStateResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/patchStateResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/patchStateBody"
+        }
+      }
+    },
+    "/v1/chat/states/{type}/{id}/{name}/get-or-set": {
+      "post": {
+        "operationId": "getOrSetState",
+        "description": "Retrieves the [State](#schema_state) object for a valid identifiers. If the state does not exist, it creates a new state.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Represents the resource type that the state is related to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "conversation",
+                "user",
+                "bot",
+                "integration",
+                "workflow"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the State which will be either the botId, the userId or the conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the State which is declared inside the bot definition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getOrSetStateResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getOrSetStateResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/getOrSetStateBody"
+        }
+      }
+    },
+    "/v1/chat/actions": {
+      "post": {
+        "operationId": "callAction",
+        "description": "Call an action",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/callActionResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/callActionResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/callActionBody"
+        }
+      }
+    },
+    "/v1/chat/integrations/configure": {
+      "post": {
+        "operationId": "configureIntegration",
+        "description": "An integration can call this endpoint to configure itself",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/configureIntegrationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/configureIntegrationResponse"
+          }
+        },
+        "tags": [
+          "documented"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/configureIntegrationBody"
+        }
+      }
+    },
+    "/v1/chat/workflows": {
+      "post": {
+        "operationId": "createWorkflow",
+        "description": "Creates a new [Workflow](#schema_workflow).",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/createWorkflowResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createWorkflowResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createWorkflowBody"
+        }
+      },
+      "get": {
+        "operationId": "listWorkflows",
+        "description": "Retrieves a list of [Workflow](#schema_workflow) you've previously created. The workflows are returned in sorted order, with the most recent appearing first. The list can be filtered using [Tags](/docs/developers/concepts/tags).",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "description": "Filter by tags",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "description": "Conversation id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "User id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parentWorkflowId",
+            "in": "query",
+            "description": "Parent workflow id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "description": "Status",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "failed",
+                  "completed",
+                  "listening",
+                  "paused",
+                  "timedout",
+                  "cancelled"
+                ]
+              }
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Workflow name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listWorkflowsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listWorkflowsResponse"
+          }
+        }
+      }
+    },
+    "/v1/chat/workflows/{id}": {
+      "get": {
+        "operationId": "getWorkflow",
+        "description": "Retrieves the [Workflow](#schema_workflow) object for a valid identifier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workflow id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getWorkflowResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getWorkflowResponse"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateWorkflow",
+        "description": "Update a [Workflow](#schema_workflow) object by setting the values of the parameters passed. Any parameters not provided will be left unchanged.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workflow id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/updateWorkflowResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/updateWorkflowResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/updateWorkflowBody"
+        }
+      },
+      "delete": {
+        "operationId": "deleteWorkflow",
+        "description": "Permanently deletes a [Workflow](#schema_workflow). It cannot be undone.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workflow id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/deleteWorkflowResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/deleteWorkflowResponse"
+          }
+        }
+      }
+    },
+    "/v1/chat/workflows/get-or-create": {
+      "post": {
+        "operationId": "getOrCreateWorkflow",
+        "description": "Get a workflow by tags, or creates a new [Workflow](#schema_workflow) if it doesn't exist. If the workflow already exists, its tags, timeoutAt, and userId will be updated with the provided values, unless the workflow is in a finished state.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getOrCreateWorkflowResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getOrCreateWorkflowResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/getOrCreateWorkflowBody"
+        }
+      }
+    },
+    "/v1/chat/tags/{key}/values": {
+      "get": {
+        "operationId": "listTagValues",
+        "description": "[REMOVED] This endpoint is no longer functional and will return HTTP 410 Gone. Do not use.",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Tag key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Tag type",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "conversation",
+                "message"
+              ]
+            }
+          },
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listTagValuesResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listTagValuesResponse"
+          }
+        },
+        "tags": [],
+        "deprecated": true
+      }
+    },
+    "/v1/chat/analytics": {
+      "post": {
+        "operationId": "trackAnalytics",
+        "description": "Add an event to the analytics",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/trackAnalyticsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/trackAnalyticsResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/trackAnalyticsBody"
+        }
+      }
+    },
+    "/v1/chat/observations": {
+      "post": {
+        "operationId": "captureObservation",
+        "description": "Capture a bot runtime observation. Does not support integration observations yet.",
+        "parameters": [
+          {
+            "name": "x-bot-id",
+            "in": "header",
+            "description": "Bot id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-id",
+            "in": "header",
+            "description": "Integration id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-integration-alias",
+            "in": "header",
+            "description": "Integration alias",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/captureObservationResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/captureObservationResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/captureObservationBody"
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [User](#schema_user)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation date of the [User](#schema_user) in ISO 8601 format"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Updating date of the [User](#schema_user) in ISO 8601 format"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [User](#schema_user). The set of [Tags](/docs/developers/concepts/tags) available on a [User](#schema_user) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Name of the [User](#schema_user)"
+          },
+          "pictureUrl": {
+            "type": "string",
+            "maxLength": 40000,
+            "description": "Picture URL of the [User](#schema_user)"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Optional properties"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Optional attributes"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "tags"
+        ],
+        "description": "The user object represents someone interacting with the bot within a specific integration. The same person interacting with a bot in slack and messenger will be represented with two different users.",
+        "additionalProperties": false
+      },
+      "Conversation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [Conversation](#schema_conversation)"
+          },
+          "currentTaskId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "deprecated": true,
+            "description": "Unused. This field will be removed in the future."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation date of the [Conversation](#schema_conversation) in ISO 8601 format"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Updating date of the [Conversation](#schema_conversation) in ISO 8601 format"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Name of the channel where the [Conversation](#schema_conversation) is happening"
+          },
+          "integration": {
+            "type": "string",
+            "description": "Name of the integration that created the [Conversation](#schema_conversation)"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Conversation](#schema_conversation). The set of [Tags](/docs/developers/concepts/tags) available on a [Conversation](#schema_conversation) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them."
+          },
+          "messageCount": {
+            "type": "number",
+            "description": "Number of messages in the conversation"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations."
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "channel",
+          "integration",
+          "tags",
+          "messageCount"
+        ],
+        "description": "The [Conversation](#schema_conversation) object represents an exchange of messages between one or more users. A [Conversation](#schema_conversation) is always linked to an integration's channels. For example, a Slack channel represents a conversation.",
+        "additionalProperties": false
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [Event](#schema_event)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation date of the [Event](#schema_event) in ISO 8601 format"
+          },
+          "type": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Type of the [Event](#schema_event)."
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Payload is the content of the event defined by the integration installed on your bot or one of the default events created by our api."
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "ID of the [Conversation](#schema_conversation) to link the event to."
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "ID of the [User](#schema_user) to link the event to."
+          },
+          "messageId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "ID of the [Message](#schema_message) to link the event to."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processed",
+              "ignored",
+              "failed",
+              "scheduled",
+              "canceled"
+            ]
+          },
+          "failureReason": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true,
+            "description": "Reason why the event failed to be processed"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "type",
+          "payload",
+          "status",
+          "failureReason"
+        ],
+        "description": "The event object represents an action or an occurrence.",
+        "additionalProperties": false
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [Message](#schema_message)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation date of the [Message](#schema_message) in ISO 8601 format"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Update date of the [Message](#schema_message) in ISO 8601 format"
+          },
+          "type": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Type of the [Message](#schema_message) represents the resource type that the message is related to"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "incoming",
+              "outgoing"
+            ],
+            "description": "Direction of the message (`incoming` or `outgoing`)."
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "ID of the [User](#schema_user)"
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "ID of the [Conversation](#schema_conversation)"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Conversation](#schema_conversation). The set of [Tags](/docs/developers/concepts/tags) available on a [Conversation](#schema_conversation) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them."
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "synthetic"
+            ],
+            "description": "Origin of the message (`synthetic`)."
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "type",
+          "payload",
+          "direction",
+          "userId",
+          "conversationId",
+          "tags"
+        ],
+        "description": "The Message object represents a message in a [Conversation](#schema_conversation) for a specific [User](#schema_user).",
+        "additionalProperties": false
+      },
+      "State": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [State](#schema_state)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation date of the [State](#schema_state) in ISO 8601 format"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Updating date of the [State](#schema_state) in ISO 8601 format"
+          },
+          "botId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [Bot](#schema_bot)"
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [Conversation](#schema_conversation)"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [User](#schema_user)"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Name of the [State](#schema_state) which is declared inside the bot definition"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "conversation",
+              "user",
+              "bot",
+              "integration",
+              "workflow"
+            ],
+            "description": "Type of the [State](#schema_state) represents the resource type (`conversation`, `user`, `bot`, `integration` or `workflow`) that the state is related to"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Payload is the content of the state defined by your bot."
+          },
+          "expiry": {
+            "type": "number",
+            "minimum": 1,
+            "description": "Expiry of the state in milliseconds. The state will expire if it is idle for the configured value. Absent if no expiry is set."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Expiration date of the ${ref.state} in ISO 8601 format. Absent if no expiry is set."
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "botId",
+          "name",
+          "type",
+          "payload"
+        ],
+        "description": "The state object represents the current payload. A state is always linked to either a bot, a conversation or a user.",
+        "additionalProperties": false
+      },
+      "Workflow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Id of the [Workflow](#schema_workflow)"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Name of the workflow"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "failed",
+              "completed",
+              "listening",
+              "paused",
+              "timedout",
+              "cancelled"
+            ],
+            "description": "Status of the [Workflow](#schema_workflow)"
+          },
+          "input": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Input provided to the [Workflow](#schema_workflow)"
+          },
+          "output": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Data returned by the [Workflow](#schema_workflow) output"
+          },
+          "parentWorkflowId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Parent [Workflow](#schema_workflow) id is the parent [Workflow](#schema_workflow) that created this [Workflow](#schema_workflow)"
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "Conversation id related to this [Workflow](#schema_workflow)"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 28,
+            "maxLength": 36,
+            "description": "User id related to this [Workflow](#schema_workflow)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation date of the [Workflow](#schema_workflow) in ISO 8601 format"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Updating date of the [Workflow](#schema_workflow) in ISO 8601 format"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date when the [Workflow](#schema_workflow) completed in ISO 8601 format"
+          },
+          "failureReason": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "If the [Workflow](#schema_workflow) fails this is the reason behind it"
+          },
+          "timeoutAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The timeout date when the [Workflow](#schema_workflow) will fail in the ISO 8601 format"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Workflow](#schema_workflow). Individual keys can be unset by posting an empty value to them."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "input",
+          "output",
+          "createdAt",
+          "updatedAt",
+          "timeoutAt",
+          "tags"
+        ],
+        "description": "Workflow definition",
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "createConversationResponse": {
+        "description": "Returns a [Conversation](#schema_conversation) object if creation succeeds. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "conversation": {
+                  "$ref": "#/components/schemas/Conversation"
+                }
+              },
+              "required": [
+                "conversation"
+              ],
+              "title": "createConversationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getConversationResponse": {
+        "description": "Returns a [Conversation](#schema_conversation) object if a valid identifier was provided. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "conversation": {
+                  "$ref": "#/components/schemas/Conversation"
+                }
+              },
+              "required": [
+                "conversation"
+              ],
+              "title": "getConversationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listConversationsResponse": {
+        "description": "Returns a list of [Conversation](#schema_conversation) objects",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "conversations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Conversation"
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "conversations",
+                "meta"
+              ],
+              "title": "listConversationsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateConversationResponse": {
+        "description": "Returns a [Conversation](#schema_conversation) object if a valid identifier was provided. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "conversation": {
+                  "$ref": "#/components/schemas/Conversation"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "created"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "conversation",
+                "meta"
+              ],
+              "title": "getOrCreateConversationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateConversationResponse": {
+        "description": "Returns an updated [Conversation](#schema_conversation) object if a valid identifier was provided. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "conversation": {
+                  "$ref": "#/components/schemas/Conversation"
+                }
+              },
+              "required": [
+                "conversation"
+              ],
+              "title": "updateConversationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "deleteConversationResponse": {
+        "description": "Returns the [Conversation](#schema_conversation) object that was deleted",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "deleteConversationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listParticipantsResponse": {
+        "description": "Returns a list of [Participant](#schema_participant) objects",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "participants": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "participants",
+                "meta"
+              ],
+              "title": "listParticipantsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "addParticipantResponse": {
+        "description": "Returns the [Participant](#schema_participant) object",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "participant": {
+                  "$ref": "#/components/schemas/User"
+                }
+              },
+              "required": [
+                "participant"
+              ],
+              "title": "addParticipantResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getParticipantResponse": {
+        "description": "Returns the [Participant](#schema_participant) object",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "participant": {
+                  "$ref": "#/components/schemas/User"
+                }
+              },
+              "required": [
+                "participant"
+              ],
+              "title": "getParticipantResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "removeParticipantResponse": {
+        "description": "Returns an empty object",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "removeParticipantResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createEventResponse": {
+        "description": "Returns a [Event](#schema_event) object if creation succeeds. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              },
+              "required": [
+                "event"
+              ],
+              "title": "createEventResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getEventResponse": {
+        "description": "Returns the [Event](#schema_event) object if a valid identifiers were provided. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              },
+              "required": [
+                "event"
+              ],
+              "title": "getEventResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listEventsResponse": {
+        "description": "Returns a list of [Event](#schema_event) objects",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "events",
+                "meta"
+              ],
+              "title": "listEventsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "cancelScheduledEventResponse": {
+        "description": "Returns an empty object",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "cancelScheduledEventResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createMessageResponse": {
+        "description": "Returns a [Message](#schema_message) object if creation succeeds.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "title": "createMessageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateMessageResponse": {
+        "description": "Returns a [Message](#schema_message) object if a valid identifier was provided. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "$ref": "#/components/schemas/Message"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "created"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "message",
+                "meta"
+              ],
+              "title": "getOrCreateMessageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getMessageResponse": {
+        "description": "Returns a [Message](#schema_message) object if a valid identifier was provided. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "title": "getMessageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateMessageResponse": {
+        "description": "Message information",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "title": "updateMessageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listMessagesResponse": {
+        "description": "Returns a list of [Message](#schema_message) objects.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Message"
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "messages",
+                "meta"
+              ],
+              "title": "listMessagesResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "deleteMessageResponse": {
+        "description": "Returns the [Message](#schema_message) object that was deleted",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "deleteMessageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "initializeIncomingMessageResponse": {
+        "description": "Returns an object containing the user, conversation and message (if created)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "conversation": {
+                  "$ref": "#/components/schemas/Conversation"
+                },
+                "message": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              },
+              "required": [
+                "user",
+                "conversation"
+              ],
+              "title": "initializeIncomingMessageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "importMessagesResponse": {
+        "description": "Returns the list of [Message](#schema_message) objects that were retrieved or created. On partial failure, returns an [Error](#errors) with `resolvedMessages` (successfully imported) and `failedMessages` (each with an `error` field).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Message"
+                  }
+                }
+              },
+              "required": [
+                "messages"
+              ],
+              "title": "importMessagesResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createUserResponse": {
+        "description": "Returns a [User](#schema_user) object if creation succeeds. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "$ref": "#/components/schemas/User"
+                }
+              },
+              "required": [
+                "user"
+              ],
+              "title": "createUserResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getUserResponse": {
+        "description": "Returns a [User](#schema_user) object if a valid identifier was provided. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "$ref": "#/components/schemas/User"
+                }
+              },
+              "required": [
+                "user"
+              ],
+              "title": "getUserResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listUsersResponse": {
+        "description": "Returns a list of [User](#schema_user) objects",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "users": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "users",
+                "meta"
+              ],
+              "title": "listUsersResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateUserResponse": {
+        "description": "Returns a [User](#schema_user) object if a valid identifier was provided. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "created"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "user",
+                "meta"
+              ],
+              "title": "getOrCreateUserResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateUserResponse": {
+        "description": "Returns an updated [User](#schema_user) object if a valid identifier was provided. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "$ref": "#/components/schemas/User"
+                }
+              },
+              "required": [
+                "user"
+              ],
+              "title": "updateUserResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "deleteUserResponse": {
+        "description": "Returns the [User](#schema_user) object that was deleted",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "deleteUserResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setStateExpiryResponse": {
+        "description": "Returns the updated [State](#schema_state) object if a valid identifier was provided. Returns an [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "$ref": "#/components/schemas/State"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "title": "setStateExpiryResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getStateResponse": {
+        "description": "Returns the [State](#schema_state) object if a valid identifier was provided. Returns [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "$ref": "#/components/schemas/State"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "cached": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "cached"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "state",
+                "meta"
+              ],
+              "title": "getStateResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setStateResponse": {
+        "description": "Returns the updated [State](#schema_state) object if a valid identifier was provided. Returns an [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "$ref": "#/components/schemas/State"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "title": "setStateResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrSetStateResponse": {
+        "description": "Returns the [State](#schema_state) object if a valid identifiers were provided. Returns [an error](#errors) otherwise.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "$ref": "#/components/schemas/State"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "cached": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "cached"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "state",
+                "meta"
+              ],
+              "title": "getOrSetStateResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "patchStateResponse": {
+        "description": "Returns the updated [State](#schema_state) object if a valid identifier was provided. Returns an [an error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "$ref": "#/components/schemas/State"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "title": "patchStateResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "callActionResponse": {
+        "description": "Action payload",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "output": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Input of the action"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "cached": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "cached"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "output",
+                "meta"
+              ],
+              "title": "callActionResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "configureIntegrationResponse": {
+        "description": "Configuration of the integration",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "configureIntegrationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createWorkflowResponse": {
+        "description": "Returns a [Workflow](#schema_workflow) object if creation succeeds. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "workflow": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              },
+              "required": [
+                "workflow"
+              ],
+              "title": "createWorkflowResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getWorkflowResponse": {
+        "description": "Returns a [Workflow](#schema_workflow) object if a valid identifier was provided. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "workflow": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              },
+              "required": [
+                "workflow"
+              ],
+              "title": "getWorkflowResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateWorkflowResponse": {
+        "description": "Returns an updated [Workflow](#schema_workflow) object if a valid identifier was provided. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "workflow": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              },
+              "required": [
+                "workflow"
+              ],
+              "title": "updateWorkflowResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "deleteWorkflowResponse": {
+        "description": "Returns the [Workflow](#schema_workflow) object that was deleted",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "deleteWorkflowResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listWorkflowsResponse": {
+        "description": "Returns a list of [Workflow](#schema_workflow) objects",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "workflows": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Workflow"
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "workflows",
+                "meta"
+              ],
+              "title": "listWorkflowsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateWorkflowResponse": {
+        "description": "Returns a new or updated [Workflow](#schema_workflow) object if the operation succeeds. Returns an [Error](#errors) otherwise",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "workflow": {
+                  "$ref": "#/components/schemas/Workflow"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "created"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "workflow",
+                "meta"
+              ],
+              "title": "getOrCreateWorkflowResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listTagValuesResponse": {
+        "description": "This endpoint always returns HTTP 410 Gone.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value"
+                    ]
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "tags",
+                "meta"
+              ],
+              "title": "listTagValuesResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "trackAnalyticsResponse": {
+        "description": "Success",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "trackAnalyticsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "captureObservationResponse": {
+        "description": "Success",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "captureObservationResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "requestBodies": {
+      "createConversationBody": {
+        "description": "Conversation data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Channel name"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Tags for the [Conversation](#schema_conversation)"
+                },
+                "integrationName": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "[DEPRECATED] To create a conversation from within a bot, call an action of the integration instead.",
+                  "deprecated": true
+                },
+                "properties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations."
+                }
+              },
+              "required": [
+                "channel",
+                "tags"
+              ],
+              "title": "createConversationBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateConversationBody": {
+        "description": "Conversation data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Channel name"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Tags for the [Conversation](#schema_conversation). Set to null or empty string to remove."
+                },
+                "integrationName": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "[DEPRECATED] To create a conversation from within a bot, call an action of the integration instead.",
+                  "deprecated": true
+                },
+                "properties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "nullable": true
+                  },
+                  "description": "**EXPERIMENTAL** - Optional shared properties. Set individual properties to null or empty string to remove them."
+                },
+                "discriminateByTags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Optional list of tag names to use for strict matching when looking up existing conversations. If provided, all specified tags must match exactly for a conversation to be considered a match. For example, with an existing conversation whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                }
+              },
+              "required": [
+                "channel",
+                "tags"
+              ],
+              "title": "getOrCreateConversationBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateConversationBody": {
+        "description": "Conversation data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "currentTaskId": {
+                  "type": "string",
+                  "deprecated": true,
+                  "description": "Unused. This parameter will be ignored if provided and should not be used when updating a conversation."
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Tags for the [Conversation](#schema_conversation). Set to null or empty string to remove."
+                },
+                "properties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "nullable": true
+                  },
+                  "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations. Set individual properties to null to remove them."
+                }
+              },
+              "title": "updateConversationBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "addParticipantBody": {
+        "description": "Participant data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "User id"
+                }
+              },
+              "required": [
+                "userId"
+              ],
+              "title": "addParticipantBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createEventBody": {
+        "description": "Event data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Type of the [Event](#schema_event)."
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Payload is the content of the event defined by the integration installed on your bot or one of the default events created by our API."
+                },
+                "schedule": {
+                  "type": "object",
+                  "properties": {
+                    "dateTime": {
+                      "type": "string",
+                      "maxLength": 28,
+                      "minLength": 24,
+                      "description": "When the [Event](#schema_event) will be sent, in the ISO 8601 format"
+                    },
+                    "delay": {
+                      "type": "number",
+                      "description": "Delay in milliseconds before sending the [Event](#schema_event)"
+                    }
+                  },
+                  "description": "Schedule the Event to be sent at a specific time. Either dateTime or delay must be provided.",
+                  "additionalProperties": false
+                },
+                "conversationId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [Conversation](#schema_conversation) to link the event to."
+                },
+                "userId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [User](#schema_user) to link the event to."
+                },
+                "workflowId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [Workflow](#schema_workflow) to link the event to."
+                },
+                "messageId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [Message](#schema_message) to link the event to."
+                }
+              },
+              "required": [
+                "type",
+                "payload"
+              ],
+              "title": "createEventBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createMessageBody": {
+        "description": "Message data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location"
+                },
+                "userId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [User](#schema_user)"
+                },
+                "conversationId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [Conversation](#schema_conversation)"
+                },
+                "type": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Type of the [Message](#schema_message) represents the resource type that the message is related to"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Message](#schema_message). The set of [Tags](/docs/developers/concepts/tags) available on a [Message](#schema_message) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them."
+                },
+                "schedule": {
+                  "type": "object",
+                  "properties": {
+                    "dateTime": {
+                      "type": "string",
+                      "maxLength": 28,
+                      "minLength": 24,
+                      "description": "When the [Message](#schema_message) will be sent, in the ISO 8601 format"
+                    },
+                    "delay": {
+                      "type": "number",
+                      "description": "Delay in milliseconds before sending the [Message](#schema_message)"
+                    }
+                  },
+                  "description": "Schedule the Message to be sent at a specific time. Either dateTime or delay must be provided.",
+                  "additionalProperties": false
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "synthetic"
+                  ]
+                }
+              },
+              "required": [
+                "payload",
+                "userId",
+                "conversationId",
+                "type",
+                "tags"
+              ],
+              "title": "createMessageBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateMessageBody": {
+        "description": "Message data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location"
+                },
+                "userId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [User](#schema_user)"
+                },
+                "conversationId": {
+                  "type": "string",
+                  "minLength": 28,
+                  "maxLength": 36,
+                  "description": "ID of the [Conversation](#schema_conversation)"
+                },
+                "type": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Type of the [Message](#schema_message) represents the resource type that the message is related to"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Tags for the message. Set to null or empty string to remove."
+                },
+                "schedule": {
+                  "type": "object",
+                  "properties": {
+                    "dateTime": {
+                      "type": "string",
+                      "maxLength": 28,
+                      "minLength": 24,
+                      "description": "When the [Message](#schema_message) will be sent, in the ISO 8601 format"
+                    },
+                    "delay": {
+                      "type": "number",
+                      "description": "Delay in milliseconds before sending the [Message](#schema_message)"
+                    }
+                  },
+                  "description": "Schedule the Message to be sent at a specific time. Either dateTime or delay must be provided.",
+                  "additionalProperties": false
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "synthetic"
+                  ]
+                },
+                "discriminateByTags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Optional list of tag names to use for strict matching when looking up existing messages. If provided, all specified tags must match exactly for a message to be considered a match. For example, with an existing message whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                }
+              },
+              "required": [
+                "userId",
+                "conversationId",
+                "type",
+                "tags"
+              ],
+              "title": "getOrCreateMessageBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateMessageBody": {
+        "description": "Message data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Message](#schema_message). The set of [Tags](/docs/developers/concepts/tags) available on a [Message](#schema_message) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Set to null or empty string to remove."
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location"
+                }
+              },
+              "title": "updateMessageBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "initializeIncomingMessageBody": {
+        "description": "Message data with related conversation and user",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string"
+                },
+                "user": {
+                  "type": "object",
+                  "properties": {
+                    "tags": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": "Tags for the [User](#schema_user)"
+                    },
+                    "integrationName": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "[DEPRECATED] To create a [User](#schema_user) from within a bot, call an action of the integration instead.",
+                      "deprecated": true
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "Name of the user"
+                    },
+                    "pictureUrl": {
+                      "type": "string",
+                      "maxLength": 40000,
+                      "description": "URI of the user picture"
+                    },
+                    "properties": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations."
+                    },
+                    "attributes": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "description": "DEPRECATED - Use properties instead.",
+                      "deprecated": true
+                    },
+                    "discriminateByTags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": "Optional list of tag names to use for strict matching when looking up existing messages. If provided, all specified tags must match exactly for a message to be considered a match. For example, with an existing message whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                    }
+                  },
+                  "required": [
+                    "tags",
+                    "discriminateByTags"
+                  ],
+                  "additionalProperties": false
+                },
+                "conversationId": {
+                  "type": "string"
+                },
+                "conversation": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "Channel name"
+                    },
+                    "tags": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": "Tags for the [Conversation](#schema_conversation)"
+                    },
+                    "integrationName": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "[DEPRECATED] To create a conversation from within a bot, call an action of the integration instead.",
+                      "deprecated": true
+                    },
+                    "properties": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations."
+                    },
+                    "discriminateByTags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": "Optional list of tag names to use for strict matching when looking up existing messages. If provided, all specified tags must match exactly for a message to be considered a match. For example, with an existing message whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "tags",
+                    "discriminateByTags"
+                  ],
+                  "additionalProperties": false
+                },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "payload": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location"
+                    },
+                    "type": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "Type of the [Message](#schema_message) represents the resource type that the message is related to"
+                    },
+                    "tags": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Message](#schema_message). The set of [Tags](/docs/developers/concepts/tags) available on a [Message](#schema_message) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them."
+                    },
+                    "origin": {
+                      "type": "string",
+                      "enum": [
+                        "synthetic"
+                      ]
+                    },
+                    "discriminateByTags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": "Optional list of tag names to use for strict matching when looking up existing messages. If provided, all specified tags must match exactly for a message to be considered a match. For example, with an existing message whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                    }
+                  },
+                  "required": [
+                    "payload",
+                    "type",
+                    "tags",
+                    "discriminateByTags"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "title": "initializeIncomingMessageBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "importMessagesBody": {
+        "description": "Data for the list of messages to import",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "payload": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": true,
+                        "description": "Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "minLength": 28,
+                        "maxLength": 36,
+                        "description": "ID of the [User](#schema_user)"
+                      },
+                      "conversationId": {
+                        "type": "string",
+                        "minLength": 28,
+                        "maxLength": 36,
+                        "description": "ID of the [Conversation](#schema_conversation)"
+                      },
+                      "type": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "description": "Type of the [Message](#schema_message) represents the resource type that the message is related to"
+                      },
+                      "tags": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string",
+                          "maxLength": 500
+                        },
+                        "description": "Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Message](#schema_message). The set of [Tags](/docs/developers/concepts/tags) available on a [Message](#schema_message) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them."
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Creation date of the [Message](#schema_message) in ISO 8601 format"
+                      },
+                      "discriminateByTags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 500
+                        },
+                        "description": "Optional list of tag names to use for strict matching when looking up existing messages. If provided, all specified tags must match exactly for a message to be considered a match. For example, with an existing message whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                      }
+                    },
+                    "required": [
+                      "payload",
+                      "userId",
+                      "conversationId",
+                      "type",
+                      "tags",
+                      "createdAt",
+                      "discriminateByTags"
+                    ],
+                    "description": "Setting empty tags or discriminateByTags will always result in the creation of a new message"
+                  },
+                  "maxItems": 100
+                }
+              },
+              "required": [
+                "messages"
+              ],
+              "title": "importMessagesBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createUserBody": {
+        "description": "User data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Tags for the [User](#schema_user)"
+                },
+                "integrationName": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "[DEPRECATED] To create a [User](#schema_user) from within a bot, call an action of the integration instead.",
+                  "deprecated": true
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Name of the user"
+                },
+                "pictureUrl": {
+                  "type": "string",
+                  "maxLength": 40000,
+                  "description": "URI of the user picture"
+                },
+                "properties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations."
+                },
+                "attributes": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "description": "DEPRECATED - Use properties instead.",
+                  "deprecated": true
+                }
+              },
+              "required": [
+                "tags"
+              ],
+              "title": "createUserBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateUserBody": {
+        "description": "User data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Tags for the user. Set to null or empty string to remove."
+                },
+                "integrationName": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "[DEPRECATED] To create a [User](#schema_user) from within a bot, call an action of the integration instead.",
+                  "deprecated": true
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Name of the user"
+                },
+                "pictureUrl": {
+                  "type": "string",
+                  "maxLength": 40000,
+                  "description": "URI of the user picture"
+                },
+                "properties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "nullable": true
+                  },
+                  "description": "**EXPERIMENTAL** - Optional shared properties. Set individual properties to null or empty string to remove them."
+                },
+                "attributes": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "nullable": true
+                  },
+                  "deprecated": true,
+                  "description": "DEPRECATED - Use properties instead."
+                },
+                "discriminateByTags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Optional list of tag names to use for strict matching when looking up existing users. If provided, all specified tags must match exactly for a user to be considered a match. For example, with an existing user whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                }
+              },
+              "required": [
+                "tags"
+              ],
+              "title": "getOrCreateUserBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateUserBody": {
+        "description": "User data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Tags for the [User](#schema_user). Set to null or empty string to remove."
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "nullable": true,
+                  "description": "Name of the user"
+                },
+                "pictureUrl": {
+                  "type": "string",
+                  "maxLength": 40000,
+                  "nullable": true,
+                  "description": "URI of the user picture"
+                },
+                "attributes": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "nullable": true
+                  },
+                  "deprecated": true,
+                  "description": "DEPRECATED - Use properties instead."
+                },
+                "properties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "nullable": true
+                  },
+                  "description": "**EXPERIMENTAL** - Optional shared properties that can be accessed and modified by both the bot and any of its integrations. Set individual properties to null to remove them."
+                }
+              },
+              "title": "updateUserBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setStateExpiryBody": {
+        "description": "State expiry",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiry": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 2592000000,
+                  "nullable": true,
+                  "description": "Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire."
+                }
+              },
+              "required": [
+                "expiry"
+              ],
+              "title": "setStateExpiryBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setStateBody": {
+        "description": "State content",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true,
+                  "description": "Payload is the content of the state defined by your bot."
+                },
+                "expiry": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 2592000000,
+                  "nullable": true,
+                  "description": "Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire."
+                }
+              },
+              "required": [
+                "payload"
+              ],
+              "title": "setStateBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrSetStateBody": {
+        "description": "State content",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Payload is the content of the state defined by your bot."
+                },
+                "expiry": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 2592000000,
+                  "nullable": true,
+                  "description": "Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire."
+                }
+              },
+              "required": [
+                "payload"
+              ],
+              "title": "getOrSetStateBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "patchStateBody": {
+        "description": "State content",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Payload is the content of the state defined by your bot."
+                },
+                "expiry": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 2592000000,
+                  "nullable": true,
+                  "description": "Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire."
+                }
+              },
+              "required": [
+                "payload"
+              ],
+              "title": "patchStateBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "callActionBody": {
+        "description": "Action payload",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Type of the action"
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Input of the action"
+                }
+              },
+              "required": [
+                "type",
+                "input"
+              ],
+              "title": "callActionBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "configureIntegrationBody": {
+        "description": "Configuration of the integration",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "identifier": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "nullable": true,
+                  "description": "Unique identifier of the integration that was installed on the bot"
+                },
+                "scheduleRegisterCall": {
+                  "type": "string",
+                  "enum": [
+                    "hourly",
+                    "daily",
+                    "weekly",
+                    "bi-weekly",
+                    "monthly",
+                    "bi-monthly",
+                    "quarterly",
+                    "yearly"
+                  ],
+                  "description": "Recurring schedule on which `register()` will be called on the integration"
+                },
+                "sandboxIdentifiers": {
+                  "type": "object",
+                  "nullable": true,
+                  "description": "**EXPERIMENTAL** Sandbox identifiers for the integration. Setting this to null will remove all sandbox identifiers.           This is an experimental feature meant to be used by specific integrations.",
+                  "additionalProperties": false
+                }
+              },
+              "title": "configureIntegrationBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createWorkflowBody": {
+        "description": "Workflow data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Name of the workflow"
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Content related to the workflow"
+                },
+                "parentWorkflowId": {
+                  "type": "string",
+                  "description": "Parent workflow id is the parent workflow that created this workflow"
+                },
+                "conversationId": {
+                  "type": "string",
+                  "description": "Conversation id related to this workflow"
+                },
+                "userId": {
+                  "type": "string",
+                  "description": "Specific user related to this workflow"
+                },
+                "timeoutAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "The timeout date where the workflow should be failed in the ISO 8601 format"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Tags for the [Workflow](#schema_workflow)"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "listening"
+                  ]
+                },
+                "eventId": {
+                  "type": "string",
+                  "description": "Event id must be specified if the workflow is created with the status in_progress"
+                }
+              },
+              "required": [
+                "name",
+                "status"
+              ],
+              "title": "createWorkflowBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "updateWorkflowBody": {
+        "description": "Workflow data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "output": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Content related to the workflow"
+                },
+                "timeoutAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "The timeout date where the workflow should be failed in the ISO 8601 format"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "completed",
+                    "cancelled",
+                    "listening",
+                    "paused",
+                    "failed",
+                    "in_progress"
+                  ],
+                  "description": "Status of the workflow"
+                },
+                "failureReason": {
+                  "type": "string",
+                  "description": "Reason why the workflow failed"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "description": "Tags for the [Workflow](#schema_workflow). Set to null or empty string to remove."
+                },
+                "userId": {
+                  "type": "string",
+                  "description": "Specific user related to this workflow"
+                },
+                "eventId": {
+                  "type": "string",
+                  "description": "Event id must be specified if the workflow is updated with the status in_progress"
+                }
+              },
+              "title": "updateWorkflowBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getOrCreateWorkflowBody": {
+        "description": "Workflow data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Name of the workflow"
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Content related to the workflow"
+                },
+                "parentWorkflowId": {
+                  "type": "string",
+                  "description": "Parent workflow id is the parent workflow that created this workflow"
+                },
+                "conversationId": {
+                  "type": "string",
+                  "description": "Conversation id related to this workflow"
+                },
+                "userId": {
+                  "type": "string",
+                  "description": "Specific user related to this workflow"
+                },
+                "timeoutAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "The timeout date where the workflow should be failed in the ISO 8601 format"
+                },
+                "tags": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Tags for the [Workflow](#schema_workflow)"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "listening"
+                  ]
+                },
+                "eventId": {
+                  "type": "string",
+                  "description": "Event id must be specified if the workflow is created with the status in_progress"
+                },
+                "discriminateByTags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "description": "Optional list of tag names to use for strict matching when looking up existing workflows. If provided, all specified tags must match exactly for a workflow to be considered a match. For example, with an existing workflow whose tags are {\"foo\": \"a\", \"bar\": \"b\", baz: \"c\"}: Without this parameter, ALL tags must match exactly. With [\"bar\",\"baz\"], all listed tags must match their values, and other tags are not considered."
+                },
+                "discriminateByStatusGroup": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "finished"
+                  ],
+                  "description": "When provided, will only match workflows whose status corresponds to the status group."
+                }
+              },
+              "required": [
+                "name",
+                "status"
+              ],
+              "title": "getOrCreateWorkflowBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "trackAnalyticsBody": {
+        "description": "Add an event to the analytics",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "name",
+                "count"
+              ],
+              "title": "trackAnalyticsBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "captureObservationBody": {
+        "description": "Add an event to the analytics",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Caller-defined identifier for the observation (e.g. llmz context ID). Uniqueness is not enforced nor guaranteed."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Name of the observation"
+                },
+                "data": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Data of the observation"
+                },
+                "messageId": {
+                  "type": "string",
+                  "description": "ID of the message associated with the observation"
+                },
+                "eventId": {
+                  "type": "string",
+                  "description": "ID of the event associated with the observation"
+                },
+                "conversationId": {
+                  "type": "string",
+                  "description": "ID of the conversation associated with the observation"
+                },
+                "userId": {
+                  "type": "string",
+                  "description": "ID of the user associated with the observation"
+                },
+                "errorId": {
+                  "type": "string",
+                  "description": "ID of the error associated with the observation"
+                },
+                "traceId": {
+                  "type": "string",
+                  "description": "ID of the trace associated with the observation"
+                }
+              },
+              "required": [
+                "name",
+                "data"
+              ],
+              "title": "captureObservationBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "parameters": {},
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "documented"
+    },
+    {
+      "name": "experimental"
+    }
+  ]
+}

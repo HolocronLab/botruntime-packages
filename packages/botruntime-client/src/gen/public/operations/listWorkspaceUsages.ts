@@ -1,0 +1,90 @@
+// this file was automatically generated, do not edit
+/* eslint-disable */
+
+export interface ListWorkspaceUsagesRequestHeaders {}
+
+export interface ListWorkspaceUsagesRequestQuery {
+  type:
+    | "invocation_timeout"
+    | "invocation_calls"
+    | "storage_count"
+    | "bot_count"
+    | "knowledgebase_vector_storage"
+    | "workspace_ratelimit"
+    | "table_row_count"
+    | "workspace_member_count"
+    | "integrations_owned_count"
+    | "ai_spend"
+    | "openai_spend"
+    | "bing_search_spend"
+    | "always_alive"
+    | "indexed_file_count"
+    | "file_max_size_bytes";
+  period?: string;
+}
+
+export interface ListWorkspaceUsagesRequestParams {
+  id: string;
+}
+
+export interface ListWorkspaceUsagesRequestBody {}
+
+export type ListWorkspaceUsagesInput = ListWorkspaceUsagesRequestBody & ListWorkspaceUsagesRequestHeaders & ListWorkspaceUsagesRequestQuery & ListWorkspaceUsagesRequestParams
+
+export type ListWorkspaceUsagesRequest = {
+  headers: ListWorkspaceUsagesRequestHeaders;
+  query: ListWorkspaceUsagesRequestQuery;
+  params: ListWorkspaceUsagesRequestParams;
+  body: ListWorkspaceUsagesRequestBody;
+}
+
+export const parseReq = (input: ListWorkspaceUsagesInput): ListWorkspaceUsagesRequest & { path: string } => {
+  return {
+    path: `/v1/admin/workspaces/${encodeURIComponent(input['id'])}/usages`,
+    headers: {  },
+    query: { 'type': input['type'], 'period': input['period'] },
+    params: { 'id': input['id'] },
+    body: {  },
+  }
+}
+
+export interface ListWorkspaceUsagesResponse {
+  usages: {
+    /**
+     * Id of the usage that it is linked to. It can either be a workspace id or a bot id
+     */
+    id: string;
+    /**
+     * Period of the quota that it is applied to
+     */
+    period: string;
+    /**
+     * Value of the current usage
+     */
+    value: number;
+    /**
+     * Quota of the current usage
+     */
+    quota: number;
+    /**
+     * Usage type that can be used
+     */
+    type:
+      | "invocation_timeout"
+      | "invocation_calls"
+      | "storage_count"
+      | "bot_count"
+      | "knowledgebase_vector_storage"
+      | "workspace_ratelimit"
+      | "table_row_count"
+      | "workspace_member_count"
+      | "integrations_owned_count"
+      | "ai_spend"
+      | "openai_spend"
+      | "bing_search_spend"
+      | "always_alive"
+      | "indexed_file_count"
+      | "file_max_size_bytes";
+  }[];
+}
+

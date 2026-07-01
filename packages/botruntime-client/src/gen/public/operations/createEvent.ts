@@ -1,0 +1,113 @@
+// this file was automatically generated, do not edit
+/* eslint-disable */
+
+export interface CreateEventRequestHeaders {}
+
+export interface CreateEventRequestQuery {}
+
+export interface CreateEventRequestParams {}
+
+export interface CreateEventRequestBody {
+  /**
+   * Type of the [Event](#schema_event).
+   */
+  type: string;
+  /**
+   * Payload is the content of the event defined by the integration installed on your bot or one of the default events created by our API.
+   */
+  payload: {
+    [k: string]: any;
+  };
+  /**
+   * Schedule the Event to be sent at a specific time. Either dateTime or delay must be provided.
+   */
+  schedule?: {
+    /**
+     * When the [Event](#schema_event) will be sent, in the ISO 8601 format
+     */
+    dateTime?: string;
+    /**
+     * Delay in milliseconds before sending the [Event](#schema_event)
+     */
+    delay?: number;
+  };
+  /**
+   * ID of the [Conversation](#schema_conversation) to link the event to.
+   */
+  conversationId?: string;
+  /**
+   * ID of the [User](#schema_user) to link the event to.
+   */
+  userId?: string;
+  /**
+   * ID of the [Workflow](#schema_workflow) to link the event to.
+   */
+  workflowId?: string;
+  /**
+   * ID of the [Message](#schema_message) to link the event to.
+   */
+  messageId?: string;
+}
+
+export type CreateEventInput = CreateEventRequestBody & CreateEventRequestHeaders & CreateEventRequestQuery & CreateEventRequestParams
+
+export type CreateEventRequest = {
+  headers: CreateEventRequestHeaders;
+  query: CreateEventRequestQuery;
+  params: CreateEventRequestParams;
+  body: CreateEventRequestBody;
+}
+
+export const parseReq = (input: CreateEventInput): CreateEventRequest & { path: string } => {
+  return {
+    path: `/v1/chat/events`,
+    headers: {  },
+    query: {  },
+    params: {  },
+    body: { 'type': input['type'], 'payload': input['payload'], 'schedule': input['schedule'], 'conversationId': input['conversationId'], 'userId': input['userId'], 'workflowId': input['workflowId'], 'messageId': input['messageId'] },
+  }
+}
+
+export interface CreateEventResponse {
+  /**
+   * The event object represents an action or an occurrence.
+   */
+  event: {
+    /**
+     * Id of the [Event](#schema_event)
+     */
+    id: string;
+    /**
+     * Creation date of the [Event](#schema_event) in ISO 8601 format
+     */
+    createdAt: string;
+    /**
+     * Type of the [Event](#schema_event).
+     */
+    type: string;
+    /**
+     * Payload is the content of the event defined by the integration installed on your bot or one of the default events created by our api.
+     */
+    payload: {
+      [k: string]: any;
+    };
+    /**
+     * ID of the [Conversation](#schema_conversation) to link the event to.
+     */
+    conversationId?: string;
+    /**
+     * ID of the [User](#schema_user) to link the event to.
+     */
+    userId?: string;
+    /**
+     * ID of the [Message](#schema_message) to link the event to.
+     */
+    messageId?: string;
+    status: "pending" | "processed" | "ignored" | "failed" | "scheduled" | "canceled";
+    /**
+     * Reason why the event failed to be processed
+     */
+    failureReason: string | null;
+  };
+}
+

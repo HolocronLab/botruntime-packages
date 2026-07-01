@@ -1,0 +1,6 @@
+# This package vendors the published npm dist of @botpress/chat verbatim
+# (see README.md "Provenance"). There is no build step that regenerates
+# dist/ from source, so unlike other packages in this repo it must be
+# committed rather than ignored.
+!/dist/
+!/dist/**

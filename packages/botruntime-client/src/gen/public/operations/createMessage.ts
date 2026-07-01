@@ -1,0 +1,121 @@
+// this file was automatically generated, do not edit
+/* eslint-disable */
+
+export interface CreateMessageRequestHeaders {}
+
+export interface CreateMessageRequestQuery {}
+
+export interface CreateMessageRequestParams {}
+
+export interface CreateMessageRequestBody {
+  /**
+   * Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location
+   */
+  payload: {
+    [k: string]: any;
+  };
+  /**
+   * ID of the [User](#schema_user)
+   */
+  userId: string;
+  /**
+   * ID of the [Conversation](#schema_conversation)
+   */
+  conversationId: string;
+  /**
+   * Type of the [Message](#schema_message) represents the resource type that the message is related to
+   */
+  type: string;
+  /**
+   * Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Message](#schema_message). The set of [Tags](/docs/developers/concepts/tags) available on a [Message](#schema_message) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them.
+   */
+  tags: {
+    [k: string]: string;
+  };
+  /**
+   * Schedule the Message to be sent at a specific time. Either dateTime or delay must be provided.
+   */
+  schedule?: {
+    /**
+     * When the [Message](#schema_message) will be sent, in the ISO 8601 format
+     */
+    dateTime?: string;
+    /**
+     * Delay in milliseconds before sending the [Message](#schema_message)
+     */
+    delay?: number;
+  };
+  origin?: "synthetic";
+}
+
+export type CreateMessageInput = CreateMessageRequestBody & CreateMessageRequestHeaders & CreateMessageRequestQuery & CreateMessageRequestParams
+
+export type CreateMessageRequest = {
+  headers: CreateMessageRequestHeaders;
+  query: CreateMessageRequestQuery;
+  params: CreateMessageRequestParams;
+  body: CreateMessageRequestBody;
+}
+
+export const parseReq = (input: CreateMessageInput): CreateMessageRequest & { path: string } => {
+  return {
+    path: `/v1/chat/messages`,
+    headers: {  },
+    query: {  },
+    params: {  },
+    body: { 'payload': input['payload'], 'userId': input['userId'], 'conversationId': input['conversationId'], 'type': input['type'], 'tags': input['tags'], 'schedule': input['schedule'], 'origin': input['origin'] },
+  }
+}
+
+export interface CreateMessageResponse {
+  /**
+   * The Message object represents a message in a [Conversation](#schema_conversation) for a specific [User](#schema_user).
+   */
+  message: {
+    /**
+     * Id of the [Message](#schema_message)
+     */
+    id: string;
+    /**
+     * Creation date of the [Message](#schema_message) in ISO 8601 format
+     */
+    createdAt: string;
+    /**
+     * Update date of the [Message](#schema_message) in ISO 8601 format
+     */
+    updatedAt: string;
+    /**
+     * Type of the [Message](#schema_message) represents the resource type that the message is related to
+     */
+    type: string;
+    /**
+     * Payload is the content type of the message. Accepted payload options: Text, Image, Choice, Dropdown, Card, Carousel, File, Audio, Video, Location
+     */
+    payload: {
+      [k: string]: any;
+    };
+    /**
+     * Direction of the message (`incoming` or `outgoing`).
+     */
+    direction: "incoming" | "outgoing";
+    /**
+     * ID of the [User](#schema_user)
+     */
+    userId: string;
+    /**
+     * ID of the [Conversation](#schema_conversation)
+     */
+    conversationId: string;
+    /**
+     * Set of [Tags](/docs/developers/concepts/tags) that you can attach to a [Conversation](#schema_conversation). The set of [Tags](/docs/developers/concepts/tags) available on a [Conversation](#schema_conversation) is restricted by the list of [Tags](/docs/developers/concepts/tags) defined previously by the [Bot](#schema_bot). Individual keys can be unset by posting an empty value to them.
+     */
+    tags: {
+      [k: string]: string;
+    };
+    /**
+     * Origin of the message (`synthetic`).
+     */
+    origin?: "synthetic";
+  };
+}
+

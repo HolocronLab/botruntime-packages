@@ -1,0 +1,53 @@
+// this file was automatically generated, do not edit
+/* eslint-disable */
+
+export interface GetBotIssueRequestHeaders {}
+
+export interface GetBotIssueRequestQuery {}
+
+export interface GetBotIssueRequestParams {
+  id: string;
+  issueId: string;
+}
+
+export interface GetBotIssueRequestBody {}
+
+export type GetBotIssueInput = GetBotIssueRequestBody & GetBotIssueRequestHeaders & GetBotIssueRequestQuery & GetBotIssueRequestParams
+
+export type GetBotIssueRequest = {
+  headers: GetBotIssueRequestHeaders;
+  query: GetBotIssueRequestQuery;
+  params: GetBotIssueRequestParams;
+  body: GetBotIssueRequestBody;
+}
+
+export const parseReq = (input: GetBotIssueInput): GetBotIssueRequest & { path: string } => {
+  return {
+    path: `/v1/admin/bots/${encodeURIComponent(input['id'])}/issues/${encodeURIComponent(input['issueId'])}`,
+    headers: {  },
+    query: {  },
+    params: { 'id': input['id'], 'issueId': input['issueId'] },
+    body: {  },
+  }
+}
+
+export interface GetBotIssueResponse {
+  issue: {
+    id: string;
+    code: string;
+    createdAt: string;
+    lastSeenAt: string;
+    title: string;
+    description: string;
+    groupedData: {
+      [k: string]: {
+        raw: string;
+        pretty?: string;
+      };
+    };
+    eventsCount: number;
+    category: "user_code" | "limits" | "configuration" | "other";
+    resolutionLink: string | null;
+  };
+}
+

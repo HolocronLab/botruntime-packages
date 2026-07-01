@@ -1,0 +1,66 @@
+// this file was automatically generated, do not edit
+/* eslint-disable */
+
+export interface ListWorkspaceQuotasRequestHeaders {}
+
+export interface ListWorkspaceQuotasRequestQuery {
+  period?: string;
+}
+
+export interface ListWorkspaceQuotasRequestParams {
+  id: string;
+}
+
+export interface ListWorkspaceQuotasRequestBody {}
+
+export type ListWorkspaceQuotasInput = ListWorkspaceQuotasRequestBody & ListWorkspaceQuotasRequestHeaders & ListWorkspaceQuotasRequestQuery & ListWorkspaceQuotasRequestParams
+
+export type ListWorkspaceQuotasRequest = {
+  headers: ListWorkspaceQuotasRequestHeaders;
+  query: ListWorkspaceQuotasRequestQuery;
+  params: ListWorkspaceQuotasRequestParams;
+  body: ListWorkspaceQuotasRequestBody;
+}
+
+export const parseReq = (input: ListWorkspaceQuotasInput): ListWorkspaceQuotasRequest & { path: string } => {
+  return {
+    path: `/v1/admin/workspaces/${encodeURIComponent(input['id'])}/quotas`,
+    headers: {  },
+    query: { 'period': input['period'] },
+    params: { 'id': input['id'] },
+    body: {  },
+  }
+}
+
+export interface ListWorkspaceQuotasResponse {
+  quotas: {
+    /**
+     * Period of the quota that it is applied to
+     */
+    period: string;
+    /**
+     * Value of the quota that is used
+     */
+    value: number;
+    /**
+     * Usage type that can be used
+     */
+    type:
+      | "invocation_timeout"
+      | "invocation_calls"
+      | "storage_count"
+      | "bot_count"
+      | "knowledgebase_vector_storage"
+      | "workspace_ratelimit"
+      | "table_row_count"
+      | "workspace_member_count"
+      | "integrations_owned_count"
+      | "ai_spend"
+      | "openai_spend"
+      | "bing_search_spend"
+      | "always_alive"
+      | "indexed_file_count"
+      | "file_max_size_bytes";
+  }[];
+}
+

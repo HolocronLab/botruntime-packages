@@ -1,0 +1,5124 @@
+{
+  "openapi": "3.0.0",
+  "servers": [
+    {
+      "url": "https://api.botpress.cloud"
+    }
+  ],
+  "info": {
+    "title": "Botpress Billing Public API",
+    "description": "API for Botpress Billing",
+    "version": "1.108.0"
+  },
+  "paths": {
+    "/v2/billing/readonly": {
+      "get": {
+        "operationId": "getBillingReadonly",
+        "description": "Get whether plan and addons are readonly for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getBillingReadonlyResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getBillingReadonlyResponse"
+          }
+        }
+      }
+    },
+    "/v2/billing/address": {
+      "get": {
+        "operationId": "getBillingAddress",
+        "description": "Get billing address for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getBillingAddressResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getBillingAddressResponse"
+          }
+        },
+        "deprecated": true
+      },
+      "put": {
+        "operationId": "setBillingAddress",
+        "description": "Set billing address for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setBillingAddressResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setBillingAddressResponse"
+          }
+        },
+        "deprecated": true,
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setBillingAddressBody"
+        }
+      }
+    },
+    "/v2/billing/customer": {
+      "get": {
+        "operationId": "getCustomer",
+        "description": "Get customer information for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getCustomerResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getCustomerResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "setCustomer",
+        "description": "Set customer information for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setCustomerResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setCustomerResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setCustomerBody"
+        }
+      }
+    },
+    "/v2/billing/plans/{planId}": {
+      "get": {
+        "operationId": "getPlan",
+        "description": "Get plan details",
+        "parameters": [
+          {
+            "name": "planId",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getPlanResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getPlanResponse"
+          }
+        }
+      }
+    },
+    "/v2/billing/plans": {
+      "get": {
+        "operationId": "listPlans",
+        "description": "List all available plans",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listPlansResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listPlansResponse"
+          }
+        }
+      },
+      "put": {
+        "operationId": "setPlan",
+        "description": "Update the plan for a workspace subscription",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setPlanResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setPlanResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setPlanBody"
+        }
+      }
+    },
+    "/v2/billing/addons/{addonId}": {
+      "get": {
+        "operationId": "getAddon",
+        "description": "Get addon details",
+        "parameters": [
+          {
+            "name": "addonId",
+            "in": "path",
+            "description": "Addon ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getAddonResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getAddonResponse"
+          }
+        }
+      }
+    },
+    "/v2/billing/addons": {
+      "get": {
+        "operationId": "listAddons",
+        "description": "List all available addons",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listAddonsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listAddonsResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "setAddons",
+        "description": "Update addons for a workspace subscription",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setAddonsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setAddonsResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setAddonsBody"
+        }
+      }
+    },
+    "/v2/billing/subscriptions": {
+      "get": {
+        "operationId": "getSubscription",
+        "description": "Get subscription for a workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getSubscriptionResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getSubscriptionResponse"
+          }
+        }
+      }
+    },
+    "/v2/billing/subscriptions/preview": {
+      "post": {
+        "operationId": "previewSubscriptionUpdate",
+        "description": "Preview subscription update costs (dry run)",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/previewSubscriptionUpdateResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/previewSubscriptionUpdateResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/previewSubscriptionUpdateBody"
+        }
+      }
+    },
+    "/v2/billing/subscriptions/cancel": {
+      "post": {
+        "operationId": "setCancelAtPeriodEnd",
+        "description": "Cancel the subscription at the end of the current period",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setCancelAtPeriodEndResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setCancelAtPeriodEndResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setCancelAtPeriodEndBody"
+        }
+      }
+    },
+    "/v2/billing/auto-recharge/settings": {
+      "get": {
+        "operationId": "getAutoRechargeSettings",
+        "description": "Get auto recharge settings for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getAutoRechargeSettingsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getAutoRechargeSettingsResponse"
+          }
+        }
+      },
+      "put": {
+        "operationId": "setAutoRechargeSettings",
+        "description": "Set auto recharge settings for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setAutoRechargeSettingsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setAutoRechargeSettingsResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setAutoRechargeSettingsBody"
+        }
+      }
+    },
+    "/v2/billing/trials": {
+      "get": {
+        "operationId": "getTrials",
+        "description": "Get trials for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getTrialsResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getTrialsResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTrial",
+        "description": "Create a trial for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/createTrialResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createTrialResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createTrialBody"
+        }
+      },
+      "delete": {
+        "operationId": "removeTrial",
+        "description": "Remove the active trial for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/removeTrialResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/removeTrialResponse"
+          }
+        }
+      }
+    },
+    "/v2/billing/credit-grants": {
+      "post": {
+        "operationId": "createCreditGrant",
+        "description": "Create a credit grant for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/createCreditGrantResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createCreditGrantResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createCreditGrantBody"
+        }
+      }
+    },
+    "/v2/billing/invoices": {
+      "get": {
+        "operationId": "listInvoices",
+        "description": "List invoices for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "nextToken",
+            "in": "query",
+            "description": "Provide the `meta.nextToken` value provided in the last API response to retrieve the next page of results",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Number of items to return per page (default 20, max 100)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/listInvoicesResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/listInvoicesResponse"
+          }
+        }
+      }
+    },
+    "/v2/billing/invoices/{invoiceId}/pay": {
+      "post": {
+        "operationId": "payInvoice",
+        "description": "Pay an invoice",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "description": "Stripe invoice ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/payInvoiceResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/payInvoiceResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/payInvoiceBody"
+        }
+      }
+    },
+    "/v2/billing/payment-methods": {
+      "get": {
+        "operationId": "getPaymentMethod",
+        "description": "Get the default payment method for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getPaymentMethodResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getPaymentMethodResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "setPaymentMethod",
+        "description": "Set the default payment method for the authenticated workspace",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/setPaymentMethodResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/setPaymentMethodResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/setPaymentMethodBody"
+        }
+      }
+    },
+    "/v2/billing/payment-methods/intent": {
+      "post": {
+        "operationId": "createPaymentMethodIntent",
+        "description": "Create a SetupIntent for collecting payment method details",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/createPaymentMethodIntentResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/createPaymentMethodIntentResponse"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/createPaymentMethodIntentBody"
+        }
+      }
+    },
+    "/v2/billing/quotas": {
+      "get": {
+        "operationId": "getQuotas",
+        "description": "Get calculated quotas for the authenticated workspace based on plan and addons",
+        "parameters": [
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getQuotasResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getQuotasResponse"
+          }
+        }
+      }
+    },
+    "/v2/usage/workspace-usage": {
+      "get": {
+        "operationId": "getWorkspaceUsage",
+        "description": "Get usage for a single feature for a workspace in the given period.",
+        "parameters": [
+          {
+            "name": "feature",
+            "in": "query",
+            "description": "The billing feature to query usage for",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "incoming_messages_events",
+                "integration_spend",
+                "table_rows",
+                "bot_count",
+                "collaborator_count",
+                "file_storage",
+                "vector_db_storage",
+                "saved_versions",
+                "indexed_file_count",
+                "conversation_sessions",
+                "ai_spend"
+              ]
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Any datetime within the desired billing month, ISO 8601. The month is inferred from this value.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Any datetime within the desired billing month, ISO 8601. The month is inferred from this value."
+            }
+          },
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getWorkspaceUsageResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getWorkspaceUsageResponse"
+          }
+        }
+      }
+    },
+    "/v2/usage/workspace-usages": {
+      "get": {
+        "operationId": "getWorkspaceUsages",
+        "description": "Get usage for all features for a workspace in the given period.",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Any datetime within the desired billing month, ISO 8601. The month is inferred from this value.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Any datetime within the desired billing month, ISO 8601. The month is inferred from this value."
+            }
+          },
+          {
+            "name": "x-workspace-id",
+            "in": "header",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/getWorkspaceUsagesResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/getWorkspaceUsagesResponse"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Invoice amount in dollars"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "paid",
+              "uncollectible",
+              "void"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "periodStart": {
+            "type": "string",
+            "nullable": true
+          },
+          "periodEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "pdfUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "currency",
+          "status",
+          "createdAt",
+          "periodStart",
+          "periodEnd",
+          "dueDate",
+          "pdfUrl"
+        ],
+        "additionalProperties": false
+      },
+      "Subscription": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "canceled",
+                      "past_due",
+                      "action_required",
+                      "incomplete",
+                      "grace_period"
+                    ]
+                  },
+                  "planId": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month",
+                      "year"
+                    ]
+                  },
+                  "price": {
+                    "type": "number"
+                  },
+                  "proratedPrice": {
+                    "type": "number"
+                  },
+                  "cancelAtPeriodEnd": {
+                    "type": "boolean"
+                  },
+                  "periodEnd": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "planId",
+                  "interval",
+                  "price",
+                  "cancelAtPeriodEnd",
+                  "periodEnd"
+                ],
+                "additionalProperties": false
+              },
+              "next": {
+                "type": "object",
+                "properties": {
+                  "planId": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month",
+                      "year"
+                    ]
+                  },
+                  "price": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "effectiveDate": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "planId",
+                  "interval",
+                  "price",
+                  "effectiveDate"
+                ],
+                "nullable": true,
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "current",
+              "next"
+            ],
+            "additionalProperties": false
+          },
+          "addons": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "proratedPrice": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "quantity",
+                    "price"
+                  ],
+                  "additionalProperties": false
+                },
+                "next": {
+                  "type": "object",
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "effectiveDate": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "quantity",
+                    "price",
+                    "effectiveDate"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "current",
+                "next"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "discounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "couponId": {
+                  "type": "string"
+                },
+                "promotionCode": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "percentOff": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "amountOff": {
+                  "type": "number",
+                  "description": "Discount amount in dollars, or null if percent-based",
+                  "nullable": true
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "duration": {
+                  "type": "string",
+                  "enum": [
+                    "forever",
+                    "once",
+                    "repeating"
+                  ]
+                },
+                "durationInMonths": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "couponId",
+                "promotionCode",
+                "name",
+                "percentOff",
+                "amountOff",
+                "currency",
+                "duration",
+                "durationInMonths",
+                "start",
+                "end"
+              ],
+              "description": "Active discount/coupon on a subscription"
+            },
+            "description": "Active discounts applied to the subscription"
+          }
+        },
+        "required": [
+          "plan",
+          "addons",
+          "discounts"
+        ],
+        "additionalProperties": false
+      },
+      "SubscriptionPreview": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "canceled",
+                      "past_due",
+                      "action_required",
+                      "incomplete",
+                      "grace_period"
+                    ]
+                  },
+                  "planId": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month",
+                      "year"
+                    ]
+                  },
+                  "price": {
+                    "type": "number"
+                  },
+                  "proratedPrice": {
+                    "type": "number"
+                  },
+                  "cancelAtPeriodEnd": {
+                    "type": "boolean"
+                  },
+                  "periodEnd": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "planId",
+                  "interval",
+                  "price",
+                  "cancelAtPeriodEnd",
+                  "periodEnd"
+                ],
+                "additionalProperties": false
+              },
+              "next": {
+                "type": "object",
+                "properties": {
+                  "planId": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month",
+                      "year"
+                    ]
+                  },
+                  "price": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "effectiveDate": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "planId",
+                  "interval",
+                  "price",
+                  "effectiveDate"
+                ],
+                "nullable": true,
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "current",
+              "next"
+            ],
+            "additionalProperties": false
+          },
+          "addons": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "proratedPrice": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "quantity",
+                    "price"
+                  ],
+                  "additionalProperties": false
+                },
+                "next": {
+                  "type": "object",
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "effectiveDate": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "quantity",
+                    "price",
+                    "effectiveDate"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "current",
+                "next"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "discounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "couponId": {
+                  "type": "string"
+                },
+                "promotionCode": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "percentOff": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "amountOff": {
+                  "type": "number",
+                  "description": "Discount amount in dollars, or null if percent-based",
+                  "nullable": true
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "duration": {
+                  "type": "string",
+                  "enum": [
+                    "forever",
+                    "once",
+                    "repeating"
+                  ]
+                },
+                "durationInMonths": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "couponId",
+                "promotionCode",
+                "name",
+                "percentOff",
+                "amountOff",
+                "currency",
+                "duration",
+                "durationInMonths",
+                "start",
+                "end"
+              ],
+              "description": "Active discount/coupon on a subscription"
+            },
+            "description": "Active discounts applied to the subscription"
+          }
+        },
+        "required": [
+          "plan",
+          "addons",
+          "discounts"
+        ],
+        "additionalProperties": false
+      },
+      "SubscriptionUpdateParams": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "planId": {
+                "type": "string",
+                "description": "New plan ID (optional)"
+              },
+              "interval": {
+                "type": "string",
+                "enum": [
+                  "month",
+                  "year"
+                ],
+                "description": "New billing interval (optional)"
+              }
+            },
+            "required": [
+              "planId",
+              "interval"
+            ],
+            "additionalProperties": false
+          },
+          "addons": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Map of addon IDs to quantities (optional). Set quantity to 0 to remove addon."
+          },
+          "couponCode": {
+            "type": "string",
+            "description": "Promotion code to apply with this subscription change (optional)"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "additionalProperties": false
+      },
+      "SubscriptionDetails": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "canceled",
+                      "past_due",
+                      "action_required",
+                      "incomplete",
+                      "grace_period"
+                    ]
+                  },
+                  "planId": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month",
+                      "year"
+                    ]
+                  },
+                  "price": {
+                    "type": "number"
+                  },
+                  "proratedPrice": {
+                    "type": "number"
+                  },
+                  "cancelAtPeriodEnd": {
+                    "type": "boolean"
+                  },
+                  "periodEnd": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "planId",
+                  "interval",
+                  "price",
+                  "cancelAtPeriodEnd",
+                  "periodEnd"
+                ],
+                "additionalProperties": false
+              },
+              "next": {
+                "type": "object",
+                "properties": {
+                  "planId": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month",
+                      "year"
+                    ]
+                  },
+                  "price": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "effectiveDate": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "planId",
+                  "interval",
+                  "price",
+                  "effectiveDate"
+                ],
+                "nullable": true,
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "current",
+              "next"
+            ],
+            "additionalProperties": false
+          },
+          "addons": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "proratedPrice": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "quantity",
+                    "price"
+                  ],
+                  "additionalProperties": false
+                },
+                "next": {
+                  "type": "object",
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "effectiveDate": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "quantity",
+                    "price",
+                    "effectiveDate"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "current",
+                "next"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "discounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "couponId": {
+                  "type": "string"
+                },
+                "promotionCode": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "percentOff": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "amountOff": {
+                  "type": "number",
+                  "description": "Discount amount in dollars, or null if percent-based",
+                  "nullable": true
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "duration": {
+                  "type": "string",
+                  "enum": [
+                    "forever",
+                    "once",
+                    "repeating"
+                  ]
+                },
+                "durationInMonths": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "couponId",
+                "promotionCode",
+                "name",
+                "percentOff",
+                "amountOff",
+                "currency",
+                "duration",
+                "durationInMonths",
+                "start",
+                "end"
+              ],
+              "description": "Active discount/coupon on a subscription"
+            },
+            "description": "Active discounts applied to the subscription"
+          }
+        },
+        "required": [
+          "plan",
+          "addons",
+          "discounts"
+        ],
+        "description": "Subscription details including current plan, addons, and costs",
+        "additionalProperties": false
+      },
+      "SetPlanParams": {
+        "type": "object",
+        "properties": {
+          "planId": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "month",
+              "year"
+            ]
+          },
+          "testReferenceTime": {
+            "type": "number"
+          },
+          "couponCode": {
+            "type": "string",
+            "description": "Promotion code to apply with this plan change (optional)"
+          }
+        },
+        "required": [
+          "planId",
+          "interval"
+        ],
+        "description": "Plan update parameters",
+        "additionalProperties": false
+      },
+      "SetAddonsParams": {
+        "type": "object",
+        "properties": {
+          "addons": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "couponCode": {
+            "type": "string",
+            "description": "Promotion code to apply with this addon change (optional)"
+          }
+        },
+        "required": [
+          "addons"
+        ],
+        "description": "Addons update parameters. Set quantity to 0 to remove an addon.",
+        "additionalProperties": false
+      },
+      "BillingAddress": {
+        "type": "object",
+        "properties": {
+          "lineOne": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lineTwo": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$"
+          }
+        },
+        "required": [
+          "lineOne",
+          "city",
+          "postalCode",
+          "country"
+        ],
+        "additionalProperties": false
+      },
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "object",
+            "properties": {
+              "lineOne": {
+                "type": "string",
+                "minLength": 1
+              },
+              "lineTwo": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string",
+                "minLength": 1
+              },
+              "state": {
+                "type": "string"
+              },
+              "postalCode": {
+                "type": "string",
+                "minLength": 1
+              },
+              "country": {
+                "type": "string",
+                "pattern": "^[A-Za-z]{2}$"
+              }
+            },
+            "required": [
+              "lineOne",
+              "city",
+              "postalCode",
+              "country"
+            ],
+            "nullable": true,
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxIds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "ad_nrt",
+                    "ae_trn",
+                    "al_tin",
+                    "am_tin",
+                    "ao_tin",
+                    "ar_cuit",
+                    "au_abn",
+                    "au_arn",
+                    "aw_tin",
+                    "az_tin",
+                    "ba_tin",
+                    "bb_tin",
+                    "bd_bin",
+                    "bf_ifu",
+                    "bg_uic",
+                    "bh_vat",
+                    "bj_ifu",
+                    "bo_tin",
+                    "br_cnpj",
+                    "br_cpf",
+                    "bs_tin",
+                    "by_tin",
+                    "ca_bn",
+                    "ca_gst_hst",
+                    "ca_pst_bc",
+                    "ca_pst_mb",
+                    "ca_pst_sk",
+                    "ca_qst",
+                    "cd_nif",
+                    "ch_uid",
+                    "ch_vat",
+                    "cl_tin",
+                    "cm_niu",
+                    "cn_tin",
+                    "co_nit",
+                    "cr_tin",
+                    "cv_nif",
+                    "de_stn",
+                    "do_rcn",
+                    "ec_ruc",
+                    "eg_tin",
+                    "es_cif",
+                    "et_tin",
+                    "eu_oss_vat",
+                    "eu_vat",
+                    "gb_vat",
+                    "ge_vat",
+                    "gn_nif",
+                    "hk_br",
+                    "hr_oib",
+                    "hu_tin",
+                    "id_npwp",
+                    "il_vat",
+                    "in_gst",
+                    "is_vat",
+                    "jp_cn",
+                    "jp_rn",
+                    "jp_trn",
+                    "ke_pin",
+                    "kg_tin",
+                    "kh_tin",
+                    "kr_brn",
+                    "kz_bin",
+                    "la_tin",
+                    "li_uid",
+                    "li_vat",
+                    "ma_vat",
+                    "md_vat",
+                    "me_pib",
+                    "mk_vat",
+                    "mr_nif",
+                    "mx_rfc",
+                    "my_frp",
+                    "my_itn",
+                    "my_sst",
+                    "ng_tin",
+                    "no_vat",
+                    "no_voec",
+                    "np_pan",
+                    "nz_gst",
+                    "om_vat",
+                    "pe_ruc",
+                    "ph_tin",
+                    "ro_tin",
+                    "rs_pib",
+                    "ru_inn",
+                    "ru_kpp",
+                    "sa_vat",
+                    "sg_gst",
+                    "sg_uen",
+                    "si_tin",
+                    "sn_ninea",
+                    "sr_fin",
+                    "sv_nit",
+                    "th_vat",
+                    "tj_tin",
+                    "tr_tin",
+                    "tw_vat",
+                    "tz_vat",
+                    "ua_vat",
+                    "ug_tin",
+                    "us_ein",
+                    "uy_ruc",
+                    "uz_tin",
+                    "uz_vat",
+                    "ve_rif",
+                    "vn_tin",
+                    "za_vat",
+                    "zm_tin",
+                    "zw_tin"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ]
+            }
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "taxIds"
+        ],
+        "additionalProperties": false
+      },
+      "Trial": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "trialPlan": {
+            "type": "string"
+          },
+          "fromPlan": {
+            "type": "string"
+          },
+          "endsAt": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "trialPlan",
+          "fromPlan",
+          "endsAt",
+          "isActive"
+        ],
+        "additionalProperties": false
+      },
+      "GetTrialsResponse": {
+        "type": "object",
+        "properties": {
+          "trials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "trialPlan": {
+                  "type": "string"
+                },
+                "fromPlan": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "trialPlan",
+                "fromPlan",
+                "endsAt",
+                "isActive"
+              ]
+            }
+          }
+        },
+        "required": [
+          "trials"
+        ],
+        "additionalProperties": false
+      },
+      "CreateTrialParams": {
+        "type": "object",
+        "properties": {
+          "lengthInDays": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "plan": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lengthInDays",
+          "plan"
+        ],
+        "additionalProperties": false
+      },
+      "GetAutoRechargeSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "disabledReason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "SetAutoRechargeSettingsParams": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "CreditGrant": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Dollar value of the credit grant (e.g. 10 = $10.00 USD)"
+          },
+          "feature": {
+            "type": "string",
+            "enum": [
+              "incoming_messages_events",
+              "integration_spend",
+              "table_rows",
+              "bot_count",
+              "collaborator_count",
+              "file_storage",
+              "vector_db_storage",
+              "saved_versions",
+              "indexed_file_count",
+              "conversation_sessions",
+              "ai_spend"
+            ]
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start of the period (inclusive)"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time",
+            "description": "End of the period (exclusive)"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "invoice_id",
+          "amount",
+          "feature",
+          "period_start",
+          "period_end",
+          "updatedAt",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "CreateCreditGrantParams": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Nanodollar value of the credit grant (e.g. 10_000_000_000 = $10.00 USD)"
+          },
+          "feature": {
+            "type": "string",
+            "enum": [
+              "ai_spend"
+            ]
+          }
+        },
+        "required": [
+          "amount",
+          "feature"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "getBillingReadonlyResponse": {
+        "description": "Whether plan and addons are readonly for this workspace",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "planReadonly": {
+                  "type": "boolean"
+                },
+                "addonsReadonly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "planReadonly",
+                "addonsReadonly"
+              ],
+              "title": "getBillingReadonlyResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getBillingAddressResponse": {
+        "description": "Workspace billing address",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "object",
+                  "properties": {
+                    "lineOne": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "lineTwo": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "postalCode": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "country": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z]{2}$"
+                    }
+                  },
+                  "required": [
+                    "lineOne",
+                    "city",
+                    "postalCode",
+                    "country"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "address"
+              ],
+              "title": "getBillingAddressResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setBillingAddressResponse": {
+        "description": "Updated",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "setBillingAddressResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getCustomerResponse": {
+        "description": "Workspace customer information",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "object",
+                  "properties": {
+                    "lineOne": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "lineTwo": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "postalCode": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "country": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z]{2}$"
+                    }
+                  },
+                  "required": [
+                    "lineOne",
+                    "city",
+                    "postalCode",
+                    "country"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "taxIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ad_nrt",
+                          "ae_trn",
+                          "al_tin",
+                          "am_tin",
+                          "ao_tin",
+                          "ar_cuit",
+                          "au_abn",
+                          "au_arn",
+                          "aw_tin",
+                          "az_tin",
+                          "ba_tin",
+                          "bb_tin",
+                          "bd_bin",
+                          "bf_ifu",
+                          "bg_uic",
+                          "bh_vat",
+                          "bj_ifu",
+                          "bo_tin",
+                          "br_cnpj",
+                          "br_cpf",
+                          "bs_tin",
+                          "by_tin",
+                          "ca_bn",
+                          "ca_gst_hst",
+                          "ca_pst_bc",
+                          "ca_pst_mb",
+                          "ca_pst_sk",
+                          "ca_qst",
+                          "cd_nif",
+                          "ch_uid",
+                          "ch_vat",
+                          "cl_tin",
+                          "cm_niu",
+                          "cn_tin",
+                          "co_nit",
+                          "cr_tin",
+                          "cv_nif",
+                          "de_stn",
+                          "do_rcn",
+                          "ec_ruc",
+                          "eg_tin",
+                          "es_cif",
+                          "et_tin",
+                          "eu_oss_vat",
+                          "eu_vat",
+                          "gb_vat",
+                          "ge_vat",
+                          "gn_nif",
+                          "hk_br",
+                          "hr_oib",
+                          "hu_tin",
+                          "id_npwp",
+                          "il_vat",
+                          "in_gst",
+                          "is_vat",
+                          "jp_cn",
+                          "jp_rn",
+                          "jp_trn",
+                          "ke_pin",
+                          "kg_tin",
+                          "kh_tin",
+                          "kr_brn",
+                          "kz_bin",
+                          "la_tin",
+                          "li_uid",
+                          "li_vat",
+                          "ma_vat",
+                          "md_vat",
+                          "me_pib",
+                          "mk_vat",
+                          "mr_nif",
+                          "mx_rfc",
+                          "my_frp",
+                          "my_itn",
+                          "my_sst",
+                          "ng_tin",
+                          "no_vat",
+                          "no_voec",
+                          "np_pan",
+                          "nz_gst",
+                          "om_vat",
+                          "pe_ruc",
+                          "ph_tin",
+                          "ro_tin",
+                          "rs_pib",
+                          "ru_inn",
+                          "ru_kpp",
+                          "sa_vat",
+                          "sg_gst",
+                          "sg_uen",
+                          "si_tin",
+                          "sn_ninea",
+                          "sr_fin",
+                          "sv_nit",
+                          "th_vat",
+                          "tj_tin",
+                          "tr_tin",
+                          "tw_vat",
+                          "tz_vat",
+                          "ua_vat",
+                          "ug_tin",
+                          "us_ein",
+                          "uy_ruc",
+                          "uz_tin",
+                          "uz_vat",
+                          "ve_rif",
+                          "vn_tin",
+                          "za_vat",
+                          "zm_tin",
+                          "zw_tin"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "address",
+                "name",
+                "taxIds"
+              ],
+              "title": "getCustomerResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setCustomerResponse": {
+        "description": "Updated customer information",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "object",
+                  "properties": {
+                    "lineOne": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "lineTwo": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "postalCode": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "country": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z]{2}$"
+                    }
+                  },
+                  "required": [
+                    "lineOne",
+                    "city",
+                    "postalCode",
+                    "country"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "taxIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ad_nrt",
+                          "ae_trn",
+                          "al_tin",
+                          "am_tin",
+                          "ao_tin",
+                          "ar_cuit",
+                          "au_abn",
+                          "au_arn",
+                          "aw_tin",
+                          "az_tin",
+                          "ba_tin",
+                          "bb_tin",
+                          "bd_bin",
+                          "bf_ifu",
+                          "bg_uic",
+                          "bh_vat",
+                          "bj_ifu",
+                          "bo_tin",
+                          "br_cnpj",
+                          "br_cpf",
+                          "bs_tin",
+                          "by_tin",
+                          "ca_bn",
+                          "ca_gst_hst",
+                          "ca_pst_bc",
+                          "ca_pst_mb",
+                          "ca_pst_sk",
+                          "ca_qst",
+                          "cd_nif",
+                          "ch_uid",
+                          "ch_vat",
+                          "cl_tin",
+                          "cm_niu",
+                          "cn_tin",
+                          "co_nit",
+                          "cr_tin",
+                          "cv_nif",
+                          "de_stn",
+                          "do_rcn",
+                          "ec_ruc",
+                          "eg_tin",
+                          "es_cif",
+                          "et_tin",
+                          "eu_oss_vat",
+                          "eu_vat",
+                          "gb_vat",
+                          "ge_vat",
+                          "gn_nif",
+                          "hk_br",
+                          "hr_oib",
+                          "hu_tin",
+                          "id_npwp",
+                          "il_vat",
+                          "in_gst",
+                          "is_vat",
+                          "jp_cn",
+                          "jp_rn",
+                          "jp_trn",
+                          "ke_pin",
+                          "kg_tin",
+                          "kh_tin",
+                          "kr_brn",
+                          "kz_bin",
+                          "la_tin",
+                          "li_uid",
+                          "li_vat",
+                          "ma_vat",
+                          "md_vat",
+                          "me_pib",
+                          "mk_vat",
+                          "mr_nif",
+                          "mx_rfc",
+                          "my_frp",
+                          "my_itn",
+                          "my_sst",
+                          "ng_tin",
+                          "no_vat",
+                          "no_voec",
+                          "np_pan",
+                          "nz_gst",
+                          "om_vat",
+                          "pe_ruc",
+                          "ph_tin",
+                          "ro_tin",
+                          "rs_pib",
+                          "ru_inn",
+                          "ru_kpp",
+                          "sa_vat",
+                          "sg_gst",
+                          "sg_uen",
+                          "si_tin",
+                          "sn_ninea",
+                          "sr_fin",
+                          "sv_nit",
+                          "th_vat",
+                          "tj_tin",
+                          "tr_tin",
+                          "tw_vat",
+                          "tz_vat",
+                          "ua_vat",
+                          "ug_tin",
+                          "us_ein",
+                          "uy_ruc",
+                          "uz_tin",
+                          "uz_vat",
+                          "ve_rif",
+                          "vn_tin",
+                          "za_vat",
+                          "zm_tin",
+                          "zw_tin"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "address",
+                "name",
+                "taxIds"
+              ],
+              "title": "setCustomerResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getPlanResponse": {
+        "description": "Plan details",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "prices": {
+                  "type": "object",
+                  "properties": {
+                    "month": {
+                      "type": "object",
+                      "properties": {
+                        "amount": {
+                          "type": "number",
+                          "description": "Price in dollars"
+                        },
+                        "currency": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "currency"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "year": {
+                      "type": "object",
+                      "properties": {
+                        "amount": {
+                          "type": "number",
+                          "description": "Price in dollars"
+                        },
+                        "currency": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "currency"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "features": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "description",
+                "prices",
+                "features"
+              ],
+              "title": "getPlanResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listPlansResponse": {
+        "description": "List of plans",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "prices": {
+                    "type": "object",
+                    "properties": {
+                      "month": {
+                        "type": "object",
+                        "properties": {
+                          "amount": {
+                            "type": "number",
+                            "description": "Price in dollars"
+                          },
+                          "currency": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "amount",
+                          "currency"
+                        ]
+                      },
+                      "year": {
+                        "type": "object",
+                        "properties": {
+                          "amount": {
+                            "type": "number",
+                            "description": "Price in dollars"
+                          },
+                          "currency": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "amount",
+                          "currency"
+                        ]
+                      }
+                    }
+                  },
+                  "features": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "description",
+                  "prices",
+                  "features"
+                ],
+                "title": "getPlanResponse"
+              },
+              "title": "listPlansResponse"
+            }
+          }
+        }
+      },
+      "getAddonResponse": {
+        "description": "Addon details",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "prices": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "amount": {
+                        "type": "number",
+                        "description": "Price in dollars"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "string",
+                        "enum": [
+                          "month",
+                          "year"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "amount",
+                      "currency",
+                      "interval"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "increments": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "description",
+                "prices",
+                "increments"
+              ],
+              "title": "getAddonResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listAddonsResponse": {
+        "description": "List of addons",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "prices": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "amount": {
+                          "type": "number",
+                          "description": "Price in dollars"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "currency",
+                        "interval"
+                      ]
+                    }
+                  },
+                  "increments": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "description",
+                  "prices",
+                  "increments"
+                ],
+                "title": "getAddonResponse"
+              },
+              "title": "listAddonsResponse"
+            }
+          }
+        }
+      },
+      "getSubscriptionResponse": {
+        "description": "Subscription details",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "plan": {
+                  "type": "object",
+                  "properties": {
+                    "current": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "canceled",
+                            "past_due",
+                            "action_required",
+                            "incomplete",
+                            "grace_period"
+                          ]
+                        },
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number"
+                        },
+                        "proratedPrice": {
+                          "type": "number"
+                        },
+                        "cancelAtPeriodEnd": {
+                          "type": "boolean"
+                        },
+                        "periodEnd": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "planId",
+                        "interval",
+                        "price",
+                        "cancelAtPeriodEnd",
+                        "periodEnd"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "next": {
+                      "type": "object",
+                      "properties": {
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "effectiveDate": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "planId",
+                        "interval",
+                        "price",
+                        "effectiveDate"
+                      ],
+                      "nullable": true,
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "current",
+                    "next"
+                  ],
+                  "additionalProperties": false
+                },
+                "addons": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "current": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "proratedPrice": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "next": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "effectiveDate": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price",
+                          "effectiveDate"
+                        ],
+                        "nullable": true,
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "current",
+                      "next"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "discounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "couponId": {
+                        "type": "string"
+                      },
+                      "promotionCode": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "percentOff": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "amountOff": {
+                        "type": "number",
+                        "description": "Discount amount in dollars, or null if percent-based",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "duration": {
+                        "type": "string",
+                        "enum": [
+                          "forever",
+                          "once",
+                          "repeating"
+                        ]
+                      },
+                      "durationInMonths": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "couponId",
+                      "promotionCode",
+                      "name",
+                      "percentOff",
+                      "amountOff",
+                      "currency",
+                      "duration",
+                      "durationInMonths",
+                      "start",
+                      "end"
+                    ],
+                    "description": "Active discount/coupon on a subscription"
+                  },
+                  "description": "Active discounts applied to the subscription"
+                }
+              },
+              "required": [
+                "plan",
+                "addons",
+                "discounts"
+              ],
+              "title": "getSubscriptionResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "previewSubscriptionUpdateResponse": {
+        "description": "Preview of subscription update costs",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "subscription": {
+                  "type": "object",
+                  "properties": {
+                    "plan": {
+                      "type": "object",
+                      "properties": {
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "effectiveDate": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "planId",
+                        "interval",
+                        "effectiveDate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "addons": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "effectiveDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "autoAdjusted": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "effectiveDate"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "plan",
+                    "addons"
+                  ],
+                  "additionalProperties": false
+                },
+                "changeType": {
+                  "type": "string",
+                  "enum": [
+                    "upgrade",
+                    "downgrade",
+                    "same"
+                  ]
+                },
+                "costs": {
+                  "type": "object",
+                  "properties": {
+                    "immediate": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number",
+                          "description": "Sum of proration line items only (not next-cycle charges)"
+                        },
+                        "accountBalance": {
+                          "type": "number",
+                          "description": "Customer account balance applied (negative = credit used)"
+                        },
+                        "amountDue": {
+                          "type": "number",
+                          "description": "Actual amount charged after credits applied"
+                        },
+                        "lineItems": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "plan",
+                                  "addon",
+                                  "proration_credit",
+                                  "proration_charge",
+                                  "discount"
+                                ]
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "number",
+                                "description": "Line item amount in dollars"
+                              },
+                              "quantity": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "id",
+                              "description",
+                              "amount"
+                            ],
+                            "description": "A line item in the cost breakdown"
+                          }
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "accountBalance",
+                        "amountDue",
+                        "lineItems"
+                      ],
+                      "description": "Prorated charges due immediately (0 for downgrades)",
+                      "additionalProperties": false
+                    },
+                    "nextCycle": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "lineItems": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "plan",
+                                  "addon",
+                                  "proration_credit",
+                                  "proration_charge",
+                                  "discount"
+                                ]
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "number",
+                                "description": "Line item amount in dollars"
+                              },
+                              "quantity": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "id",
+                              "description",
+                              "amount"
+                            ],
+                            "description": "A line item in the cost breakdown"
+                          }
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "lineItems"
+                      ],
+                      "description": "Recurring cost for the next billing cycle (plan + addons combined)",
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "immediate",
+                    "nextCycle"
+                  ],
+                  "additionalProperties": false
+                },
+                "discounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "couponId": {
+                        "type": "string"
+                      },
+                      "promotionCode": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "percentOff": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "amountOff": {
+                        "type": "number",
+                        "description": "Discount amount in dollars, or null if percent-based",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "duration": {
+                        "type": "string",
+                        "enum": [
+                          "forever",
+                          "once",
+                          "repeating"
+                        ]
+                      },
+                      "durationInMonths": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "couponId",
+                      "promotionCode",
+                      "name",
+                      "percentOff",
+                      "amountOff",
+                      "currency",
+                      "duration",
+                      "durationInMonths",
+                      "start",
+                      "end"
+                    ],
+                    "description": "Active discount/coupon on a subscription"
+                  },
+                  "description": "Active discounts applied to the subscription"
+                },
+                "nextBillingDate": {
+                  "type": "string",
+                  "description": "Date of the next billing cycle (1st of next month for new subscriptions)"
+                }
+              },
+              "required": [
+                "subscription",
+                "changeType",
+                "costs",
+                "nextBillingDate"
+              ],
+              "description": "Preview of subscription update costs",
+              "title": "previewSubscriptionUpdateResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setPlanResponse": {
+        "description": "Updated subscription details",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "plan": {
+                  "type": "object",
+                  "properties": {
+                    "current": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "canceled",
+                            "past_due",
+                            "action_required",
+                            "incomplete",
+                            "grace_period"
+                          ]
+                        },
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number"
+                        },
+                        "proratedPrice": {
+                          "type": "number"
+                        },
+                        "cancelAtPeriodEnd": {
+                          "type": "boolean"
+                        },
+                        "periodEnd": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "planId",
+                        "interval",
+                        "price",
+                        "cancelAtPeriodEnd",
+                        "periodEnd"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "next": {
+                      "type": "object",
+                      "properties": {
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "effectiveDate": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "planId",
+                        "interval",
+                        "price",
+                        "effectiveDate"
+                      ],
+                      "nullable": true,
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "current",
+                    "next"
+                  ],
+                  "additionalProperties": false
+                },
+                "addons": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "current": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "proratedPrice": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "next": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "effectiveDate": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price",
+                          "effectiveDate"
+                        ],
+                        "nullable": true,
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "current",
+                      "next"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "discounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "couponId": {
+                        "type": "string"
+                      },
+                      "promotionCode": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "percentOff": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "amountOff": {
+                        "type": "number",
+                        "description": "Discount amount in dollars, or null if percent-based",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "duration": {
+                        "type": "string",
+                        "enum": [
+                          "forever",
+                          "once",
+                          "repeating"
+                        ]
+                      },
+                      "durationInMonths": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "couponId",
+                      "promotionCode",
+                      "name",
+                      "percentOff",
+                      "amountOff",
+                      "currency",
+                      "duration",
+                      "durationInMonths",
+                      "start",
+                      "end"
+                    ],
+                    "description": "Active discount/coupon on a subscription"
+                  },
+                  "description": "Active discounts applied to the subscription"
+                }
+              },
+              "required": [
+                "plan",
+                "addons",
+                "discounts"
+              ],
+              "description": "Subscription details including current plan, addons, and costs",
+              "title": "setPlanResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setAddonsResponse": {
+        "description": "Updated subscription details",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "plan": {
+                  "type": "object",
+                  "properties": {
+                    "current": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "canceled",
+                            "past_due",
+                            "action_required",
+                            "incomplete",
+                            "grace_period"
+                          ]
+                        },
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number"
+                        },
+                        "proratedPrice": {
+                          "type": "number"
+                        },
+                        "cancelAtPeriodEnd": {
+                          "type": "boolean"
+                        },
+                        "periodEnd": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "planId",
+                        "interval",
+                        "price",
+                        "cancelAtPeriodEnd",
+                        "periodEnd"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "next": {
+                      "type": "object",
+                      "properties": {
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "effectiveDate": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "planId",
+                        "interval",
+                        "price",
+                        "effectiveDate"
+                      ],
+                      "nullable": true,
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "current",
+                    "next"
+                  ],
+                  "additionalProperties": false
+                },
+                "addons": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "current": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "proratedPrice": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "next": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "effectiveDate": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price",
+                          "effectiveDate"
+                        ],
+                        "nullable": true,
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "current",
+                      "next"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "discounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "couponId": {
+                        "type": "string"
+                      },
+                      "promotionCode": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "percentOff": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "amountOff": {
+                        "type": "number",
+                        "description": "Discount amount in dollars, or null if percent-based",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "duration": {
+                        "type": "string",
+                        "enum": [
+                          "forever",
+                          "once",
+                          "repeating"
+                        ]
+                      },
+                      "durationInMonths": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "couponId",
+                      "promotionCode",
+                      "name",
+                      "percentOff",
+                      "amountOff",
+                      "currency",
+                      "duration",
+                      "durationInMonths",
+                      "start",
+                      "end"
+                    ],
+                    "description": "Active discount/coupon on a subscription"
+                  },
+                  "description": "Active discounts applied to the subscription"
+                }
+              },
+              "required": [
+                "plan",
+                "addons",
+                "discounts"
+              ],
+              "description": "Subscription details including current plan, addons, and costs",
+              "title": "setAddonsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setCancelAtPeriodEndResponse": {
+        "description": "Updated subscription details",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "plan": {
+                  "type": "object",
+                  "properties": {
+                    "current": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "canceled",
+                            "past_due",
+                            "action_required",
+                            "incomplete",
+                            "grace_period"
+                          ]
+                        },
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number"
+                        },
+                        "proratedPrice": {
+                          "type": "number"
+                        },
+                        "cancelAtPeriodEnd": {
+                          "type": "boolean"
+                        },
+                        "periodEnd": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "planId",
+                        "interval",
+                        "price",
+                        "cancelAtPeriodEnd",
+                        "periodEnd"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "next": {
+                      "type": "object",
+                      "properties": {
+                        "planId": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "month",
+                            "year"
+                          ]
+                        },
+                        "price": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "effectiveDate": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "planId",
+                        "interval",
+                        "price",
+                        "effectiveDate"
+                      ],
+                      "nullable": true,
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "current",
+                    "next"
+                  ],
+                  "additionalProperties": false
+                },
+                "addons": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "current": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "proratedPrice": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "next": {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "effectiveDate": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "price",
+                          "effectiveDate"
+                        ],
+                        "nullable": true,
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "current",
+                      "next"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "discounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "couponId": {
+                        "type": "string"
+                      },
+                      "promotionCode": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "percentOff": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "amountOff": {
+                        "type": "number",
+                        "description": "Discount amount in dollars, or null if percent-based",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "duration": {
+                        "type": "string",
+                        "enum": [
+                          "forever",
+                          "once",
+                          "repeating"
+                        ]
+                      },
+                      "durationInMonths": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "couponId",
+                      "promotionCode",
+                      "name",
+                      "percentOff",
+                      "amountOff",
+                      "currency",
+                      "duration",
+                      "durationInMonths",
+                      "start",
+                      "end"
+                    ],
+                    "description": "Active discount/coupon on a subscription"
+                  },
+                  "description": "Active discounts applied to the subscription"
+                }
+              },
+              "required": [
+                "plan",
+                "addons",
+                "discounts"
+              ],
+              "description": "Subscription details including current plan, addons, and costs",
+              "title": "setCancelAtPeriodEndResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getAutoRechargeSettingsResponse": {
+        "description": "Auto recharge settings",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "disabledReason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "enabled"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "settings"
+              ],
+              "title": "getAutoRechargeSettingsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setAutoRechargeSettingsResponse": {
+        "description": "Updated auto recharge settings",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "disabledReason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "enabled"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "settings"
+              ],
+              "title": "setAutoRechargeSettingsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getTrialsResponse": {
+        "description": "Workspace trials",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "trials": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "trialPlan": {
+                        "type": "string"
+                      },
+                      "fromPlan": {
+                        "type": "string"
+                      },
+                      "endsAt": {
+                        "type": "string"
+                      },
+                      "isActive": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "trialPlan",
+                      "fromPlan",
+                      "endsAt",
+                      "isActive"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "trials"
+              ],
+              "title": "getTrialsResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createTrialResponse": {
+        "description": "Created trial",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "trialPlan": {
+                  "type": "string"
+                },
+                "fromPlan": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "trialPlan",
+                "fromPlan",
+                "endsAt",
+                "isActive"
+              ],
+              "title": "createTrialResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "removeTrialResponse": {
+        "description": "Trial removed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "removeTrialResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createCreditGrantResponse": {
+        "description": "Created credit grant",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                },
+                "invoice_id": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "Dollar value of the credit grant (e.g. 10 = $10.00 USD)"
+                },
+                "feature": {
+                  "type": "string",
+                  "enum": [
+                    "incoming_messages_events",
+                    "integration_spend",
+                    "table_rows",
+                    "bot_count",
+                    "collaborator_count",
+                    "file_storage",
+                    "vector_db_storage",
+                    "saved_versions",
+                    "indexed_file_count",
+                    "conversation_sessions",
+                    "ai_spend"
+                  ]
+                },
+                "period_start": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Start of the period (inclusive)"
+                },
+                "period_end": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "End of the period (exclusive)"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "workspace_id",
+                "invoice_id",
+                "amount",
+                "feature",
+                "period_start",
+                "period_end",
+                "updatedAt",
+                "createdAt"
+              ],
+              "title": "createCreditGrantResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "listInvoicesResponse": {
+        "description": "List of invoices",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "invoices": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "number",
+                        "description": "Invoice amount in dollars"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "draft",
+                          "open",
+                          "paid",
+                          "uncollectible",
+                          "void"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "periodStart": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "periodEnd": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "dueDate": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "pdfUrl": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "amount",
+                      "currency",
+                      "status",
+                      "createdAt",
+                      "periodStart",
+                      "periodEnd",
+                      "dueDate",
+                      "pdfUrl"
+                    ]
+                  }
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "nextToken": {
+                      "type": "string",
+                      "description": "The token to use to retrieve the next page of results, passed as a query string parameter (value should be URL-encoded) to this API endpoint."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "invoices",
+                "meta"
+              ],
+              "title": "listInvoicesResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "payInvoiceResponse": {
+        "description": "Paid invoice",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "Invoice amount in dollars"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "open",
+                    "paid",
+                    "uncollectible",
+                    "void"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "periodStart": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "periodEnd": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "dueDate": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "pdfUrl": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "amount",
+                "currency",
+                "status",
+                "createdAt",
+                "periodStart",
+                "periodEnd",
+                "dueDate",
+                "pdfUrl"
+              ],
+              "title": "payInvoiceResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getPaymentMethodResponse": {
+        "description": "Payment method or null if not set",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "paymentMethod": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "card": {
+                      "type": "object",
+                      "properties": {
+                        "brand": {
+                          "type": "string"
+                        },
+                        "lastFour": {
+                          "type": "string"
+                        },
+                        "expMonth": {
+                          "type": "number"
+                        },
+                        "expYear": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "brand",
+                        "lastFour",
+                        "expMonth",
+                        "expYear"
+                      ],
+                      "nullable": true,
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "card"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "paymentMethod"
+              ],
+              "title": "getPaymentMethodResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setPaymentMethodResponse": {
+        "description": "The payment method that was set",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "card": {
+                  "type": "object",
+                  "properties": {
+                    "brand": {
+                      "type": "string"
+                    },
+                    "lastFour": {
+                      "type": "string"
+                    },
+                    "expMonth": {
+                      "type": "number"
+                    },
+                    "expYear": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "brand",
+                    "lastFour",
+                    "expMonth",
+                    "expYear"
+                  ],
+                  "nullable": true,
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "card"
+              ],
+              "title": "setPaymentMethodResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createPaymentMethodIntentResponse": {
+        "description": "Setup intent with client secret",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "clientSecret": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clientSecret"
+              ],
+              "title": "createPaymentMethodIntentResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getQuotasResponse": {
+        "description": "Calculated quotas for the workspace (featureId -> value)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              },
+              "title": "getQuotasResponse"
+            }
+          }
+        }
+      },
+      "getWorkspaceUsageResponse": {
+        "description": "Usage and quota for the specified feature in the inferred month. Note that the usage can be undefined",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "usage": {
+                  "type": "number"
+                },
+                "quota": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "quota"
+              ],
+              "title": "getWorkspaceUsageResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "getWorkspaceUsagesResponse": {
+        "description": "Usage and quota breakdown by feature for the inferred month. Note that a given feature's usage can be undefined. A feature for which we have usage, but no quota will not appear here",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "quotas": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "usage": {
+                        "type": "number"
+                      },
+                      "quota": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "quota"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "quotas"
+              ],
+              "title": "getWorkspaceUsagesResponse",
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "requestBodies": {
+      "setBillingAddressBody": {
+        "description": "Billing address",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "lineOne": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "lineTwo": {
+                  "type": "string"
+                },
+                "city": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "type": "string"
+                },
+                "postalCode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "country": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z]{2}$"
+                }
+              },
+              "required": [
+                "lineOne",
+                "city",
+                "postalCode",
+                "country"
+              ],
+              "title": "setBillingAddressBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setCustomerBody": {
+        "description": "Customer information",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "object",
+                  "properties": {
+                    "lineOne": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "lineTwo": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "postalCode": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "country": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z]{2}$"
+                    }
+                  },
+                  "required": [
+                    "lineOne",
+                    "city",
+                    "postalCode",
+                    "country"
+                  ],
+                  "additionalProperties": false
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "taxIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ad_nrt",
+                          "ae_trn",
+                          "al_tin",
+                          "am_tin",
+                          "ao_tin",
+                          "ar_cuit",
+                          "au_abn",
+                          "au_arn",
+                          "aw_tin",
+                          "az_tin",
+                          "ba_tin",
+                          "bb_tin",
+                          "bd_bin",
+                          "bf_ifu",
+                          "bg_uic",
+                          "bh_vat",
+                          "bj_ifu",
+                          "bo_tin",
+                          "br_cnpj",
+                          "br_cpf",
+                          "bs_tin",
+                          "by_tin",
+                          "ca_bn",
+                          "ca_gst_hst",
+                          "ca_pst_bc",
+                          "ca_pst_mb",
+                          "ca_pst_sk",
+                          "ca_qst",
+                          "cd_nif",
+                          "ch_uid",
+                          "ch_vat",
+                          "cl_tin",
+                          "cm_niu",
+                          "cn_tin",
+                          "co_nit",
+                          "cr_tin",
+                          "cv_nif",
+                          "de_stn",
+                          "do_rcn",
+                          "ec_ruc",
+                          "eg_tin",
+                          "es_cif",
+                          "et_tin",
+                          "eu_oss_vat",
+                          "eu_vat",
+                          "gb_vat",
+                          "ge_vat",
+                          "gn_nif",
+                          "hk_br",
+                          "hr_oib",
+                          "hu_tin",
+                          "id_npwp",
+                          "il_vat",
+                          "in_gst",
+                          "is_vat",
+                          "jp_cn",
+                          "jp_rn",
+                          "jp_trn",
+                          "ke_pin",
+                          "kg_tin",
+                          "kh_tin",
+                          "kr_brn",
+                          "kz_bin",
+                          "la_tin",
+                          "li_uid",
+                          "li_vat",
+                          "ma_vat",
+                          "md_vat",
+                          "me_pib",
+                          "mk_vat",
+                          "mr_nif",
+                          "mx_rfc",
+                          "my_frp",
+                          "my_itn",
+                          "my_sst",
+                          "ng_tin",
+                          "no_vat",
+                          "no_voec",
+                          "np_pan",
+                          "nz_gst",
+                          "om_vat",
+                          "pe_ruc",
+                          "ph_tin",
+                          "ro_tin",
+                          "rs_pib",
+                          "ru_inn",
+                          "ru_kpp",
+                          "sa_vat",
+                          "sg_gst",
+                          "sg_uen",
+                          "si_tin",
+                          "sn_ninea",
+                          "sr_fin",
+                          "sv_nit",
+                          "th_vat",
+                          "tj_tin",
+                          "tr_tin",
+                          "tw_vat",
+                          "tz_vat",
+                          "ua_vat",
+                          "ug_tin",
+                          "us_ein",
+                          "uy_ruc",
+                          "uz_tin",
+                          "uz_vat",
+                          "ve_rif",
+                          "vn_tin",
+                          "za_vat",
+                          "zm_tin",
+                          "zw_tin"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "title": "setCustomerBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "previewSubscriptionUpdateBody": {
+        "description": "Subscription update parameters to preview",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "plan": {
+                  "type": "object",
+                  "properties": {
+                    "planId": {
+                      "type": "string",
+                      "description": "New plan ID (optional)"
+                    },
+                    "interval": {
+                      "type": "string",
+                      "enum": [
+                        "month",
+                        "year"
+                      ],
+                      "description": "New billing interval (optional)"
+                    }
+                  },
+                  "required": [
+                    "planId",
+                    "interval"
+                  ],
+                  "additionalProperties": false
+                },
+                "addons": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "description": "Map of addon IDs to quantities (optional). Set quantity to 0 to remove addon."
+                },
+                "couponCode": {
+                  "type": "string",
+                  "description": "Promotion code to apply with this subscription change (optional)"
+                }
+              },
+              "required": [
+                "plan"
+              ],
+              "title": "previewSubscriptionUpdateBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setPlanBody": {
+        "description": "Plan update parameters",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "planId": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "string",
+                  "enum": [
+                    "month",
+                    "year"
+                  ]
+                },
+                "testReferenceTime": {
+                  "type": "number"
+                },
+                "couponCode": {
+                  "type": "string",
+                  "description": "Promotion code to apply with this plan change (optional)"
+                }
+              },
+              "required": [
+                "planId",
+                "interval"
+              ],
+              "description": "Plan update parameters",
+              "title": "setPlanBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setAddonsBody": {
+        "description": "Addons update parameters. Set quantity to 0 to remove an addon.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "addons": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                "couponCode": {
+                  "type": "string",
+                  "description": "Promotion code to apply with this addon change (optional)"
+                }
+              },
+              "required": [
+                "addons"
+              ],
+              "description": "Addons update parameters. Set quantity to 0 to remove an addon.",
+              "title": "setAddonsBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setCancelAtPeriodEndBody": {
+        "description": "Cancel subscription request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "setCancelAtPeriodEndBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setAutoRechargeSettingsBody": {
+        "description": "Auto recharge settings (partial update)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      }
+                    },
+                    "required": [
+                      "enabled"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "settings"
+              ],
+              "title": "setAutoRechargeSettingsBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createTrialBody": {
+        "description": "Trial parameters",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "lengthInDays": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "exclusiveMinimum": true
+                },
+                "plan": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "lengthInDays",
+                "plan"
+              ],
+              "title": "createTrialBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createCreditGrantBody": {
+        "description": "Create credit grant request body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Nanodollar value of the credit grant (e.g. 10_000_000_000 = $10.00 USD)"
+                },
+                "feature": {
+                  "type": "string",
+                  "enum": [
+                    "ai_spend"
+                  ]
+                }
+              },
+              "required": [
+                "amount",
+                "feature"
+              ],
+              "title": "createCreditGrantBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "payInvoiceBody": {
+        "description": "Pay invoice request body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "idempotencyKey": {
+                  "type": "string"
+                }
+              },
+              "title": "payInvoiceBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "setPaymentMethodBody": {
+        "description": "Set payment method request body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "paymentMethodId": {
+                  "type": "string",
+                  "description": "Stripe payment method ID"
+                }
+              },
+              "required": [
+                "paymentMethodId"
+              ],
+              "title": "setPaymentMethodBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "createPaymentMethodIntentBody": {
+        "description": "Create payment method intent request body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "title": "createPaymentMethodIntentBody",
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "parameters": {},
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": []
+}
