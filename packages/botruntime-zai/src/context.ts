@@ -1,0 +1,261 @@
+import { Cognitive, Model, GenerateContentInput, GenerateContentOutput } from '@holocronlab/botruntime-cognitive'
+import { Adapter } from './adapters/adapter'
+import { EventEmitter } from './emitter'
+import { fastHash } from './utils'
+import type { Memoizer } from './zai'
+
+type Meta = Awaited<ReturnType<Cognitive['generateContent']>>['meta']
+
+type GenerateContentProps<T> = Omit<GenerateContentInput, 'model' | 'signal'> & {
+  maxRetries?: number
+  transform?: (text: string | undefined, output: GenerateContentOutput) => T
+}
+
+export type ZaiContextProps = {
+  client: Cognitive
+  taskType: string
+  taskId: string
+  modelId: string | string[]
+  adapter?: Adapter
+  source?: GenerateContentInput['meta']
+  memoizer?: Memoizer
+}
+
+/**
+ * Usage statistics tracking tokens, cost, and request metrics for an operation.
+ *
+ * This type is returned via Response events and the `.result()` method, providing
+ * real-time visibility into:
+ * - Token consumption (input/output/total)
+ * - Cost in USD (input/output/total)
+ * - Request statistics (count, errors, cache hits, progress percentage)
+ *
+ * @example
+ * ```typescript
+ * const { usage } = await zai.extract(text, schema).result()
+ *
+ * console.log(usage.tokens.total)    // 1250
+ * console.log(usage.cost.total)      // 0.0075 (USD)
+ * console.log(usage.requests.cached) // 0
+ * ```
+ */
+export type Usage = {
+  /** Request statistics */
+  requests: {
+    /** Total number of requests initiated */
+    requests: number
+    /** Number of requests that failed with errors */
+    errors: number
+    /** Number of successful responses received */
+    responses: number
+    /** Number of responses served from cache (no tokens used) */
+    cached: number
+    /** Operation progress as a decimal (0.0 to 1.0) */
+    percentage: number
+  }
+  /** Cost statistics in USD */
+  cost: {
+    /** Cost for input tokens */
+    input: number
+    /** Cost for output tokens */
+    output: number
+    /** Total cost (input + output) */
+    total: number
+  }
+  /** Token usage statistics */
+  tokens: {
+    /** Input tokens consumed */
+    input: number
+    /** Output tokens generated */
+    output: number
+    /** Total tokens (input + output) */
+    total: number
+  }
+}
+
+type ContextEvents = {
+  update: Usage
+}
+
+export class ZaiContext {
+  private _startedAt = Date.now()
+
+  private _inputCost = 0
+  private _outputCost = 0
+  private _inputTokens = 0
+  private _outputTokens = 0
+  private _totalCachedResponses = 0
+
+  private _totalRequests = 0
+  private _totalErrors = 0
+  private _totalResponses = 0
+
+  public taskId: string
+  public taskType: string
+  public modelId: GenerateContentInput['model']
+  public adapter?: Adapter
+  public source?: GenerateContentInput['meta']
+
+  private _eventEmitter: EventEmitter<ContextEvents>
+  private _memoizer: Memoizer
+
+  public controller: AbortController = new AbortController()
+  private _client: Cognitive
+
+  private static _noopMemoizer: Memoizer = { run: (_id, fn) => fn() }
+
+  public constructor(props: ZaiContextProps) {
+    this._client = props.client.clone()
+    this.taskId = props.taskId
+    this.modelId = props.modelId
+    this.adapter = props.adapter
+    this.source = props.source
+    this.taskType = props.taskType
+    this._memoizer = props.memoizer ?? ZaiContext._noopMemoizer
+    this._eventEmitter = new EventEmitter<ContextEvents>()
+
+    this._client.on('request', () => {
+      this._totalRequests++
+      this._eventEmitter.emit('update', this.usage)
+    })
+
+    this._client.on('response', (_req, res) => {
+      this._totalResponses++
+
+      if (res.meta.cached) {
+        this._totalCachedResponses++
+      } else {
+        this._inputTokens += res.meta.tokens.input || 0
+        this._outputTokens += res.meta.tokens.output || 0
+        this._inputCost += res.meta.cost.input || 0
+        this._outputCost += res.meta.cost.output || 0
+      }
+
+      this._eventEmitter.emit('update', this.usage)
+    })
+
+    this._client.on('error', () => {
+      this._totalErrors++
+      this._eventEmitter.emit('update', this.usage)
+    })
+  }
+
+  public async getModel(): Promise<Model> {
+    // getModelDetails resolves a single model; for a fallback array we report
+    // the primary entry's details. Fallbacks are honored at the request layer.
+    const primary = Array.isArray(this.modelId) ? this.modelId[0] : this.modelId
+    return this._client.getModelDetails(primary)
+  }
+
+  public on<K extends keyof ContextEvents>(type: K, listener: (event: ContextEvents[K]) => void) {
+    this._eventEmitter.on(type, listener)
+    return this
+  }
+
+  public clear() {
+    this._eventEmitter.clear()
+  }
+
+  public async generateContent<Out = string>(
+    props: GenerateContentProps<Out>
+  ): Promise<{ meta: Meta; output: GenerateContentOutput; text: string | undefined; extracted: Out }> {
+    const memoKey = `zai:memo:${this.taskType}:${this.taskId || 'default'}:${fastHash(
+      JSON.stringify({
+        s: props.systemPrompt,
+        m: props.messages?.map((m) => ('content' in m ? m.content : '')),
+        st: props.stopSequences,
+      })
+    )}`
+
+    return this._memoizer.run(memoKey, () => this._generateContentInner(props))
+  }
+
+  private async _generateContentInner<Out = string>(
+    props: GenerateContentProps<Out>
+  ): Promise<{ meta: Meta; output: GenerateContentOutput; text: string | undefined; extracted: Out }> {
+    const maxRetries = Math.max(props.maxRetries ?? 3, 0)
+    const transform = props.transform
+    let lastError: Error | null = null
+    const messages = [...(props.messages || [])]
+
+    for (let attempt = 0; attempt <= maxRetries && !this.controller.signal.aborted; attempt++) {
+      try {
+        const response = await this._client.generateContent({
+          ...props,
+          messages,
+          signal: this.controller.signal,
+          model: this.modelId,
+          meta: {
+            integrationName: props.meta?.integrationName || 'zai',
+            promptCategory: props.meta?.promptCategory || `zai:${this.taskType}`,
+            promptSource: props.meta?.promptSource || `zai:${this.taskType}:${this.taskId ?? 'default'}`,
+          },
+        })
+
+        if (this.controller.signal.aborted) {
+          throw this.controller.signal.reason
+        }
+
+        const content = response.output.choices[0]?.content
+        const str = typeof content === 'string' ? content : content?.[0]?.text || ''
+        let output: Out
+
+        messages.push({
+          role: 'assistant',
+          content: str || '<Invalid output, no content provided>',
+        })
+
+        if (!transform) {
+          output = str as Out
+        } else {
+          output = transform(str, response.output)
+        }
+
+        return { meta: response.meta, output: response.output, text: str, extracted: output }
+      } catch (error) {
+        if (this.controller.signal.aborted) {
+          throw this.controller.signal.reason
+        }
+
+        lastError = error as Error
+
+        if (attempt === maxRetries) {
+          throw lastError
+        }
+
+        messages.push({
+          role: 'user',
+          content: `ERROR PARSING OUTPUT\n\n${lastError.message}.\n\nPlease return a valid response addressing the error above.`,
+        })
+      }
+    }
+
+    throw lastError
+  }
+
+  public get elapsedTime(): number {
+    return Date.now() - this._startedAt
+  }
+
+  public get usage(): Usage {
+    return {
+      requests: {
+        errors: this._totalErrors,
+        requests: this._totalRequests,
+        responses: this._totalResponses,
+        cached: this._totalCachedResponses,
+        percentage: this._totalRequests > 0 ? (this._totalResponses + this._totalErrors) / this._totalRequests : 0,
+      },
+      tokens: {
+        input: this._inputTokens,
+        output: this._outputTokens,
+        total: this._inputTokens + this._outputTokens,
+      },
+      cost: {
+        input: this._inputCost,
+        output: this._outputCost,
+        total: this._inputCost + this._outputCost,
+      },
+    }
+  }
+}

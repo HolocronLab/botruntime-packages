@@ -1,10 +1,10 @@
 {
   "name": "@holocronlab/botruntime-const",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
-  "description": "Resource-id prefix map used to validate botruntime resource ids (e.g. bot_, kb_).",
+  "description": "Resource-id prefix map, branded id types, and limit configs used by botruntime (e.g. bot_, kb_, FileId, limitConfigs).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "license": "MIT",

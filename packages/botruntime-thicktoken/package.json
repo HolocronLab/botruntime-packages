@@ -1,0 +1,42 @@
+{
+  "name": "@holocronlab/botruntime-thicktoken",
+  "version": "2.0.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "description": "Tiktoken but thicker; a bundled tokenizer with added helper functions",
+  "license": "ISC",
+  "main": "./dist/tokenizer.js",
+  "module": "./dist/tokenizer.mjs",
+  "types": "./dist/tokenizer.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/tokenizer.d.ts",
+      "import": "./dist/tokenizer.mjs",
+      "require": "./dist/tokenizer.js"
+    }
+  },
+  "files": [
+    "dist",
+    "readme.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
+    "directory": "packages/botruntime-thicktoken"
+  },
+  "scripts": {
+    "check:type": "tsc --noEmit",
+    "build": "tsup"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.4",
+    "tiktoken": "^1.0.17",
+    "tsup": "^8.3.6",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

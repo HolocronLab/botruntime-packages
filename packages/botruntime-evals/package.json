@@ -1,0 +1,126 @@
+{
+  "name": "@holocronlab/botruntime-evals",
+  "version": "2.0.2",
+  "description": "Evaluation definitions and runner for ADK-based botruntime agents",
+  "keywords": ["adk", "agent", "ai", "evals", "evaluation"],
+  "license": "MIT",
+  "author": "HolocronLab",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
+    "directory": "packages/botruntime-evals"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": ["dist/**/*", "package.json", "readme.md", "LICENSE"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "manifest": ["./dist/manifest.d.ts"],
+      "stores": ["./dist/stores/index.d.ts"],
+      "stores/vortex": ["./dist/stores/vortex-eval-store-entry.d.ts"],
+      "spans": ["./dist/spans/index.d.ts"],
+      "runner": ["./dist/runner.d.ts"],
+      "loader": ["./dist/loader.d.ts"],
+      "client": ["./dist/client.d.ts"],
+      "graders": ["./dist/graders/index.d.ts"],
+      "trace": ["./dist/spans/trace.d.ts"],
+      "transformer": ["./dist/transformer.d.ts"],
+      "types": ["./dist/types.d.ts"],
+      "sse-collector": ["./dist/spans/sse-collector.d.ts"],
+      "definition": ["./dist/definition.d.ts"]
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./definition": {
+      "types": "./dist/definition.d.ts",
+      "import": "./dist/definition.js"
+    },
+    "./graders": {
+      "types": "./dist/graders/index.d.ts",
+      "import": "./dist/graders/index.js"
+    },
+    "./graders/*": {
+      "types": "./dist/graders/*.d.ts",
+      "import": "./dist/graders/*.js"
+    },
+    "./loader": {
+      "types": "./dist/loader.d.ts",
+      "import": "./dist/loader.js"
+    },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js"
+    },
+    "./spans": {
+      "types": "./dist/spans/index.d.ts",
+      "import": "./dist/spans/index.js"
+    },
+    "./stores": {
+      "types": "./dist/stores/index.d.ts",
+      "import": "./dist/stores/index.js"
+    },
+    "./stores/vortex": {
+      "types": "./dist/stores/vortex-eval-store-entry.d.ts",
+      "import": "./dist/stores/vortex-eval-store-entry.js"
+    },
+    "./sse-collector": {
+      "types": "./dist/spans/sse-collector.d.ts",
+      "import": "./dist/spans/sse-collector.js"
+    },
+    "./trace": {
+      "types": "./dist/spans/trace.d.ts",
+      "import": "./dist/spans/trace.js"
+    },
+    "./transformer": {
+      "types": "./dist/transformer.d.ts",
+      "import": "./dist/transformer.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    }
+  },
+  "scripts": {
+    "check:type": "tsc --noEmit",
+    "build:js": "bun build.ts",
+    "build:type": "tsc -p tsconfig.build.json",
+    "build": "bun run build:js && bun run build:type",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run clean && bun run build"
+  },
+  "dependencies": {
+    "@holocronlab/botruntime-chat": "file:../botruntime-chat",
+    "@holocronlab/botruntime-client": "file:../botruntime-client",
+    "@holocronlab/botruntime-cognitive": "file:../botruntime-cognitive",
+    "@holocronlab/botruntime-zai": "file:../botruntime-zai"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.4",
+    "bun-types": "1.3.14",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.5.0"
+  },
+  "engines": {
+    "bun": ">=1.3.14",
+    "node": ">=22.0.0"
+  },
+  "packageManager": "bun@1.3.14"
+}

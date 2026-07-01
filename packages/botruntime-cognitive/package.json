@@ -1,0 +1,48 @@
+{
+  "name": "@holocronlab/botruntime-cognitive",
+  "version": "0.6.1",
+  "description": "Wrapper around the botruntime Client to call LLMs",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "readme.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "check:type": "tsc --noEmit",
+    "build:type": "rollup -c rollup.dts.config.mjs",
+    "build:neutral": "ts-node -T ./build.ts --neutral",
+    "build": "ts-node -T ./build.ts --neutral && rollup -c rollup.dts.config.mjs",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "exponential-backoff": "^3.1.1",
+    "nanoevents": "^9.1.0"
+  },
+  "devDependencies": {
+    "@holocronlab/botruntime-client": "file:../botruntime-client",
+    "@types/node": "^22.16.4",
+    "esbuild": "^0.25.10",
+    "rollup": "^4.60.4",
+    "rollup-plugin-dts": "^6.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
+    "directory": "packages/botruntime-cognitive"
+  },
+  "author": "HolocronLab",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

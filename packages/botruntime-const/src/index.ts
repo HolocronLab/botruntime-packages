@@ -1,74 +1,9 @@
 /**
- * Map of resource-id prefixes (e.g. `bot_`, `kb_`) to their object type name.
- *
- * This is a minimal, faithful reimplementation of the `prefixToObjectMap`
- * exported by `@bpinternal/const`. Only this single symbol is reproduced
- * here (brt only ever reads `Object.keys(prefixToObjectMap)` to validate
- * resource-id prefixes) — the upstream package additionally ships ~40
- * files of internal Botpress billing configuration that brt never uses.
+ * Minimal, faithful reimplementation of the handful of symbols brt needs
+ * from `@bpinternal/const`: `prefixToObjectMap` and `FileId` (from
+ * `./prefixes`) and `limitConfigs` (from `./limits`). The upstream package
+ * additionally ships ~40 files of internal Botpress billing configuration
+ * (plans, meters, addons, quotas, etc.) that brt never uses.
  */
-export const prefixToObjectMap = {
-  accnt: 'account',
-  accntpf: 'accountPreference',
-  action: 'action',
-  activty: 'activity',
-  anlytic: 'analytics',
-  audit: 'audit',
-  bak: 'botApiKey',
-  bot: 'bot',
-  card: 'card',
-  cfg: 'configuration',
-  channel: 'channel',
-  conv: 'conversation',
-  devbot: 'devBot',
-  devint: 'devIntegration',
-  evt: 'event',
-  file: 'file',
-  flow: 'flow',
-  iak: 'integrationApiKey',
-  int: 'integration',
-  iface: 'interface',
-  ifver: 'interfaceVersion',
-  intver: 'integrationVersion',
-  iss: 'issue',
-  issevt: 'issueEvent',
-  kb: 'knowledgeBase',
-  limit: 'limit',
-  media: 'media',
-  msg: 'message',
-  node: 'node',
-  notif: 'notification',
-  pat: 'personalAccessToken',
-  plugin: 'plugin',
-  plugver: 'pluginVersion',
-  quota: 'quota',
-  recevt: 'recurringEvent',
-  report: 'report',
-  sandbox: 'sandbox',
-  schema: 'schema',
-  script: 'script',
-  state: 'state',
-  table: 'table',
-  tag: 'tag',
-  task: 'task',
-  archrg: 'autoRechargeSetting',
-  archtx: 'autoRechargeTransaction',
-  crgrant: 'creditGrant',
-  job: 'job',
-  pcrgrant: 'pendingCreditGrant',
-  promo: 'promoCode',
-  smgevt: 'smaugEvent',
-  usage: 'usage',
-  user: 'user',
-  webhook: 'webhook',
-  wkspace: 'workspace',
-  wksadd: 'workspaceAddon',
-  wksqtaadd: 'workspaceQuotaAddition',
-  wksplan: 'workspacePlan',
-  wrkflow: 'workflow',
-  wkspacepf: 'workspacePreference',
-  trial: 'trial',
-  evlrun: 'evalRun',
-  evlent: 'evalEntry',
-  evlres: 'evalResult',
-} as const
+export * from './prefixes'
+export * from './limits'

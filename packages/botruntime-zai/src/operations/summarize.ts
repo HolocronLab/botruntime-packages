@@ -1,0 +1,313 @@
+// eslint-disable consistent-type-definitions
+import { z } from '@holocronlab/botruntime-zui'
+
+import { chunk } from 'lodash-es'
+import pLimit from 'p-limit'
+import { ZaiContext } from '../context'
+import { Response } from '../response'
+
+import { getTokenizer } from '../tokenizer'
+import { Zai } from '../zai'
+import { PROMPT_INPUT_BUFFER, PROMPT_OUTPUT_BUFFER } from './constants'
+
+export type Options = {
+  /** What should the text be summarized to? */
+  prompt?: string
+  /** How to format the example text */
+  format?: string
+  /** The length of the summary in tokens */
+  length?: number
+  /** How many times longer (than final length) are the intermediate summaries generated */
+  intermediateFactor?: number
+  /** The maximum number of iterations to perform */
+  maxIterations?: number
+  /** Sliding window options */
+  sliding?: {
+    window: number
+    overlap: number
+  }
+}
+
+const Options = z.object({
+  prompt: z
+    .string()
+    .describe('What should the text be summarized to?')
+    .default('New information, concepts and ideas that are deemed important'),
+  format: z
+    .string()
+    .describe('How to format the example text')
+    .default(
+      'A normal text with multiple sentences and paragraphs. Use markdown to format the text into sections. Use headings, lists, and other markdown features to make the text more readable. Do not include links, images, or other non-text elements.'
+    ),
+  length: z.number().min(10).max(100_000).describe('The length of the summary in tokens').default(250),
+  intermediateFactor: z
+    .number()
+    .min(1)
+    .max(10)
+    .describe('How many times longer (than final length) are the intermediate summaries generated')
+    .default(4),
+  maxIterations: z.number().min(1).default(100),
+  sliding: z
+    .object({
+      window: z.number().min(10).max(100_000),
+      overlap: z.number().min(0).max(100_000),
+    })
+    .describe('Sliding window options')
+    .default({ window: 50_000, overlap: 250 }),
+})
+
+declare module '@holocronlab/botruntime-zai' {
+  interface Zai {
+    /**
+     * Summarizes text of any length to a target length using intelligent chunking strategies.
+     *
+     * This operation can handle documents from a few paragraphs to entire books. It uses
+     * two strategies based on document size:
+     * - **Sliding window**: For moderate documents, processes overlapping chunks iteratively
+     * - **Merge sort**: For very large documents, recursively summarizes and merges
+     *
+     * @param original - The text to summarize
+     * @param options - Configuration for length, focus, format, and chunking strategy
+     * @returns Response promise resolving to the summary text
+     *
+     * @example Basic summarization
+     * ```typescript
+     * const article = "Long article text here..."
+     * const summary = await zai.summarize(article, {
+     *   length: 100 // Target 100 tokens (~75 words)
+     * })
+     * ```
+     *
+     * @example Custom focus and format
+     * ```typescript
+     * const meetingNotes = "... detailed meeting transcript ..."
+     * const summary = await zai.summarize(meetingNotes, {
+     *   length: 200,
+     *   prompt: 'Key decisions, action items, and next steps',
+     *   format: 'Bullet points with clear sections for Decisions, Actions, and Next Steps'
+     * })
+     * ```
+     *
+     * @example Summarizing very large documents
+     * ```typescript
+     * const book = await readFile('large-book.txt', 'utf-8') // 100k+ tokens
+     * const summary = await zai.summarize(book, {
+     *   length: 500,
+     *   intermediateFactor: 4, // Intermediate summaries can be 4x target length
+     *   prompt: 'Main themes, key events, and character development'
+     * })
+     * // Automatically uses merge-sort strategy for efficiency
+     * ```
+     *
+     * @example Technical documentation summary
+     * ```typescript
+     * const docs = "... API documentation ..."
+     * const summary = await zai.summarize(docs, {
+     *   length: 300,
+     *   prompt: 'Core API endpoints, authentication methods, and rate limits',
+     *   format: 'Structured markdown with code examples where relevant'
+     * })
+     * ```
+     *
+     * @example Adjusting chunking strategy
+     * ```typescript
+     * const summary = await zai.summarize(document, {
+     *   length: 150,
+     *   sliding: {
+     *     window: 30000,  // Process 30k tokens at a time
+     *     overlap: 500    // 500 token overlap between windows
+     *   }
+     * })
+     * ```
+     *
+     * @example Progress tracking for long documents
+     * ```typescript
+     * const response = zai.summarize(veryLongDocument, { length: 400 })
+     *
+     * response.on('progress', (usage) => {
+     *   console.log(`Progress: ${Math.round(usage.requests.percentage * 100)}%`)
+     *   console.log(`Tokens used: ${usage.tokens.total}`)
+     * })
+     *
+     * const summary = await response
+     * ```
+     */
+    summarize(original: string, options?: Options): Response<string>
+  }
+}
+
+const START = '■START■'
+const END = '■END■'
+
+const summarize = async (original: string, options: Options, ctx: ZaiContext): Promise<string> => {
+  ctx.controller.signal.throwIfAborted()
+  const tokenizer = await getTokenizer()
+  const model = await ctx.getModel()
+
+  const INPUT_COMPONENT_SIZE = Math.max(100, (model.input.maxTokens - PROMPT_INPUT_BUFFER) / 4)
+  options.prompt = tokenizer.truncate(options.prompt, INPUT_COMPONENT_SIZE)
+  options.format = tokenizer.truncate(options.format, INPUT_COMPONENT_SIZE)
+
+  const maxOutputSize = model.output.maxTokens - PROMPT_OUTPUT_BUFFER
+  if (options.length > maxOutputSize) {
+    throw new Error(
+      `The desired output length is ${maxOutputSize} tokens long, which is more than the maximum of ${model.output.maxTokens} tokens for this model (${model.name})`
+    )
+  }
+
+  // Ensure the sliding window is not bigger than the model input size
+  options.sliding.window = Math.min(options.sliding.window, model.input.maxTokens - PROMPT_INPUT_BUFFER)
+
+  // Ensure the overlap is not bigger than the window
+  // Most extreme case possible (all 3 same size)
+  // |ooooooooooooooooooo|wwwwwwwwwwwwwww|ooooooooooooooooooo|
+  // |<---- overlap ---->|<--  window -->|<---- overlap ---->|
+  options.sliding.overlap = Math.min(options.sliding.overlap, options.sliding.window - 3 * options.sliding.overlap)
+
+  const format = (summary: string, newText: string) => {
+    return `
+${START}
+${summary.length ? summary : '<summary still empty>'}
+${END}
+
+Please amend the summary between the ${START} and ${END} tags to accurately reflect the prompt and the additional text below.
+
+<|start_new_information|>
+${newText}
+<|new_information|>`.trim()
+  }
+
+  const tokens = tokenizer.split(original)
+  const parts = Math.ceil(tokens.length / (options.sliding.window - options.sliding.overlap))
+  let iteration = 0
+
+  // We split it recursively into smaller parts until we're at less than 4 window slides per part
+  // Then we use a merge strategy to combine the sub-chunks summaries
+  // This is basically a merge sort algorithm (but summary instead of sorting)
+  const N = 2 // This is the merge sort exponent
+  const useMergeSort = parts >= Math.pow(2, N)
+  const chunkSize = Math.ceil(tokens.length / (parts * N))
+
+  if (useMergeSort) {
+    const limit = pLimit(10) // Limit to 10 concurrent summarization operations
+    const chunks = chunk(tokens, chunkSize).map((x) => x.join(''))
+    const allSummaries = (await Promise.allSettled(chunks.map((chunk) => limit(() => summarize(chunk, options, ctx)))))
+      .filter((x) => x.status === 'fulfilled')
+      .map((x) => x.value)
+    return summarize(allSummaries.join('\n\n============\n\n'), options, ctx)
+  }
+
+  const summaries: string[] = []
+  let currentSummary = ''
+
+  for (let i = 0; i < tokens.length; i += options.sliding.window) {
+    const from = Math.max(0, i - options.sliding.overlap)
+    const to = Math.min(tokens.length, i + options.sliding.window + options.sliding.overlap)
+    const isFirst = i === 0
+    const isLast = to >= tokens.length
+
+    const slice = tokens.slice(from, to).join('')
+
+    if (iteration++ >= options.maxIterations) {
+      break
+    }
+
+    const instructions: string[] = [
+      `At each step, you will receive a part of the text to summarize. Make sure to reply with the new summary in the tags ${START} and ${END}.`,
+      'Summarize the text and make sure that the main points are included.',
+      'Ignore any unnecessary details and focus on the main points.',
+      'Use short and concise sentences to increase readability and information density.',
+      'When looking at the new information, focus on: ' + options.prompt,
+    ]
+
+    if (isFirst) {
+      instructions.push(
+        'The current summary is empty. You need to generate a summary that covers the main points of the text.'
+      )
+    }
+
+    let generationLength = options.length
+
+    if (!isLast) {
+      generationLength = Math.min(
+        tokenizer.count(currentSummary) + options.length * options.intermediateFactor,
+        maxOutputSize
+      )
+
+      instructions.push(
+        'You need to amend the summary to include the new information. Make sure the summary is complete and covers all the main points.'
+      )
+
+      instructions.push(`The current summary is ${currentSummary.length} tokens long.`)
+      instructions.push(`You can amend the summary to be up to ${generationLength} tokens long.`)
+    }
+
+    if (isLast) {
+      instructions.push(
+        'This is the last part you will have to summarize. Make sure the summary is complete and covers all the main points.'
+      )
+      instructions.push(
+        `The current summary is ${currentSummary.length} tokens long. You need to make sure it is ${options.length} tokens or less.`
+      )
+
+      if (currentSummary.length > options.length) {
+        instructions.push(
+          `The current summary is already too long, so you need to shorten it to ${options.length} tokens while also including the new information.`
+        )
+      }
+    }
+
+    let { extracted: result } = await ctx.generateContent({
+      systemPrompt: `
+You are summarizing a text. The text is split into ${parts} parts, and you are currently working on part ${iteration}.
+At every step, you will receive the current summary and a new part of the text. You need to amend the summary to include the new information (if needed).
+The summary needs to cover the main points of the text and must be concise.
+
+IMPORTANT INSTRUCTIONS:
+${instructions.map((x) => `- ${x.trim()}`).join('\n')}
+
+FORMAT OF THE SUMMARY:
+${options.format}
+`.trim(),
+      messages: [{ type: 'text', content: format(currentSummary, slice), role: 'user' }],
+      maxTokens: generationLength,
+      stopSequences: [END],
+      transform: (text) => {
+        if (!text.trim().length) {
+          throw new Error('The model did not return a valid summary. The response was empty.')
+        }
+
+        return text
+      },
+    })
+
+    if (result.includes(START)) {
+      result = result.slice(result.indexOf(START) + START.length)
+    }
+
+    if (result.includes('■')) {
+      // can happen if the model truncates the text before the entire END tag is written
+      result = result.slice(0, result.indexOf('■'))
+    }
+
+    summaries.push(result)
+    currentSummary = result
+  }
+
+  return currentSummary.trim()
+}
+
+Zai.prototype.summarize = function (this: Zai, original, _options): Response<string> {
+  const options = Options.parse(_options ?? {}) as Options
+
+  const context = new ZaiContext({
+    client: this.client,
+    modelId: this.Model,
+    taskId: this.taskId,
+    taskType: 'summarize',
+    adapter: this.adapter,
+    memoizer: this._resolveMemoizer(),
+  })
+
+  return new Response<string, string>(context, summarize(original, options, context), (value) => value)
+}
