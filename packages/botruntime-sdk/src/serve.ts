@@ -103,9 +103,13 @@ async function mapIncomingMessageToRequest(incoming: http.IncomingMessage): Prom
     headers[key] = value
   }
 
+  // The base is only needed so `new URL()` can resolve a relative request URL; only
+  // `url.pathname` / `url.search` are read below — the host is never used. So the no-host
+  // case uses a neutral, non-routable placeholder (not a real endpoint): this is a
+  // URL()-parsing requirement, not a silent fallback to some default cloud host.
   const url = new URL(
     incoming.url ?? '',
-    incoming.headers.host ? `http://${incoming.headers.host}` : 'http://botpress.cloud'
+    incoming.headers.host ? `http://${incoming.headers.host}` : 'http://localhost'
   )
 
   return {
