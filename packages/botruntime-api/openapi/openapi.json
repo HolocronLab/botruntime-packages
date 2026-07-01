@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://api.botpress.cloud"
+      "url": "https://botruntime.ru"
     }
   ],
   "paths": {

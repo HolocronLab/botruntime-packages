@@ -1,6 +1,9 @@
 {
   "name": "@holocronlab/botruntime-tunnel",
   "version": "0.1.25",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "Tunneling logic for client and server",
   "main": "./dist/index.cjs",
   "browser": "./dist/index.mjs",

@@ -1,6 +1,9 @@
 {
   "name": "@holocronlab/botruntime-chat",
   "version": "0.5.5",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "Chat API client used by the brt CLI (vendored dist of the upstream chat client, MIT).",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",

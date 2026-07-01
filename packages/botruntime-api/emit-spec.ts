@@ -34,7 +34,22 @@ const SECTIONS: ReadonlyArray<readonly [string, OpenApiExporter]> = [
 
 const OUT_DIR = path.join(__dirname, 'openapi')
 
+// The upstream opapi definitions bake in the Botpress default host. Rebrand it in the
+// emitted spec so published-spec consumers / generated clients see the botruntime host.
+// Only the visible host string changes; /v1 paths and x-* headers are untouched (contract).
+const SERVER_URL = 'https://botruntime.ru'
+
 type JsonRecord = Record<string, unknown>
+
+function rewriteServers(doc: JsonRecord): void {
+  const servers = doc.servers as Array<{ url?: string }> | undefined
+  if (!Array.isArray(servers)) return
+  for (const server of servers) {
+    if (typeof server.url === 'string') {
+      server.url = server.url.replace(/https?:\/\/[a-z0-9.-]*botpress\.cloud/gi, SERVER_URL)
+    }
+  }
+}
 
 function exportSection(name: string, instance: OpenApiExporter): JsonRecord {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `botruntime-api-${name}-`))
@@ -42,6 +57,7 @@ function exportSection(name: string, instance: OpenApiExporter): JsonRecord {
     instance.exportOpenapi(tmpDir)
     const raw = fs.readFileSync(path.join(tmpDir, 'openapi.json'), 'utf8')
     const doc = JSON.parse(raw) as JsonRecord
+    rewriteServers(doc)
     fs.writeFileSync(path.join(OUT_DIR, `${name}.json`), `${JSON.stringify(doc, null, 2)}\n`)
     return doc
   } finally {

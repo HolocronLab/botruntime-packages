@@ -1,6 +1,9 @@
 {
   "name": "@holocronlab/botruntime-verel",
   "version": "0.2.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "Vector Remap Language executor for JavaScript (prebuilt WASM dist, vendored)",
   "license": "MIT",
   "main": "./dist/node/index.js",

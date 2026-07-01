@@ -15,6 +15,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 bash "$ROOT/scripts/regen.sh"
 
+# Only committed generated SOURCE is drift-checked: the frozen spec (openapi/) and the
+# typed client (src/gen). botruntime-client/dist is a build artifact — gitignored and rebuilt
+# at publish/CI time (package.json "files":["dist"]), never committed — so it cannot drift and
+# is intentionally out of this pathspec.
 if ! git -C "$ROOT" diff --exit-code -- \
       packages/botruntime-api/openapi \
       packages/botruntime-client/src/gen ; then
