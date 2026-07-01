@@ -43,8 +43,14 @@ jobs:
       - name: Rewrite brt local file deps to published registry versions
         run: node scripts/prepare-brt-publish.mjs --write
 
-      - name: Publish brt to GitHub Packages
+      - name: Publish brt to GitHub Packages (skip if this version is already published)
         working-directory: packages/brt
-        run: npm publish
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          if npm view "@holocronlab/brt@$VER" version >/dev/null 2>&1; then
+            echo "@holocronlab/brt@$VER already published — skipping (immutable registry)."
+          else
+            npm publish
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
