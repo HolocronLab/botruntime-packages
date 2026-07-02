@@ -1,0 +1,41 @@
+{
+  "name": "@holocronlab/botruntime-analytics",
+  "version": "0.1.0",
+  "description": "Minimal fork of @botpress/analytics (MIT) — only the shared AdkError base error class used by botruntime-adk.",
+  "type": "module",
+  "source": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check:type": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "tsup": "^8.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
+    "directory": "packages/botruntime-analytics"
+  },
+  "author": "HolocronLab",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

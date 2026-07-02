@@ -1,0 +1,90 @@
+{
+  "name": "@holocronlab/botruntime-adk",
+  "description": "Core ADK library for building AI agents on botruntime.",
+  "version": "2.0.2",
+  "type": "module",
+  "source": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./dependencies": {
+      "types": "./dist/dependencies/index.d.ts",
+      "import": "./dist/dependencies/index.js"
+    },
+    "./internal/agent0": {
+      "types": "./dist/agent0/index.d.ts",
+      "import": "./dist/agent0/index.js"
+    },
+    "./internal/bp-cli": {
+      "types": "./dist/commands/bp-cli.d.ts",
+      "import": "./dist/commands/bp-cli.js"
+    },
+    "./package.json": "./package.json",
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "dist/**/*",
+    "schemas/**/*",
+    "package.json",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "build": "bun run clean && bun run build:types && bun run build:chat-bundle && bun run build:js",
+    "build:types": "tsc --emitDeclarationOnly",
+    "build:chat-bundle": "bun run scripts/build-chat-bundle.ts",
+    "build:js": "bun run scripts/build.ts",
+    "clean": "rm -rf dist",
+    "check:type": "tsc --noEmit",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@holocronlab/botruntime-sdk": "^6.13.1",
+    "@holocronlab/botruntime-client": "^1.46.0",
+    "@holocronlab/botruntime-chat": "^0.5.5",
+    "@holocronlab/botruntime-cognitive": "^0.6.1",
+    "@holocronlab/botruntime-runtime": "^2.0.2",
+    "@holocronlab/botruntime-zui": "^2.3.0",
+    "@holocronlab/botruntime-jex": "file:../botruntime-jex",
+    "@holocronlab/botruntime-analytics": "file:../botruntime-analytics",
+    "@holocronlab/brt": "^0.2.0",
+    "@parcel/watcher": "^2.5.1",
+    "debug": "^4.4.3",
+    "dedent": "^1.7.1",
+    "execa": "9.6.1",
+    "glob": "^11.1.0",
+    "luxon": "^3.7.2",
+    "opencode-ai": "1.15.10",
+    "oxfmt": "^0.41.0",
+    "semver": "^7.7.2",
+    "tree-kill": "^1.2.2",
+    "ts-morph": "^27.0.2"
+  },
+  "devDependencies": {
+    "@types/debug": "^4.1.12",
+    "@types/luxon": "^3.6.2",
+    "@types/node": "^22.16.4",
+    "@types/semver": "^7.5.8",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HolocronLab/botruntime-packages",
+    "directory": "packages/botruntime-adk"
+  },
+  "author": "HolocronLab",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
