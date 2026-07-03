@@ -3,7 +3,7 @@
 // that were not part of the reconstructed source. This produces the JS half of each
 // entry point declared in package.json#exports (types are produced separately by
 // `tsc --emitDeclarationOnly`, see the `build:types` script).
-import { readFileSync } from 'node:fs'
+import { readFileSync, cpSync, existsSync } from 'node:fs'
 import path from 'node:path'
 
 const pkg = JSON.parse(readFileSync(path.join(import.meta.dir, '..', 'package.json'), 'utf-8')) as {
@@ -51,4 +51,15 @@ if (!result.success) {
 
 for (const output of result.outputs) {
   console.log(`built: ${output.path}`)
+}
+
+// Copy static runtime assets (templates/, agent0/capabilities/, assets/) into dist. These
+// are .md/.json files the reconstructed .ts source loads from disk at runtime (agent0
+// resolves dist/agent0/capabilities/{skills,commands}; the project generator resolves
+// dist/templates). The JS build does not emit them; they live in assets-static/ mirroring
+// their dist layout and are merged in here.
+const assetsRoot = path.join(import.meta.dir, '..', 'assets-static')
+if (existsSync(assetsRoot)) {
+  cpSync(assetsRoot, path.join(import.meta.dir, '..', 'dist'), { recursive: true })
+  console.log('copied static assets (templates, agent0 capabilities, assets) -> dist')
 }

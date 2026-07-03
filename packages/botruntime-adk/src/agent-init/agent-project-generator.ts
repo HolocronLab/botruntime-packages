@@ -326,11 +326,10 @@ export class AgentProjectGenerator {
         deploy: 'adk deploy',
       },
       dependencies: {
-        // NOTE: upstream also scaffolds a pinned `evals` dependency (Botpress's
-        // eval-tooling package) here. There is no @holocronlab/botruntime-evals
-        // fork yet, so it is intentionally omitted rather than pointed at a
-        // package that doesn't exist.
+        // Mirrors upstream's scaffold: the runtime + the eval-tooling package, repointed
+        // to our published forks (@holocronlab/botruntime-evals@2.0.2 exists).
         '@holocronlab/botruntime-runtime': `^${ADK_VERSION}`,
+        '@holocronlab/botruntime-evals': '^2.0.2',
       },
       devDependencies: {
         typescript: '^5.9.3',

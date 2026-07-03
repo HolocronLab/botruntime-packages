@@ -23,12 +23,10 @@
       "types": "./dist/commands/bp-cli.d.ts",
       "import": "./dist/commands/bp-cli.js"
     },
-    "./package.json": "./package.json",
-    "./schemas/*": "./schemas/*"
+    "./package.json": "./package.json"
   },
   "files": [
     "dist/**/*",
-    "schemas/**/*",
     "package.json",
     "README.md"
   ],
