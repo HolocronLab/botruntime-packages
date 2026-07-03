@@ -1,6 +1,6 @@
 import { Context, ROOT_CONTEXT } from '@opentelemetry/api'
 import { AsyncLocalStorage } from 'async_hooks'
-import { AbstractAsyncHooksContextManager } from '@opentelemetry/context-async-hooks/build/src/AbstractAsyncHooksContextManager'
+import { AbstractAsyncHooksContextManager } from '@opentelemetry/context-async-hooks/build/src/AbstractAsyncHooksContextManager.js'
 
 /**
  * We needed to fork this because we need "enterWith" for LLMz iteration tracking
