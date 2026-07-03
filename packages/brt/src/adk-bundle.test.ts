@@ -11,16 +11,56 @@ describe('sha256', () => {
   })
 })
 
-describe('ensureBundle / buildBundle / requireExistingBundle', () => {
+describe('isAgentProject', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-detect-'))
+  })
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('is true when agent.config.ts is present', () => {
+    fs.writeFileSync(path.join(dir, adkBundle.AGENT_CONFIG_FILE), 'export default {}')
+    expect(adkBundle.isAgentProject(dir)).toBe(true)
+  })
+
+  it('is false when agent.config.ts is absent', () => {
+    expect(adkBundle.isAgentProject(dir)).toBe(false)
+  })
+})
+
+describe('normalizeBundle', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-normalize-'))
+  })
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('copies the generated bot bundle (.adk/bot/.botpress/dist/index.cjs) to .brt/dist/index.cjs', () => {
+    const produced = path.join(dir, '.adk', 'bot', '.botpress', 'dist', 'index.cjs')
+    fs.mkdirSync(path.dirname(produced), { recursive: true })
+    fs.writeFileSync(produced, 'built-natively')
+
+    const out = adkBundle.normalizeBundle(dir, { quiet: true })
+    expect(out).toBe(path.join(dir, '.brt', 'dist', 'index.cjs'))
+    expect(fs.readFileSync(out, 'utf8')).toBe('built-natively')
+  })
+
+  it('fails loud when no recognizable bundle was produced', () => {
+    expect(() => adkBundle.normalizeBundle(dir, { quiet: true })).toThrow(/build produced no bundle/)
+  })
+})
+
+describe('ensureBundle / requireExistingBundle', () => {
   let dir: string
   const savedEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-bundle-'))
-    savedEnv['BRT_SDK_BUILD'] = process.env['BRT_SDK_BUILD']
     savedEnv['BRT_BUNDLE_PATH'] = process.env['BRT_BUNDLE_PATH']
-    savedEnv['PATH'] = process.env['PATH']
-    delete process.env['BRT_SDK_BUILD']
     delete process.env['BRT_BUNDLE_PATH']
   })
 
@@ -33,12 +73,15 @@ describe('ensureBundle / buildBundle / requireExistingBundle', () => {
     }
   })
 
-  it('BRT_BUNDLE_PATH short-circuits both ensureBundle and requireExistingBundle', async () => {
+  it('BRT_BUNDLE_PATH short-circuits ensureBundle without invoking build', async () => {
     const overridePath = path.join(dir, 'custom.cjs')
     fs.writeFileSync(overridePath, 'module.exports = {}')
     process.env['BRT_BUNDLE_PATH'] = overridePath
 
-    await expect(adkBundle.ensureBundle(dir, true)).resolves.toBe(overridePath)
+    const build = async () => {
+      throw new Error('build must not be called when BRT_BUNDLE_PATH is set')
+    }
+    await expect(adkBundle.ensureBundle(dir, true, build)).resolves.toBe(overridePath)
     expect(adkBundle.requireExistingBundle(dir)).toBe(overridePath)
   })
 
@@ -51,49 +94,41 @@ describe('ensureBundle / buildBundle / requireExistingBundle', () => {
     expect(() => adkBundle.requireExistingBundle(dir)).toThrow(/--noBuild was set but no existing bundle/)
   })
 
-  it('ensureBundle reuses an existing bundle without rebuilding when force is false', async () => {
+  it('ensureBundle reuses an existing bundle without building when force is false', async () => {
     const out = path.join(dir, '.brt', 'dist', 'index.cjs')
     fs.mkdirSync(path.dirname(out), { recursive: true })
     fs.writeFileSync(out, 'existing')
-    // No BRT_SDK_BUILD set: if this tried to rebuild it would fail loud (no SDK
-    // binary found), proving the existing bundle was reused instead.
-    await expect(adkBundle.ensureBundle(dir, false)).resolves.toBe(out)
+    // build throws: if reuse did not short-circuit, this would surface loudly.
+    const build = async () => {
+      throw new Error('build must not be called when a reusable bundle exists')
+    }
+    await expect(adkBundle.ensureBundle(dir, false, build)).resolves.toBe(out)
     expect(fs.readFileSync(out, 'utf8')).toBe('existing')
   })
 
-  it('runs BRT_SDK_BUILD, copies the produced artifact to .brt/dist/index.cjs, and requireExistingBundle then finds it', async () => {
-    // A fixture "SDK toolchain": drops a bundle at dist/index.cjs when invoked as `<node> fixture-build.js build`.
-    const fixtureBuildScript = path.join(dir, 'fixture-build.js')
-    fs.writeFileSync(
-      fixtureBuildScript,
-      "const fs=require('fs');const path=require('path');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync(path.join('dist','index.cjs'),'built-by-fixture')"
-    )
-    process.env['BRT_SDK_BUILD'] = `${process.execPath} ${fixtureBuildScript}`
-
-    const out = await adkBundle.ensureBundle(dir, false)
-    expect(out).toBe(path.join(dir, '.brt', 'dist', 'index.cjs'))
-    expect(fs.readFileSync(out, 'utf8')).toBe('built-by-fixture')
+  it('ensureBundle invokes build when no bundle exists and returns its result', async () => {
+    const out = path.join(dir, '.brt', 'dist', 'index.cjs')
+    let called = false
+    const build = async () => {
+      called = true
+      fs.mkdirSync(path.dirname(out), { recursive: true })
+      fs.writeFileSync(out, 'freshly-built')
+      return out
+    }
+    await expect(adkBundle.ensureBundle(dir, false, build)).resolves.toBe(out)
+    expect(called).toBe(true)
     expect(adkBundle.requireExistingBundle(dir)).toBe(out)
   })
 
-  it('fails loud with a non-zero exit from the build command', async () => {
-    const fixtureBuildScript = path.join(dir, 'failing-build.js')
-    fs.writeFileSync(fixtureBuildScript, 'process.exit(3)')
-    process.env['BRT_SDK_BUILD'] = `${process.execPath} ${fixtureBuildScript}`
-
-    await expect(adkBundle.buildBundle(dir, { quiet: true })).rejects.toThrow(/SDK build failed \(exit 3\)/)
-  })
-
-  it('fails loud when the build produces no recognizable bundle', async () => {
-    const fixtureBuildScript = path.join(dir, 'noop-build.js')
-    fs.writeFileSync(fixtureBuildScript, '// does nothing')
-    process.env['BRT_SDK_BUILD'] = `${process.execPath} ${fixtureBuildScript}`
-
-    await expect(adkBundle.buildBundle(dir, { quiet: true })).rejects.toThrow(/build produced no bundle/)
-  })
-
-  it('fails loud when no SDK build command can be found', async () => {
-    process.env['PATH'] = ''
-    await expect(adkBundle.buildBundle(dir, { quiet: true })).rejects.toThrow(/no SDK build command found/)
+  it('ensureBundle invokes build even when a bundle exists if force is true', async () => {
+    const out = path.join(dir, '.brt', 'dist', 'index.cjs')
+    fs.mkdirSync(path.dirname(out), { recursive: true })
+    fs.writeFileSync(out, 'stale')
+    const build = async () => {
+      fs.writeFileSync(out, 'rebuilt')
+      return out
+    }
+    await expect(adkBundle.ensureBundle(dir, true, build)).resolves.toBe(out)
+    expect(fs.readFileSync(out, 'utf8')).toBe('rebuilt')
   })
 })

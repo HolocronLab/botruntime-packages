@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "^11.7.0",
+    "@holocronlab/botruntime-adk": "file:../botruntime-adk",
     "@holocronlab/botruntime-chat": "file:../botruntime-chat",
     "@holocronlab/botruntime-client": "file:../botruntime-client",
     "@holocronlab/botruntime-sdk": "file:../botruntime-sdk",

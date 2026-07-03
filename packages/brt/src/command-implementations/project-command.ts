@@ -149,6 +149,15 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     if (fs.existsSync(abs.pluginDefinition)) {
       return 'plugin'
     }
+    // An ADK "agent" project (agent.config.ts, no root *.definition.ts) is not a
+    // Botpress-shaped project type: it is generated into a classic bot and built
+    // under `brt deploy --adk`. Point the user there instead of a bare
+    // "unsupported project type".
+    if (fs.existsSync(abs.agentConfig)) {
+      throw new errors.BotpressCLIError(
+        `This is an ADK agent project (${consts.fromWorkDir.agentConfig}). Build & deploy it with \`brt deploy --adk\`.`
+      )
+    }
     throw new errors.UnsupportedProjectType()
   }
 

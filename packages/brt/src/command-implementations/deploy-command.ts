@@ -12,13 +12,14 @@ import { cloudInfo, cloudWarn } from '../cloud-io'
 import * as cloudProfileResolve from '../cloud-profile-resolve'
 import * as cloudLink from '../cloud-project-link'
 import type commandDefinitions from '../command-definitions'
+import type { CommandArgv } from '../typings'
 import * as declaredCommands from '../declared-commands'
 import * as declaredTables from '../declared-tables'
 import * as errors from '../errors'
 import * as tables from '../tables'
 import * as utils from '../utils'
 import { BuildCommand } from './build-command'
-import { ProjectCommand } from './project-command'
+import { ProjectCommand, ProjectDefinitionContext } from './project-command'
 
 export type DeployCommandDefinition = typeof commandDefinitions.deploy
 export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
@@ -577,6 +578,32 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   //   PUT  /v1/admin/bots/{id}         (the bundle, code inline)
   //   GET  /internal/bots/{id}/bundle  (round-trip verify; needs internalToken)
   // ---------------------------------------------------------------------
+  // _buildAdkBundle is Ф1's in-process replacement for the old shell-out. It
+  // (a) calls the @holocronlab/botruntime-adk library to generate the synthetic
+  // classic bot at <dir>/.adk/bot, (b) builds that generated bot with brt's OWN
+  // native BuildCommand (codegen + esbuild — the SAME pipeline as a Botpress-
+  // shaped bot), and (c) normalizes the produced bundle to .brt/dist/index.cjs.
+  // Nothing here spawns an external adk/bp binary.
+  private async _buildAdkBundle(dir: string): Promise<string> {
+    const botPath = await adkBundle.generateAgentBot(dir)
+
+    // Point a fresh BuildCommand at the generated bot dir. A fresh
+    // ProjectDefinitionContext (its own esbuild context) is used and disposed,
+    // so it never entangles with this deploy command's own project context
+    // (bound to the agent dir).
+    const buildArgv: CommandArgv<DeployCommandDefinition> = { ...this.argv, workDir: botPath }
+    const projectContext = new ProjectDefinitionContext()
+    try {
+      await new BuildCommand(this.api, this.prompt, this.logger, buildArgv)
+        .setProjectContext(projectContext)
+        .run()
+    } finally {
+      await projectContext.dispose()
+    }
+
+    return adkBundle.normalizeBundle(dir)
+  }
+
   private async _deployAdkBundle(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
@@ -625,8 +652,12 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       perBotKey = creds.apiKey
     }
 
-    // 2. build if needed
-    const bundlePath = this.argv.noBuild ? adkBundle.requireExistingBundle(dir) : await adkBundle.ensureBundle(dir, false)
+    // 2. build if needed — in-process: generate the synthetic classic bot with
+    // the @holocronlab/botruntime-adk library, then build it with brt's OWN
+    // native pipeline. No child process to any adk/bp binary.
+    const bundlePath = this.argv.noBuild
+      ? adkBundle.requireExistingBundle(dir)
+      : await adkBundle.ensureBundle(dir, false, () => this._buildAdkBundle(dir))
     const code = await fs.promises.readFile(bundlePath, 'utf-8')
     const localHash = adkBundle.sha256(code)
     cloudInfo(`bundle ${bundlePath} (${code.length} bytes, sha256 ${localHash.slice(0, 12)}…)`)

@@ -48,6 +48,10 @@ export const fromWorkDir = {
   interfaceDefinition: 'interface.definition.ts',
   botDefinition: 'bot.definition.ts',
   pluginDefinition: 'plugin.definition.ts',
+  // ADK "agent" project manifest. An agent project has no root *.definition.ts;
+  // it is built via `brt deploy --adk`, which generates a synthetic classic bot
+  // (bot.definition.ts) under .adk/bot and builds THAT natively. See adk-bundle.ts.
+  agentConfig: 'agent.config.ts',
   entryPoint: pathlib.join('src', 'index.ts'),
   outDir: outDirName,
   distDir: pathlib.join(outDirName, fromOutDir.distDir),
