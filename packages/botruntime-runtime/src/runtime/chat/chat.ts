@@ -511,7 +511,10 @@ export class Chat extends _llmzChat {
 
       const buffer = Buffer.from(arrayBuffer)
 
-      const fileName = clone.payload.imageUrl.split('/').pop() || 'image.jpg'
+      // Strip any query string before taking the last path segment: our cloudapi image
+      // URLs are query-form (…/v1/files/download?key=telegram%2F<id>), so a bare
+      // split('/').pop() would yield "download?key=…" and corrupt the upload key.
+      const fileName = clone.payload.imageUrl.split('?')[0]!.split('/').pop() || 'image.jpg'
 
       const { file } = await this.client.uploadFile({
         key: `telegram/${this.conversation.id}/${clone.id}/${fileName}`,
