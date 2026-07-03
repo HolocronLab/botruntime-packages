@@ -7,6 +7,7 @@ import { resolveWorkspaceCredentials } from '../auth/index.js'
 import { pascalCase } from '../utils/strings.js'
 import { BUILTIN_INTERFACES } from '../constants.js'
 import { BpAddCommand } from '../commands/bp-add-command.js'
+import type { DependencyInstaller } from './generator.js'
 
 export interface InterfaceInfo {
   alias: string
@@ -20,18 +21,24 @@ export interface InterfaceSyncResult {
   errors: Array<{ alias: string; error: string }>
 }
 
+export interface InterfaceSyncOptions {
+  installer?: DependencyInstaller
+}
+
 export class InterfaceSync {
   private projectPath: string
   private botProjectPath: string
   private bpModulesPath: string
+  private installer?: DependencyInstaller
   // Memoized so the per-item install loop resolves credentials once, not once
   // per interface (each resolution reloads + parses the agent project).
   private credentialsPromise: ReturnType<typeof resolveWorkspaceCredentials> | null = null
 
-  constructor(projectPath: string, botProjectPath: string) {
+  constructor(projectPath: string, botProjectPath: string, options: InterfaceSyncOptions = {}) {
     this.projectPath = projectPath
     this.botProjectPath = botProjectPath
     this.bpModulesPath = path.join(botProjectPath, 'bp_modules')
+    this.installer = options.installer
   }
 
   private getCredentials(): ReturnType<typeof resolveWorkspaceCredentials> {
@@ -103,10 +110,26 @@ export class InterfaceSync {
    */
   private async installInterface(interfaceInfo: InterfaceInfo): Promise<void> {
     const credentials = await this.getCredentials()
+    const resource = `interface:${interfaceInfo.fullVersion}`
+
+    // In-process installer (brt agent build path) — no child process. The
+    // execa `BpAddCommand` below is the standalone-library fallback only.
+    if (this.installer) {
+      await this.installer({
+        resource,
+        botPath: this.botProjectPath,
+        workspaceId: credentials.workspaceId,
+        credentials: {
+          token: credentials.token,
+          apiUrl: credentials.apiUrl,
+        },
+      })
+      return
+    }
 
     return new Promise((resolve, reject) => {
       const command = new BpAddCommand({
-        resource: `interface:${interfaceInfo.fullVersion}`,
+        resource,
         botPath: this.botProjectPath,
         workspaceId: credentials.workspaceId,
         credentials: {

@@ -160,7 +160,13 @@ export { generateClientWrapper } from './generators/client-wrapper.js'
 // Bot Generator API
 export { BotGenerator, generateBotProject, DevIdManager, IntegrationSync } from './bot-generator/index.js'
 
-export type { BotGeneratorOptions, ProjectCache, IntegrationInfo, SyncResult } from './bot-generator/index.js'
+export type {
+  BotGeneratorOptions,
+  DependencyInstaller,
+  ProjectCache,
+  IntegrationInfo,
+  SyncResult,
+} from './bot-generator/index.js'
 
 // Table Management API
 export { TableManager } from './tables/index.js'

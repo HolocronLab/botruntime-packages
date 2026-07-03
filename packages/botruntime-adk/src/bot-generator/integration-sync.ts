@@ -6,6 +6,7 @@ import { AgentProject } from '../agent-project/agent-project.js'
 import { resolveWorkspaceCredentials } from '../auth/index.js'
 import { getIntegrationAlias, bpModuleDirName } from '../utils/ids.js'
 import { BpAddCommand } from '../commands/bp-add-command.js'
+import type { DependencyInstaller } from './generator.js'
 
 export interface IntegrationInfo {
   alias: string
@@ -21,6 +22,7 @@ export interface SyncResult {
 
 export interface IntegrationSyncOptions {
   adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
+  installer?: DependencyInstaller
 }
 
 export class IntegrationSync {
@@ -28,6 +30,7 @@ export class IntegrationSync {
   private botProjectPath: string
   private bpModulesPath: string
   private adkCommand?: IntegrationSyncOptions['adkCommand']
+  private installer?: DependencyInstaller
   // Memoized so the per-item install loop resolves credentials once, not once
   // per integration (each resolution reloads + parses the agent project).
   private credentialsPromise: ReturnType<typeof resolveWorkspaceCredentials> | null = null
@@ -37,6 +40,7 @@ export class IntegrationSync {
     this.botProjectPath = botProjectPath
     this.bpModulesPath = path.join(botProjectPath, 'bp_modules')
     this.adkCommand = options.adkCommand
+    this.installer = options.installer
   }
 
   private getCredentials(): ReturnType<typeof resolveWorkspaceCredentials> {
@@ -129,9 +133,25 @@ export class IntegrationSync {
    */
   private async installIntegration(integration: IntegrationInfo): Promise<void> {
     const credentials = await this.getCredentials()
+    const resource = `integration:${integration.fullVersion}`
+
+    // In-process installer (brt agent build path) — no child process. The
+    // execa `BpAddCommand` below is the standalone-library fallback only.
+    if (this.installer) {
+      await this.installer({
+        resource,
+        botPath: this.botProjectPath,
+        workspaceId: credentials.workspaceId,
+        credentials: {
+          token: credentials.token,
+          apiUrl: credentials.apiUrl,
+        },
+      })
+      return
+    }
 
     const command = new BpAddCommand({
-      resource: `integration:${integration.fullVersion}`,
+      resource,
       botPath: this.botProjectPath,
       workspaceId: credentials.workspaceId,
       credentials: {

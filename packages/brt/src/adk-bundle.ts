@@ -57,7 +57,25 @@ export function isAgentProject(dir: string): boolean {
 // shims targeting @holocronlab/botruntime-sdk). This is exactly what the
 // upstream `adk` binary did before it shelled to `bp build` — except here it is
 // a plain function call, NOT a child process. Returns the generated bot path.
-export async function generateAgentBot(dir: string, opts: { quiet?: boolean } = {}): Promise<string> {
+// A DependencyInstaller vendors one integration/plugin/interface resource into
+// the generated bot's bp_modules. brt supplies one that drives its native
+// AddCommand IN-PROCESS (see deploy-command._buildAdkBundle), so the whole
+// agent build path is free of any child-process spawn. Structurally identical
+// to @holocronlab/botruntime-adk's exported `DependencyInstaller` type; declared
+// locally to keep this module's ADK import lazy (type-only would still be erased,
+// but an explicit local type documents the contract at the call boundary).
+export type DependencyInstaller = (args: {
+  resource: string
+  botPath: string
+  workspaceId: string
+  credentials: { token: string; apiUrl: string }
+}) => Promise<void>
+
+export async function generateAgentBot(
+  dir: string,
+  installer?: DependencyInstaller,
+  opts: { quiet?: boolean } = {}
+): Promise<string> {
   if (!isAgentProject(dir)) {
     throw new errors.BotpressCLIError(`not an agent project: no ${AGENT_CONFIG_FILE} found in ${dir}`)
   }
@@ -68,7 +86,10 @@ export async function generateAgentBot(dir: string, opts: { quiet?: boolean } = 
   // commands — and the pure-function unit tests in this module — never pay for
   // it. This is a deferred load of a load-bearing dep, NOT an optional fallback.
   const { generateBotProject } = await import('@holocronlab/botruntime-adk')
-  await generateBotProject({ projectPath: dir, adkCommand: 'adk-build' }).catch((thrown) => {
+  // Passing `installer` makes the ADK dependency-sync vendor deps in-process
+  // (no `bp add` child process). Without it, the ADK library falls back to its
+  // standalone execa path — that only happens for non-brt callers.
+  await generateBotProject({ projectPath: dir, adkCommand: 'adk-build', installer }).catch((thrown) => {
     throw errors.BotpressCLIError.wrap(thrown, 'agent bot generation failed')
   })
 

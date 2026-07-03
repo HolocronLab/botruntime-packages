@@ -58,11 +58,33 @@ import { BUILTIN_INTERFACES } from '../constants.js'
 import { BuiltInActions, BuiltInWorkflows, Primitives, Workflow } from '@holocronlab/botruntime-runtime/internal'
 import { BUILT_IN_TAGS } from '@holocronlab/botruntime-runtime/definition'
 
+/**
+ * Pluggable in-process dependency installer. When provided, the dependency-sync
+ * classes call this INSTEAD of spawning a provisioned brt/bp binary to vendor a
+ * resource into `<botPath>/bp_modules`. brt supplies one that drives its native
+ * `AddCommand` in-process, so the whole agent build path is spawn-free. When
+ * omitted (standalone library use), the sync classes fall back to the execa
+ * `BpAddCommand`.
+ *
+ * `resource` is the full ref string: `integration:name@ver` | `plugin:name@ver`
+ * | `interface:name@ver`. The installer must actually vendor the resource into
+ * `botPath/bp_modules` under its native (kebab-cased) package name — the sync
+ * class then renames that folder to its controlled alias, exactly as it does
+ * after the execa path.
+ */
+export type DependencyInstaller = (args: {
+  resource: string
+  botPath: string
+  workspaceId: string
+  credentials: { token: string; apiUrl: string }
+}) => Promise<void>
+
 export interface BotGeneratorOptions {
   projectPath: string
   outputPath?: string
   adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
   callbacks?: SyncCallbacks
+  installer?: DependencyInstaller
 }
 
 function projectLoadOptions(adkCommand: BotGeneratorOptions['adkCommand']): Pick<BotGeneratorOptions, 'adkCommand'> {
@@ -2116,12 +2138,14 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
     devIdManager.restoreDevId(),
   ])
 
-  // The syncs below spawn `bp add` child processes that write into the same
-  // botPath (bp_modules and the root package.json), so they stay sequential to
-  // avoid racing on shared files.
+  // The syncs below vendor dependencies into the same botPath (bp_modules and
+  // the root package.json), so they stay sequential to avoid racing on shared
+  // files. When `options.installer` is set they vendor IN-PROCESS (no child
+  // process); otherwise they fall back to the execa `bp add` path.
+  const syncOptions = { ...projectLoadOptions(options.adkCommand), installer: options.installer }
 
   // Sync integrations
-  const integrationSync = new IntegrationSync(options.projectPath, botPath, projectLoadOptions(options.adkCommand))
+  const integrationSync = new IntegrationSync(options.projectPath, botPath, syncOptions)
   const integrationSyncResult = await integrationSync.syncIntegrations()
 
   if (integrationSyncResult.errors.length > 0) {
@@ -2132,7 +2156,7 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   }
 
   // Sync interfaces
-  const interfaceSync = new InterfaceSync(options.projectPath, botPath)
+  const interfaceSync = new InterfaceSync(options.projectPath, botPath, { installer: options.installer })
   const interfaceSyncResult = await interfaceSync.syncInterfaces()
 
   if (interfaceSyncResult.errors.length > 0) {
@@ -2143,7 +2167,7 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   }
 
   // Sync plugins
-  const pluginSync = new PluginSync(options.projectPath, botPath, projectLoadOptions(options.adkCommand))
+  const pluginSync = new PluginSync(options.projectPath, botPath, syncOptions)
   const pluginSyncResult = await pluginSync.syncPlugins()
 
   if (pluginSyncResult.errors.length > 0) {

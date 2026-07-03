@@ -18,6 +18,7 @@ import * as declaredTables from '../declared-tables'
 import * as errors from '../errors'
 import * as tables from '../tables'
 import * as utils from '../utils'
+import { AddCommand, type AddCommandDefinition } from './add-command'
 import { BuildCommand } from './build-command'
 import { ProjectCommand, ProjectDefinitionContext } from './project-command'
 
@@ -585,7 +586,35 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   // shaped bot), and (c) normalizes the produced bundle to .brt/dist/index.cjs.
   // Nothing here spawns an external adk/bp binary.
   private async _buildAdkBundle(dir: string): Promise<string> {
-    const botPath = await adkBundle.generateAgentBot(dir)
+    // In-process dependency installer: instead of spawning a provisioned brt
+    // binary to `bp add` each integration/plugin/interface into the generated
+    // bot's bp_modules, drive brt's OWN native AddCommand as a plain function
+    // call. `resource` is already a package ref in brt's grammar
+    // (`integration:name@ver` | `plugin:…` | `interface:…`), so it maps
+    // directly onto the `add` positional `packageRef`. Credentials come from
+    // the ADK-side resolveWorkspaceCredentials (the same explicit token/apiUrl/
+    // workspaceId the old execa `bp add` was handed) — passed explicitly and
+    // with no `profile`, so the add uses exactly those creds. `confirm: true`
+    // suppresses interactive prompts; no `alias`, so each package installs
+    // under its native name and the ADK sync then renames the folder, exactly
+    // as it did after the spawned add.
+    const installer: adkBundle.DependencyInstaller = async ({ resource, botPath, workspaceId, credentials }) => {
+      const addArgv: CommandArgv<AddCommandDefinition> = {
+        ...this.argv,
+        profile: undefined,
+        packageRef: resource,
+        installPath: botPath,
+        useDev: false,
+        alias: undefined,
+        confirm: true,
+        apiUrl: credentials.apiUrl,
+        token: credentials.token,
+        workspaceId,
+      }
+      await new AddCommand(this.api, this.prompt, this.logger, addArgv).run()
+    }
+
+    const botPath = await adkBundle.generateAgentBot(dir, installer)
 
     // Point a fresh BuildCommand at the generated bot dir. A fresh
     // ProjectDefinitionContext (its own esbuild context) is used and disposed,
