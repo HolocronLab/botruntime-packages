@@ -59,6 +59,7 @@ export default {
     get: commandImplementations.profiles.subcommands.get,
   },
   link: commandImplementations.link,
+  logs: commandImplementations.logs,
   config: {
     set: commandImplementations.config.subcommands.set,
     list: commandImplementations.config.subcommands.list,

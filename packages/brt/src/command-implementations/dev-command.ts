@@ -6,14 +6,19 @@ import chalk from 'chalk'
 import { isEqual } from 'lodash'
 import * as pathlib from 'path'
 import * as uuid from 'uuid'
+import * as fs from 'fs'
 import * as apiUtils from '../api'
+import * as adkBundle from '../adk-bundle'
 import { secretEnvVariableName, stripSecretEnvVariablePrefix } from '../code-generation/secret-module'
 import type commandDefinitions from '../command-definitions'
+import { cloudInfo } from '../cloud-io'
 import * as errors from '../errors'
 import * as tables from '../tables'
+import type { CommandArgv } from '../typings'
 import * as utils from '../utils'
 import { Worker } from '../worker'
 import { BuildCommand } from './build-command'
+import { DeployCommand, type DeployCommandDefinition } from './deploy-command'
 import { ProjectCommand, ProjectDefinition } from './project-command'
 
 const DEFAULT_BOT_PORT = 8075
@@ -35,6 +40,18 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
   public async run(): Promise<void> {
     this.logger.warn('This command is experimental and subject to breaking changes without notice.')
+
+    // --adk (or auto-detected agent.config.ts) gates the ADK agent dev loop
+    // (bespoke cloudapi wire): watch -> force rebuild -> `brt deploy --adk`.
+    // This is a SEPARATE surface from the classic tunnel/worker dev server
+    // below (mirrors DeployCommand.run()'s own `if (this.argv.adk)` branch) and
+    // MUST run before readProjectDefinitionFromFS below, which throws on an
+    // agent.config.ts project (see project-command.ts _readProjectType). It
+    // also runs before ensureLoginAndCreateClient: agent dev never touches the
+    // Botpress-shaped login/client, only the bespoke cloudapi profile/link.
+    if (this.argv.adk || adkBundle.isAgentProject(this.projectPaths.abs.workDir)) {
+      return this._runAdkDev()
+    }
 
     const watchEnabled = this.argv.watch !== false
     let api = await this.ensureLoginAndCreateClient(this.argv)
@@ -221,6 +238,142 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         await worker.kill()
       }
       await this._disposeBuildResources()
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // brt dev --adk — the agent DEV loop. Our cloudapi has NO dev-bot/tunnel
+  // surface (createBot({dev:true}) etc. is a Botpress-shaped concept this fork
+  // does not serve for agents): hot-reload is version-driven instead — `brt
+  // deploy --adk` PUTs the bundle (bumping the bot's versionId), and the
+  // runtime-host supervisor polls /internal/host/bots (~15s) and hot-swaps the
+  // running child when it sees a new versionId. So the entire agent dev loop
+  // is: watch source -> force a fresh build -> `brt deploy --adk` -> let the
+  // supervisor pick it up. There is no local dev worker to spawn for agents;
+  // deploy IS the mechanism.
+  // ---------------------------------------------------------------------
+  private async _runAdkDev(): Promise<void> {
+    const dir = this.projectPaths.abs.workDir
+    const watchEnabled = this.argv.watch !== false
+
+    let deploying = false
+    let dirty = false
+
+    // Builds a `brt deploy --adk` argv from this dev command's own argv. Only
+    // literal keys that exist on deploySchema may be listed here (TS excess-
+    // property-checks fresh object literals): deploySchema has several
+    // required-with-default fields (visibility/public/allowDeprecated/noBuild/
+    // dryRun/local/bypassBreakingChangeDetection) that devSchema does not
+    // declare, so they are filled in explicitly with deploy's own defaults.
+    // workDir/apiUrl/workspaceId/token/secrets/sourceMap/minify are shared by
+    // both schemas and simply flow through the `...this.argv` spread.
+    const deployArgv = (): CommandArgv<DeployCommandDefinition> => ({
+      ...this.argv,
+      adk: true,
+      // Honor --local so `brt dev --adk --local` deploys against the
+      // bot.local.json link (local runtime-host + cloudapi stack) exactly like
+      // `brt deploy --adk --local`; devSchema now declares `local` too, so it
+      // flows through the spread — restated here only for the excess-property
+      // check's benefit (deploySchema/devSchema are distinct literal types).
+      local: this.argv.local,
+      noBuild: false,
+      dryRun: false,
+      visibility: 'private',
+      public: false,
+      allowDeprecated: false,
+      bypassBreakingChangeDetection: false,
+    })
+
+    // Force a real rebuild on every iteration of the loop: drop the cached
+    // bundle BEFORE handing off to DeployCommand, so its own
+    // `adkBundle.ensureBundle(dir, /*force*/ false, buildFn)` (see
+    // deploy-command.ts _deployAdkBundle) never short-circuits on a stale
+    // .brt/dist/index.cjs left over from a previous pass through this loop. A
+    // source change must always produce a freshly rebuilt bundle, never a
+    // reused stale one.
+    const forceDropCachedBundle = (): void => {
+      const bundlePath = pathlib.join(dir, adkBundle.ADK_BUNDLE_REL_PATH)
+      if (fs.existsSync(bundlePath)) fs.rmSync(bundlePath)
+    }
+
+    const deployOnce = async (): Promise<void> => {
+      forceDropCachedBundle()
+      await new DeployCommand(this.api, this.prompt, this.logger, deployArgv())
+        .setProjectContext(this.projectContext)
+        .run()
+    }
+
+    // Overlap guard: a file-change firing while a deploy is already in flight
+    // does not launch a second, concurrent deploy (which could race the bundle
+    // file / the provision-once path) — it only marks `dirty`, and the
+    // in-flight deploy's own loop below picks up exactly one more pass once it
+    // finishes, never launching more than one queued deploy at a time.
+    const redeploy = async (): Promise<void> => {
+      if (deploying) {
+        dirty = true
+        return
+      }
+      deploying = true
+      try {
+        do {
+          dirty = false
+          await deployOnce()
+        } while (dirty)
+      } finally {
+        deploying = false
+      }
+    }
+
+    cloudInfo(`adk dev: building + deploying ${dir} ...`)
+    // Initial deploy fails loudly (never a silent no-op): a broken agent
+    // project should stop `brt dev --adk` outright instead of starting a watch
+    // loop over a bot that never successfully deployed.
+    await redeploy().catch((thrown) => {
+      throw errors.BotpressCLIError.wrap(thrown, 'adk dev: initial build/deploy failed')
+    })
+    cloudInfo(
+      'adk dev: live. The runtime-host supervisor polls /internal/host/bots (~15s) and hot-swaps the running child shortly after each deploy above.'
+    )
+
+    if (!watchEnabled) {
+      return
+    }
+
+    // Filters file-change events down to agent SOURCE changes: .ts files and
+    // agent.config.ts under `dir`, excluding anything under the generated/build
+    // dirs (.adk/, .brt/) or node_modules — those changes are OUTPUT of a
+    // deploy, not input to one, and would otherwise retrigger this loop forever.
+    const isAgentSourceChange = (changedPath: string): boolean => {
+      const rel = pathlib.relative(dir, changedPath)
+      if (rel.startsWith('..')) return false
+      const segments = rel.split(pathlib.sep)
+      if (segments[0] === '.adk' || segments[0] === '.brt' || segments[0] === 'node_modules') return false
+      return pathlib.extname(changedPath) === '.ts' || pathlib.basename(changedPath) === adkBundle.AGENT_CONFIG_FILE
+    }
+
+    const watcher = await utils.filewatcher.FileWatcher.watch(
+      dir,
+      async (events) => {
+        if (!events.some((e) => isAgentSourceChange(e.path))) return
+        this.logger.log('Changes detected, rebuilding + redeploying')
+        try {
+          await redeploy()
+        } catch (thrown) {
+          // Loud, never silent: a transient build/deploy error (e.g. a syntax
+          // error mid-edit) must not kill the dev session, but it must be
+          // impossible to miss either.
+          const err = errors.BotpressCLIError.wrap(thrown, 'adk dev: redeploy failed')
+          this.logger.error(err.message)
+          this.logger.debug(errors.BotpressCLIError.fullStack(err))
+        }
+      },
+      { debounceMs: FILEWATCHER_DEBOUNCE_MS }
+    )
+
+    try {
+      await watcher.wait()
+    } finally {
+      await watcher.close()
     }
   }
 

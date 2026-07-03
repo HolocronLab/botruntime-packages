@@ -62,6 +62,33 @@ export interface BotCommand {
   description: string
 }
 
+// GET /v1/admin/bots/{id}/logs response shape, frozen from
+// packages/botruntime-api/openapi/openapi.json's getBotLogsResponse schema
+// (fields: timestamp/level/message required, workflowId/userId/conversationId
+// optional). Auth = the MACHINE key (profile.token), not the per-bot key.
+export interface LogEntry {
+  timestamp: string
+  level: string
+  message: string
+  workflowId?: string
+  userId?: string
+  conversationId?: string
+}
+
+export interface BotLogsResponse {
+  logs: LogEntry[]
+  nextToken?: string
+}
+
+export interface GetBotLogsParams {
+  timeStart: string
+  timeEnd?: string
+  level?: string
+  messageContains?: string
+  conversationId?: string
+  nextToken?: string
+}
+
 interface RequestOpts {
   method: string
   path: string
@@ -282,6 +309,25 @@ export class CloudapiClient {
       body: { name, version, code },
       timeoutMs: BUNDLE_TIMEOUT_MS,
       idempotent: false,
+    })
+  }
+
+  // ---- logs (admin, machine-key; idempotent GET) ---------------------------
+  // timeStart is REQUIRED by the server; every other param is appended only
+  // when defined so an absent filter is simply omitted from the query string
+  // (never sent as the literal string "undefined").
+  public async getBotLogs(botId: string, params: GetBotLogsParams): Promise<BotLogsResponse> {
+    const qs = new URLSearchParams({ timeStart: params.timeStart })
+    if (params.timeEnd) qs.set('timeEnd', params.timeEnd)
+    if (params.level) qs.set('level', params.level)
+    if (params.messageContains) qs.set('messageContains', params.messageContains)
+    if (params.conversationId) qs.set('conversationId', params.conversationId)
+    if (params.nextToken) qs.set('nextToken', params.nextToken)
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/bots/${botId}/logs?${qs.toString()}`,
+      botId,
+      idempotent: true,
     })
   }
 

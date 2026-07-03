@@ -138,6 +138,47 @@ const cloudLocal = {
   default: false,
 } satisfies CommandOption
 
+// brt logs — GET /v1/admin/bots/{id}/logs (machine-key admin endpoint, NOT the
+// per-bot key). timeStart is required server-side; `since` defaults client-side
+// to now-1h so a bare `brt logs` works with no args (see logs-command.ts).
+
+const cloudLogsSince = {
+  type: 'string',
+  description: 'Start of the time range to fetch logs from, RFC3339 (default: 1 hour ago)',
+} satisfies CommandOption
+
+const cloudLogsUntil = {
+  type: 'string',
+  description: 'End of the time range to fetch logs from, RFC3339',
+} satisfies CommandOption
+
+const cloudLogsLevel = {
+  type: 'string',
+  description: 'Filter logs by level',
+} satisfies CommandOption
+
+const cloudLogsGrep = {
+  type: 'string',
+  description: 'Filter logs whose message contains this substring',
+} satisfies CommandOption
+
+const cloudLogsConversationId = {
+  type: 'string',
+  description: 'Filter logs by conversation ID',
+} satisfies CommandOption
+
+const cloudLogsFollow = {
+  type: 'boolean',
+  description: 'Keep polling for new logs after draining the current time range',
+  default: false,
+  alias: 'f',
+} satisfies CommandOption
+
+const cloudLogsLimit = {
+  type: 'number',
+  description: 'Stop after printing this many log entries (client-side cap)',
+} satisfies CommandOption
+
 const cloudIntegrationRef = {
   type: 'string',
   description: 'The integration name with an optional version, e.g. telegram or telegram@0.0.1',
@@ -321,6 +362,21 @@ const devSchema = {
     default: false,
     alias: 'nsc',
   },
+  // --adk gates the ADK agent dev loop (bespoke cloudapi wire), added ALONGSIDE
+  // the classic tunnel/worker dev server above: watch -> force rebuild -> `brt
+  // deploy --adk` -> the runtime-host supervisor hot-swaps the running child on
+  // its next poll (see dev-command.ts _runAdkDev). Auto-detected when the
+  // project directory contains agent.config.ts, so this flag mostly matters for
+  // scripts that want to be explicit or force the branch.
+  adk: {
+    type: 'boolean',
+    description: 'Run the ADK agent dev loop (bespoke cloudapi wire) instead of the classic tunnel/worker dev server',
+    default: false,
+  },
+  // --local threads through to the underlying `brt deploy --adk` so the dev loop
+  // targets the bot.local.json link (local runtime-host + cloudapi stack) rather
+  // than bot.json. Only meaningful with --adk; ignored by the classic dev path.
+  local: cloudLocal,
 } satisfies CommandSchema
 
 const addSchema = {
@@ -580,6 +636,23 @@ const cloudLinkSchema = {
   workspaceId,
 } satisfies CommandSchema
 
+// brt logs [--bot-id] [--since] [--until] [--level] [--grep] [--conversation-id]
+// [--follow] [--limit] — GET /v1/admin/bots/{id}/logs on the bespoke cloudapi
+// wire, authenticated with the MACHINE key (profile.token), not the per-bot key
+// (see cloud-command.ts machineCloudapiClient vs botCloudapiClient). Botid
+// resolution mirrors the other cloud-project commands: --bot-id overrides the
+// linked bot.json/bot.local.json.
+const logsSchema = {
+  ...cloudProjectSchema,
+  since: cloudLogsSince,
+  until: cloudLogsUntil,
+  level: cloudLogsLevel,
+  grep: cloudLogsGrep,
+  conversationId: cloudLogsConversationId,
+  follow: cloudLogsFollow,
+  limit: cloudLogsLimit,
+} satisfies CommandSchema
+
 // brt integrations install|register|publish — the bespoke-cloudapi-wire
 // integration channel commands, ported from the (deleted) thin brt CLI's
 // commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
@@ -670,6 +743,7 @@ export const schemas = {
   cloudConfigRm: cloudConfigRmSchema,
   cloudSecretSet: cloudSecretSetSchema,
   cloudLink: cloudLinkSchema,
+  logs: logsSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,

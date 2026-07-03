@@ -94,6 +94,10 @@ export default {
     description: 'Link this project to an existing bot on the bespoke cloudapi wire (writes bot.json)',
     schema: config.schemas.cloudLink,
   },
+  logs: {
+    description: 'Fetch bot logs from the admin logs endpoint (bespoke cloudapi wire, machine key)',
+    schema: config.schemas.logs,
+  },
   config: {
     description: 'Per-bot config variables on the bespoke cloudapi wire (bot.json-linked bot)',
     subcommands: {
