@@ -1,5 +1,6 @@
 import * as client from '@holocronlab/botruntime-client'
 import * as fs from 'fs'
+import * as deviceAuth from '../api/device-auth'
 import * as paging from '../api/paging'
 import type commandDefinitions from '../command-definitions'
 import * as consts from '../consts'
@@ -27,7 +28,22 @@ export class LoginCommand extends GlobalCommand<LoginCommandDefinition> {
       profileName = this.argv.profile
     }
 
+    // Token acquisition, in precedence order:
+    //  1. --token <PAT> / BRT_TOKEN -> used directly by globalCache.sync (CI / scripts)
+    //  2. --device (default)        -> RFC 8628 browser device auth -> PAT
+    //  3. --no-device               -> interactive Personal Access Token paste
     const promptedToken = await this.globalCache.sync('token', this.argv.token, async (previousToken) => {
+      if (this.argv.device) {
+        return deviceAuth.deviceAuthenticate(this.argv.apiUrl, {
+          clientName: 'brt',
+          logger: {
+            log: (msg) => this.logger.log(msg),
+            debug: (msg) => this.logger.debug(msg),
+          },
+          openUrl: deviceAuth.openUrl,
+        })
+      }
+
       const prompted = await this.prompt.text('Enter your Personal Access Token', {
         initial: previousToken,
       })

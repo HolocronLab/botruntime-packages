@@ -416,6 +416,16 @@ const loginSchema = {
   token,
   workspaceId,
   apiUrl: { ...apiUrl, default: consts.defaultBotpressApiUrl },
+  // Device Authorization Grant (RFC 8628): `brt login` opens a browser link and
+  // the server hands back a PAT once you approve — no manual token paste. On by
+  // default; `--no-device` falls back to the interactive paste prompt, and
+  // `--token <PAT>` bypasses both (used by CI / scripts).
+  device: {
+    type: 'boolean',
+    description:
+      'Authenticate by opening a browser link (device authorization) instead of pasting a token. Use --no-device to paste a PAT interactively.',
+    default: true,
+  },
 } satisfies CommandSchema
 
 const logoutSchema = {
