@@ -103,9 +103,19 @@ export class TunnelTail extends TunnelClient {
     const url = rooting.formatUrl(host, tunnelId)
 
     const headers = { 'User-Agent': 'tunnel-client' } // for firewall
+    // Non-browser (Bun CLI / server): use Bun's NATIVE global WebSocket, not the
+    // isomorphic-ws (`ws`) client. Under Bun, `ws` throws "Unexpected server
+    // response: 101" on a successful upgrade because Bun's node:http shim does
+    // not surface the upgrade the way `ws` expects; Bun's native WebSocket
+    // completes the handshake (this is the client-side mirror of why the server
+    // hub is bun-native, not ws.WebSocketServer). Cast the ctor because Bun
+    // accepts a `{ headers }` option that lib.dom's WebSocket type does not model.
+    // The browser keeps its own native WebSocket (via isomorphic-ws) and cannot
+    // set request headers anyway.
+    type WsCtor = new (url: string, opts?: { headers?: Record<string, string> }) => WebSocket
     const socket = isBrowser
-      ? new WebSocket(url) // headers are not supported in browser, but the browser will add the User-Agent header automatically
-      : new WebSocket(url, { headers })
+      ? new WebSocket(url)
+      : new ((globalThis as { WebSocket: unknown }).WebSocket as WsCtor)(url, { headers })
 
     super(socket)
 
