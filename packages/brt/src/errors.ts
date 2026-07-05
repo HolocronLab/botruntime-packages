@@ -46,6 +46,21 @@ export class BotpressCLIError extends VError {
     if (thrown instanceof Error) {
       return new BotpressCLIError(thrown.message, { cause: thrown })
     }
+    // Event-like objects (e.g. a ws ErrorEvent from the dev tunnel) are NOT
+    // Errors; String()-ing them yields "[object Object]". Pull the underlying
+    // Error / message / event type out so the failure surfaces a real reason.
+    if (thrown && typeof thrown === 'object') {
+      const obj = thrown as { error?: unknown; message?: unknown; type?: unknown }
+      if (obj.error instanceof Error) {
+        return new BotpressCLIError(obj.error.message, { cause: obj.error })
+      }
+      if (typeof obj.message === 'string' && obj.message.trim()) {
+        return new BotpressCLIError(obj.message)
+      }
+      if (typeof obj.type === 'string' && obj.type.trim()) {
+        return new BotpressCLIError(`connection error (${obj.type})`)
+      }
+    }
     return new BotpressCLIError(String(thrown))
   }
 

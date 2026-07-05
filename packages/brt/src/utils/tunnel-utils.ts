@@ -3,6 +3,15 @@ import { BotpressCLIError } from '../errors'
 import { Logger } from '../logger'
 import { EventEmitter } from './event-emitter'
 
+// The dev bot is registered (createBot before start), but cloudapi only begins
+// forwarding to a tunnel id after its supervisor reconcile (~15s), so the first
+// connect can 404 the isTunnelBot gate until then. Retry the INITIAL connect for
+// a window comfortably above the reconcile interval before giving up. (An
+// optional cloudapi sync-push registration collapses this to sub-second; the
+// retry is the correctness floor either way.)
+const INITIAL_CONNECT_RETRY_MS = 30_000
+const INITIAL_CONNECT_RETRY_INTERVAL_MS = 1_000
+
 export type ReconnectionTriggerEvent =
   | {
       type: 'init'
@@ -133,8 +142,7 @@ export class TunnelSupervisor {
     }
 
     if (ev.type === 'init') {
-      // skip logging on the first connection attempt
-      return newTunnel()
+      return this._connectWithInitialRetry(newTunnel)
     }
 
     const line = this._logger.line()
@@ -143,6 +151,36 @@ export class TunnelSupervisor {
     line.success('Reconnected')
     line.commit()
     return tunnel
+  }
+
+  // Bounded retry for the very first tunnel connect only. Reconnects after a
+  // live tunnel drops are handled separately (and already retry via the
+  // error/close events); this covers the cold-start race where the dev bot's
+  // tunnel id isn't forwardable yet. Fails loud with the last real error once
+  // the window elapses.
+  private async _connectWithInitialRetry(newTunnel: () => Promise<TunnelTail>): Promise<TunnelTail> {
+    const deadline = Date.now() + INITIAL_CONNECT_RETRY_MS
+    const line = this._logger.line()
+    line.started('Connecting dev tunnel...')
+    let attempt = 0
+    for (;;) {
+      attempt++
+      try {
+        const tunnel = await newTunnel()
+        line.success('Dev tunnel connected')
+        line.commit()
+        return tunnel
+      } catch (thrown) {
+        const err = BotpressCLIError.map(thrown)
+        if (Date.now() >= deadline) {
+          line.error(`Dev tunnel connection failed: ${err.message}`)
+          line.commit()
+          throw err
+        }
+        line.started(`Connecting dev tunnel (waiting for dev bot registration, attempt ${attempt})...`)
+        await new Promise((resolve) => setTimeout(resolve, INITIAL_CONNECT_RETRY_INTERVAL_MS))
+      }
+    }
   }
 
   private _registerListeners(tunnel: TunnelTail) {
