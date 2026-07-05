@@ -17,6 +17,7 @@ import * as tables from '../tables'
 import type { CommandArgv } from '../typings'
 import * as utils from '../utils'
 import { Worker } from '../worker'
+import { AddCommand, type AddCommandDefinition } from './add-command'
 import { BuildCommand } from './build-command'
 import { DeployCommand, type DeployCommandDefinition } from './deploy-command'
 import { ProjectCommand, ProjectDefinition } from './project-command'
@@ -41,16 +42,31 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   public async run(): Promise<void> {
     this.logger.warn('This command is experimental and subject to breaking changes without notice.')
 
-    // --adk (or auto-detected agent.config.ts) gates the ADK agent dev loop
-    // (bespoke cloudapi wire): watch -> force rebuild -> `brt deploy --adk`.
-    // This is a SEPARATE surface from the classic tunnel/worker dev server
-    // below (mirrors DeployCommand.run()'s own `if (this.argv.adk)` branch) and
-    // MUST run before readProjectDefinitionFromFS below, which throws on an
-    // agent.config.ts project (see project-command.ts _readProjectType). It
-    // also runs before ensureLoginAndCreateClient: agent dev never touches the
-    // Botpress-shaped login/client, only the bespoke cloudapi profile/link.
-    if (this.argv.adk || adkBundle.isAgentProject(this.projectPaths.abs.workDir)) {
+    // An agent.config.ts project (no root *.definition.ts) branches to one of
+    // TWO agent dev surfaces BEFORE readProjectDefinitionFromFS below (which
+    // throws on an agent project — see project-command.ts _readProjectType):
+    //
+    //   - `brt dev` (default, auto-detected): _runAgentTunnelDev() — generates
+    //     the synthetic classic bot at .adk/bot (the same in-process generator
+    //     `brt deploy --adk` uses) and runs the CLASSIC tunnel/worker dev
+    //     server below against it, in-process, via a nested DevCommand. This is
+    //     "local-like-Botpress" dev: cloudapi's dev-bot/tunnel surface
+    //     (createBot({dev:true,url}) under the workspace-PAT; the server
+    //     derives the bot id from the tunnel URL and sets type:adk itself).
+    //   - `brt dev --adk` (explicit): _runAdkDev() — the bespoke-cloudapi-wire
+    //     deploy-loop (watch -> force rebuild -> `brt deploy --adk` -> the
+    //     runtime-host supervisor hot-swaps on its next poll). Kept as the
+    //     explicit opt-in cloud deploy-loop workflow; see _runAdkDev below.
+    //
+    // --adk always wins when both would apply. Neither branch touches the
+    // Botpress-shaped ensureLoginAndCreateClient up here: _runAdkDev never
+    // needs it (bespoke cloudapi profile/link instead), and
+    // _runAgentTunnelDev's nested classic DevCommand calls it for itself.
+    if (this.argv.adk) {
       return this._runAdkDev()
+    }
+    if (adkBundle.isAgentProject(this.projectPaths.abs.workDir)) {
+      return this._runAgentTunnelDev()
     }
 
     const watchEnabled = this.argv.watch !== false
@@ -242,15 +258,15 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   }
 
   // ---------------------------------------------------------------------
-  // brt dev --adk — the agent DEV loop. Our cloudapi has NO dev-bot/tunnel
-  // surface (createBot({dev:true}) etc. is a Botpress-shaped concept this fork
-  // does not serve for agents): hot-reload is version-driven instead — `brt
-  // deploy --adk` PUTs the bundle (bumping the bot's versionId), and the
-  // runtime-host supervisor polls /internal/host/bots (~15s) and hot-swaps the
-  // running child when it sees a new versionId. So the entire agent dev loop
-  // is: watch source -> force a fresh build -> `brt deploy --adk` -> let the
-  // supervisor pick it up. There is no local dev worker to spawn for agents;
-  // deploy IS the mechanism.
+  // brt dev --adk — the EXPLICIT agent cloud deploy-loop. This is the OTHER
+  // agent dev surface (see _runAgentTunnelDev below for the default one, which
+  // runs the classic tunnel/worker dev server against a generated bot). This
+  // path never spawns a local dev worker for the agent itself: hot-reload is
+  // version-driven instead — `brt deploy --adk` PUTs the bundle (bumping the
+  // bot's versionId), and the runtime-host supervisor polls
+  // /internal/host/bots (~15s) and hot-swaps the running child when it sees a
+  // new versionId. So the entire loop is: watch source -> force a fresh build
+  // -> `brt deploy --adk` -> let the supervisor pick it up.
   // ---------------------------------------------------------------------
   private async _runAdkDev(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
@@ -339,22 +355,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       return
     }
 
-    // Filters file-change events down to agent SOURCE changes: .ts files and
-    // agent.config.ts under `dir`, excluding anything under the generated/build
-    // dirs (.adk/, .brt/) or node_modules — those changes are OUTPUT of a
-    // deploy, not input to one, and would otherwise retrigger this loop forever.
-    const isAgentSourceChange = (changedPath: string): boolean => {
-      const rel = pathlib.relative(dir, changedPath)
-      if (rel.startsWith('..')) return false
-      const segments = rel.split(pathlib.sep)
-      if (segments[0] === '.adk' || segments[0] === '.brt' || segments[0] === 'node_modules') return false
-      return pathlib.extname(changedPath) === '.ts' || pathlib.basename(changedPath) === adkBundle.AGENT_CONFIG_FILE
-    }
-
     const watcher = await utils.filewatcher.FileWatcher.watch(
       dir,
       async (events) => {
-        if (!events.some((e) => isAgentSourceChange(e.path))) return
+        if (!events.some((e) => this._isAgentSourceChange(dir, e.path))) return
         this.logger.log('Changes detected, rebuilding + redeploying')
         try {
           await redeploy()
@@ -374,6 +378,149 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       await watcher.wait()
     } finally {
       await watcher.close()
+    }
+  }
+
+  // Filters file-change events down to agent SOURCE changes: .ts files and
+  // agent.config.ts under `dir`, excluding anything under the generated/build
+  // dirs (.adk/, .brt/) or node_modules — those changes are OUTPUT of a
+  // generate/deploy step, not input to one, and would otherwise retrigger the
+  // watch loop forever. Shared by _runAdkDev (the deploy-loop's watch) and
+  // _runAgentTunnelDev (the tunnel dev's outer regen-watch) below.
+  private _isAgentSourceChange(dir: string, changedPath: string): boolean {
+    const rel = pathlib.relative(dir, changedPath)
+    if (rel.startsWith('..')) return false
+    const segments = rel.split(pathlib.sep)
+    if (segments[0] === '.adk' || segments[0] === '.brt' || segments[0] === 'node_modules') return false
+    return pathlib.extname(changedPath) === '.ts' || pathlib.basename(changedPath) === adkBundle.AGENT_CONFIG_FILE
+  }
+
+  // In-process dependency installer for the agent bot generator: drives brt's
+  // OWN native AddCommand as a plain function call instead of spawning a
+  // provisioned brt binary to `bp add` each integration/plugin/interface into
+  // the generated bot's bp_modules. Mirrors deploy-command.ts's own
+  // _buildAdkBundle installer construction exactly (see the comment there for
+  // the full rationale); replicated here rather than shared because the two
+  // callers are on unrelated class hierarchies (DevCommand vs DeployCommand)
+  // and neither project-command.ts (their common ancestor) nor adk-bundle.ts
+  // can import AddCommand without creating a circular import
+  // (add-command.ts -> project-command.ts).
+  private _buildAdkDependencyInstaller(): adkBundle.DependencyInstaller {
+    return async ({ resource, botPath, workspaceId, credentials }) => {
+      const addArgv: CommandArgv<AddCommandDefinition> = {
+        ...this.argv,
+        profile: undefined,
+        packageRef: resource,
+        installPath: botPath,
+        useDev: false,
+        alias: undefined,
+        confirm: true,
+        apiUrl: credentials.apiUrl,
+        token: credentials.token,
+        workspaceId,
+      }
+      await new AddCommand(this.api, this.prompt, this.logger, addArgv).run()
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // brt dev (default, agent.config.ts auto-detected) — the agent TUNNEL dev
+  // loop: "local-like-Botpress" dev via cloudapi's dev-bot/tunnel surface. An
+  // agent project has no bot.definition.ts, so it cannot be read directly by
+  // the classic bot/integration flow above. Instead this:
+  //   1. generates the synthetic classic bot at .adk/bot in-process (the same
+  //      @holocronlab/botruntime-adk generator `brt deploy --adk` uses — see
+  //      deploy-command.ts's _buildAdkBundle), and
+  //   2. runs the CLASSIC tunnel/worker dev server (the code above in this
+  //      same class) against .adk/bot, in-process, by nesting a DevCommand
+  //      with workDir=.adk/bot and adk:false. The nested command sees a
+  //      non-agent (classic) project there and takes the classic path
+  //      (createBot({dev:true,url}) + updateBot + tables + tunnel + Worker +
+  //      its own file-watch on .adk/bot) — no recursion, and NO wire change to
+  //      _deployDevBot/createBot (the server still derives id+type from the
+  //      tunnel URL; neither is sent).
+  // An OUTER regen-watch on the agent SOURCE (excluding .adk/, .brt/,
+  // node_modules) re-generates .adk/bot on every agent-source change; the
+  // NESTED DevCommand's own watcher then rebuilds+redeploys as usual, exactly
+  // as if a developer had hand-edited the generated bot. When the nested dev
+  // exits (worker/tunnel/watcher done, or an unrecoverable error), the outer
+  // watcher is closed and this method returns.
+  // ---------------------------------------------------------------------
+  private async _runAgentTunnelDev(): Promise<void> {
+    const dir = this.projectPaths.abs.workDir
+    const watchEnabled = this.argv.watch !== false
+    const installer = this._buildAdkDependencyInstaller()
+
+    cloudInfo(`agent dev: generating tunnel bot for ${dir} ...`)
+    // Initial generation fails loudly (never a silent no-op): a broken agent
+    // project should stop `brt dev` outright instead of starting a tunnel dev
+    // session against a bot that was never successfully generated.
+    const botPath = await adkBundle.generateAgentBot(dir, installer).catch((thrown) => {
+      throw errors.BotpressCLIError.wrap(thrown, 'agent dev: initial bot generation failed')
+    })
+
+    let regenerating = false
+    let regenDirty = false
+    // Overlap guard, same shape as _runAdkDev's redeploy(): a file-change
+    // firing while a regen is already in flight does not launch a second,
+    // concurrent regen — it only marks `regenDirty`, and the in-flight
+    // regen's own loop below picks up exactly one more pass once it finishes.
+    const regenerate = async (): Promise<void> => {
+      if (regenerating) {
+        regenDirty = true
+        return
+      }
+      regenerating = true
+      try {
+        do {
+          regenDirty = false
+          await adkBundle.generateAgentBot(dir, installer)
+        } while (regenDirty)
+      } finally {
+        regenerating = false
+      }
+    }
+
+    let watcher: Awaited<ReturnType<typeof utils.filewatcher.FileWatcher.watch>> | undefined
+    if (watchEnabled) {
+      watcher = await utils.filewatcher.FileWatcher.watch(
+        dir,
+        async (events) => {
+          if (!events.some((e) => this._isAgentSourceChange(dir, e.path))) return
+          this.logger.log('Agent source changed, regenerating tunnel bot')
+          try {
+            await regenerate()
+          } catch (thrown) {
+            // Loud, never silent: a transient generate error (e.g. a syntax
+            // error mid-edit) must not kill the dev session, but it must be
+            // impossible to miss either.
+            const err = errors.BotpressCLIError.wrap(thrown, 'agent dev: regenerate failed')
+            this.logger.error(err.message)
+            this.logger.debug(errors.BotpressCLIError.fullStack(err))
+          }
+        },
+        { debounceMs: FILEWATCHER_DEBOUNCE_MS }
+      )
+    }
+
+    // devSchema/adk:false narrows nothing here (nestedArgv shares the exact
+    // same schema as `this.argv`, only workDir/adk are overridden), so the
+    // nested DevCommand inherits every shared flag (--watch, --port,
+    // --tunnelUrl, credentials, secrets, ...) unchanged. It resolves its own
+    // fresh ProjectPaths/ProjectDefinitionContext/projectCache off workDir and
+    // self-disposes them in its own run(); no explicit teardown is needed here
+    // beyond closing the outer watcher.
+    const nestedArgv: CommandArgv<DevCommandDefinition> = {
+      ...this.argv,
+      workDir: botPath,
+      adk: false,
+    }
+
+    cloudInfo(`agent dev: starting classic tunnel dev on ${botPath} ...`)
+    try {
+      await new DevCommand(this.api, this.prompt, this.logger, nestedArgv).run()
+    } finally {
+      await watcher?.close()
     }
   }
 
