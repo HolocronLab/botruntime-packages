@@ -1,7 +1,7 @@
 {
   "name": "@holocronlab/botruntime-adk",
   "description": "Core ADK library for building AI agents on botruntime.",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "type": "module",
   "source": "./src/index.ts",
   "main": "./dist/index.js",
@@ -40,7 +40,8 @@
     "build:js": "bun run scripts/build.ts",
     "clean": "rm -rf dist",
     "check:type": "tsc --noEmit",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "prepublishOnly": "node -e \"['dist/index.js','dist/dependencies/index.js','dist/agent0/index.js','dist/commands/bp-cli.js'].forEach(f=>{if(!require('fs').existsSync(f)){console.error('FATAL: '+f+' missing — types-only build; run: bun run build:js');process.exit(1)}})\""
   },
   "dependencies": {
     "@holocronlab/botruntime-sdk": "^6.13.1",
