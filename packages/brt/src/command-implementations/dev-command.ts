@@ -9,6 +9,7 @@ import * as uuid from 'uuid'
 import * as fs from 'fs'
 import * as apiUtils from '../api'
 import * as adkBundle from '../adk-bundle'
+import * as adkDevId from '../adk-dev-id'
 import { secretEnvVariableName, stripSecretEnvVariablePrefix } from '../code-generation/secret-module'
 import type commandDefinitions from '../command-definitions'
 import { cloudInfo } from '../cloud-io'
@@ -464,6 +465,11 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const botPath = await adkBundle.generateAgentBot(dir, installer).catch((thrown) => {
       throw errors.BotpressCLIError.wrap(thrown, 'agent dev: initial bot generation failed')
     })
+    // Repair the tunnelId the ADK generator's own DevIdManager.restoreDevId()
+    // just dropped from the nested project cache (see adk-dev-id.ts) BEFORE the
+    // nested classic DevCommand below reads its tunnelId — so a previously
+    // persisted dev bot's tunnel is reused instead of a fresh uuid being minted.
+    adkDevId.restoreDevTunnelId(botPath, this.logger)
 
     let regenerating = false
     let regenDirty = false
@@ -481,6 +487,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         do {
           regenDirty = false
           await adkBundle.generateAgentBot(dir, installer)
+          // Same repair as the initial generation above: every regeneration
+          // re-runs the ADK generator's restoreDevId(), which drops tunnelId
+          // again whenever agent.local.json already has a devId.
+          adkDevId.restoreDevTunnelId(botPath, this.logger)
         } while (regenDirty)
       } finally {
         regenerating = false
@@ -527,6 +537,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       await new DevCommand(this.api, this.prompt, this.logger, nestedArgv).run()
     } finally {
       await watcher?.close()
+      // Persist the (possibly newly-minted) dev bot id to agent.local.json for
+      // the NEXT `brt dev` run — see adk-dev-id.ts. Best-effort: this must not
+      // mask whatever the nested dev's own run() threw/returned above.
+      adkDevId.preserveDevId(dir, botPath, this.logger)
     }
   }
 
