@@ -1,6 +1,11 @@
 import { createHash } from 'crypto'
 import * as fs from 'fs'
+import { createRequire } from 'module'
 import * as path from 'path'
+// Type-only: erased at runtime (bun/tsc strip it), so the ADK library is still
+// loaded lazily — this import adds ZERO runtime cost and just recovers the exact
+// type of the dynamically-imported `generateBotProject` (see generateAgentBot).
+import type * as adkLib from '@holocronlab/botruntime-adk'
 import { cloudInfo, cloudWarn } from './cloud-io'
 import * as errors from './errors'
 
@@ -85,7 +90,18 @@ export async function generateAgentBot(
   // otel, …). Load it only when an agent build actually runs, so plain brt
   // commands — and the pure-function unit tests in this module — never pay for
   // it. This is a deferred load of a load-bearing dep, NOT an optional fallback.
-  const { generateBotProject } = await import('@holocronlab/botruntime-adk')
+  //
+  // Resolve the entry relative to THIS module (brt's own dir), NOT via a bare
+  // `import('@holocronlab/botruntime-adk')`: under a bun-global install a bare
+  // dynamic specifier resolves from the CWD rather than brt's node_modules
+  // chain, so it fails to find the sibling package even though it is a declared
+  // dep installed right next to brt (brt's STATIC sibling imports resolve fine
+  // — only the dynamic one missed the chain). createRequire anchored to
+  // import.meta.url walks brt's own chain (where the sibling lives); importing
+  // the resolved absolute path is bun-global-safe.
+  const brtRequire = createRequire(import.meta.url)
+  const adkEntry = brtRequire.resolve('@holocronlab/botruntime-adk')
+  const { generateBotProject } = (await import(adkEntry)) as typeof adkLib
   // Passing `installer` makes the ADK dependency-sync vendor deps in-process
   // (no `bp add` child process). Without it, the ADK library falls back to its
   // standalone execa path — that only happens for non-brt callers.
