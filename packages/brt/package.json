@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/brt",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": false,
   "description": "brt — botruntime CLI. Full fork of @botpress/cli (MIT), rebranded and repointed at our cloudapi (botruntime.ru). Keeps the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow against our host.",
   "license": "MIT",
