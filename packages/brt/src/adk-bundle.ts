@@ -1,6 +1,5 @@
 import { createHash } from 'crypto'
 import * as fs from 'fs'
-import { createRequire } from 'module'
 import * as path from 'path'
 // Type-only: erased at runtime (bun/tsc strip it), so the ADK library is still
 // loaded lazily — this import adds ZERO runtime cost and just recovers the exact
@@ -91,16 +90,18 @@ export async function generateAgentBot(
   // commands — and the pure-function unit tests in this module — never pay for
   // it. This is a deferred load of a load-bearing dep, NOT an optional fallback.
   //
-  // Resolve the entry relative to THIS module (brt's own dir), NOT via a bare
-  // `import('@holocronlab/botruntime-adk')`: under a bun-global install a bare
-  // dynamic specifier resolves from the CWD rather than brt's node_modules
-  // chain, so it fails to find the sibling package even though it is a declared
-  // dep installed right next to brt (brt's STATIC sibling imports resolve fine
-  // — only the dynamic one missed the chain). createRequire anchored to
-  // import.meta.url walks brt's own chain (where the sibling lives); importing
-  // the resolved absolute path is bun-global-safe.
-  const brtRequire = createRequire(import.meta.url)
-  const adkEntry = brtRequire.resolve('@holocronlab/botruntime-adk')
+  // Resolve the entry with Bun's NATIVE resolver, anchored to this module's dir.
+  // Under a `bun install -g` the sibling lives at ~/.bun/install/global/
+  // node_modules, which Node's CJS resolution — what a bare dynamic import() AND
+  // createRequire().resolve() both use — does NOT search, so both fail to find
+  // the (installed, runtime-complete) sibling. Bun.resolveSync knows the
+  // bun-global layout and returns the absolute dist entry, which import() then
+  // loads. brt only ever runs under bun (bin = src/cli.ts, `#!/usr/bin/env
+  // bun`), so there is no non-bun path to fall back to — if `Bun` is ever
+  // absent this throws loudly, which is the correct signal for an unsupported
+  // runtime. Typed locally because brt's tsconfig uses node types, not bun-types.
+  const bun = (globalThis as unknown as { Bun: { resolveSync(id: string, parent: string): string } }).Bun
+  const adkEntry = bun.resolveSync('@holocronlab/botruntime-adk', (import.meta as unknown as { dir: string }).dir)
   const { generateBotProject } = (await import(adkEntry)) as typeof adkLib
   // Passing `installer` makes the ADK dependency-sync vendor deps in-process
   // (no `bp add` child process). Without it, the ADK library falls back to its
