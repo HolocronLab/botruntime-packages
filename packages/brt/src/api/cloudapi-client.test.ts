@@ -90,6 +90,29 @@ describe('CloudapiClient', () => {
     await expect(client.listConfigVars('42')).rejects.toThrow(/401.*invalid\/revoked api key/)
   })
 
+  it('provisionBot sends x-workspace-id when a workspaceId is passed (provision-under-PAT)', async () => {
+    stubFetch(() => new Response(JSON.stringify({ botId: 1, apiKey: 'k', workspaceId: 7 }), { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+    await client.provisionBot('my-bot', 'ws_123')
+
+    const [call] = calls
+    expect(call!.url).toBe('https://cloud.example/v1/admin/provision-bot')
+    const headers = call!.init.headers as Record<string, string>
+    expect(headers['x-workspace-id']).toBe('ws_123')
+    expect(call!.init.body).toBe(JSON.stringify({ name: 'my-bot' }))
+  })
+
+  it('provisionBot omits x-workspace-id when no workspaceId is passed (legacy/bot-scoped keys)', async () => {
+    stubFetch(() => new Response(JSON.stringify({ botId: 1, apiKey: 'k', workspaceId: 7 }), { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+    await client.provisionBot('my-bot')
+
+    const headers = calls[0]!.init.headers as Record<string, string>
+    expect(headers['x-workspace-id']).toBeUndefined()
+  })
+
   it('withKey returns a new client scoped to the given key, same base URL', async () => {
     stubFetch(() => new Response('{}', { status: 200 }))
     const client = new CloudapiClient('https://cloud.example', 'machine-key')

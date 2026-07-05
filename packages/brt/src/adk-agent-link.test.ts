@@ -108,4 +108,122 @@ describe('adk-agent-link', () => {
       expect(fs.existsSync(agentLink.agentLocalInfoFilePath(dir))).toBe(false)
     })
   })
+
+  describe('writeAgentInfo', () => {
+    it('writes agent.json in adk key order [botId, workspaceId, apiUrl], no trailing newline', () => {
+      agentLink.writeAgentInfo(dir, { botId: 'bot_1', workspaceId: 'ws_1', apiUrl: 'https://api.botruntime.ru' })
+
+      const raw = fs.readFileSync(agentLink.agentInfoFilePath(dir), 'utf-8')
+      expect(raw).toBe(
+        JSON.stringify({ botId: 'bot_1', workspaceId: 'ws_1', apiUrl: 'https://api.botruntime.ru' }, null, 2)
+      )
+      expect(raw.endsWith('\n')).toBe(false)
+      expect(agentLink.readAgentInfoIfPresent(dir)).toEqual({
+        botId: 'bot_1',
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.botruntime.ru',
+      })
+    })
+
+    it('drops apiUrl entirely rather than writing a literal null/undefined', () => {
+      agentLink.writeAgentInfo(dir, { botId: 'bot_1', workspaceId: 'ws_1', apiUrl: undefined })
+
+      const raw = fs.readFileSync(agentLink.agentInfoFilePath(dir), 'utf-8')
+      expect(raw).toBe(JSON.stringify({ botId: 'bot_1', workspaceId: 'ws_1' }, null, 2))
+      expect(raw.includes('apiUrl')).toBe(false)
+    })
+
+    it('overwrites an existing agent.json', () => {
+      agentLink.writeAgentInfo(dir, { botId: 'bot_1', workspaceId: 'ws_1' })
+      agentLink.writeAgentInfo(dir, { botId: 'bot_2', workspaceId: 'ws_2', apiUrl: 'https://new.example' })
+
+      expect(agentLink.readAgentInfoIfPresent(dir)).toEqual({
+        botId: 'bot_2',
+        workspaceId: 'ws_2',
+        apiUrl: 'https://new.example',
+      })
+    })
+  })
+
+  describe('resolveAgentBotId', () => {
+    it('prefers --bot-id over everything else', () => {
+      expect(agentLink.resolveAgentBotId('argv_bot', { botId: 'agent_bot', workspaceId: 'ws' }, 999)).toBe('argv_bot')
+    })
+
+    it('prefers agent.json.botId over bot.json link.botId', () => {
+      expect(agentLink.resolveAgentBotId(undefined, { botId: 'agent_bot', workspaceId: 'ws' }, 999)).toBe('agent_bot')
+    })
+
+    it('falls back to bot.json link.botId (stringified) when agent.json is absent', () => {
+      expect(agentLink.resolveAgentBotId(undefined, undefined, 999)).toBe('999')
+    })
+
+    it('returns undefined when all three are absent (provision case)', () => {
+      expect(agentLink.resolveAgentBotId(undefined, undefined, undefined)).toBeUndefined()
+    })
+  })
+
+  describe('computeAutoMigrateInfo', () => {
+    it('returns undefined when agent.json is already present (no migration needed)', () => {
+      const result = agentLink.computeAutoMigrateInfo(
+        { botId: 'agent_bot', workspaceId: 'ws' },
+        { botId: 3, workspaceId: 5 },
+        '3',
+        'profile_ws',
+        'https://api.example'
+      )
+      expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when bot.json has no botId either (nothing to migrate)', () => {
+      const result = agentLink.computeAutoMigrateInfo(undefined, {}, undefined, 'profile_ws', 'https://api.example')
+      expect(result).toBeUndefined()
+    })
+
+    it('migrates from bot.json link.workspaceId when present', () => {
+      const result = agentLink.computeAutoMigrateInfo(
+        undefined,
+        { botId: 3, workspaceId: 5 },
+        '3',
+        'profile_ws',
+        'https://api.example'
+      )
+      expect(result).toEqual({ botId: '3', workspaceId: '5', apiUrl: 'https://api.example' })
+    })
+
+    it('falls back to the profile workspaceId when bot.json has none', () => {
+      const result = agentLink.computeAutoMigrateInfo(undefined, { botId: 3 }, '3', 'profile_ws', 'https://api.example')
+      expect(result).toEqual({ botId: '3', workspaceId: 'profile_ws', apiUrl: 'https://api.example' })
+    })
+
+    it('skips migration (returns undefined) when neither bot.json nor profile has a workspaceId', () => {
+      const result = agentLink.computeAutoMigrateInfo(undefined, { botId: 3 }, '3', undefined, 'https://api.example')
+      expect(result).toBeUndefined()
+    })
+
+    it('persists the RESOLVED botId (honors --bot-id override), not the legacy bot.json botId', () => {
+      // deploy --adk --bot-id 999 against legacy bot.json(3): agent.json must
+      // become 999 (the deployed bot), never 3 — else the next run silently
+      // targets 3.
+      const result = agentLink.computeAutoMigrateInfo(
+        undefined,
+        { botId: 3, workspaceId: 5 },
+        '999',
+        'profile_ws',
+        'https://api.example'
+      )
+      expect(result).toEqual({ botId: '999', workspaceId: '5', apiUrl: 'https://api.example' })
+    })
+
+    it('skips migration when the resolved botId is undefined', () => {
+      const result = agentLink.computeAutoMigrateInfo(
+        undefined,
+        { botId: 3, workspaceId: 5 },
+        undefined,
+        'profile_ws',
+        'https://api.example'
+      )
+      expect(result).toBeUndefined()
+    })
+  })
 })

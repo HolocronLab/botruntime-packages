@@ -60,6 +60,16 @@ export function agentLocalInfoFilePath(dir: string): string {
   return path.join(dir, AGENT_LOCAL_INFO_FILE)
 }
 
+// Writes agent.json (the committed, canonical prod link for an agent
+// project). Drops an undefined apiUrl rather than writing a literal `null`.
+// fs.writeFileSync, no trailing newline — matches writeAgentLocalDevId's
+// byte-shape (mirrors @holocronlab/botruntime-adk's own writer).
+export function writeAgentInfo(dir: string, info: AgentInfo): void {
+  const toWrite: Record<string, unknown> = { botId: info.botId, workspaceId: info.workspaceId }
+  if (info.apiUrl !== undefined) toWrite['apiUrl'] = info.apiUrl
+  fs.writeFileSync(agentInfoFilePath(dir), stringifyWithOrder(toWrite, AGENT_INFO_KEY_ORDER))
+}
+
 export function readAgentInfoIfPresent(dir: string): AgentInfo | undefined {
   const filePath = agentInfoFilePath(dir)
   if (!fs.existsSync(filePath)) return undefined
@@ -105,4 +115,53 @@ export function writeAgentLocalDevId(dir: string, devId: string | undefined): vo
   }
 
   fs.writeFileSync(filePath, stringifyWithOrder(merged as unknown as Record<string, unknown>, AGENT_LOCAL_INFO_KEY_ORDER))
+}
+
+// ---- Stage 2b: agent.json as the canonical prod link ----------------------
+//
+// Net rule: agent.config.ts present => agent.json is canonical; bot.json
+// (cloud-project-link.ts's BotLink) is legacy-fallback-only (read) for ONE
+// release, then dropped. These two pure helpers are factored out of
+// deploy-command.ts's _deployAdkBundle so the precedence/migration logic is
+// unit-testable without spinning up the whole deploy command.
+
+// READ precedence for the prod bot id (agent projects): --bot-id flag wins,
+// then agent.json.botId (the canonical link), then bot.json's link.botId
+// (legacy graceful fallback, only reached when agent.json is absent).
+// bot.json's botId is a NUMBER (BotLink); agent.json's is already a STRING.
+export function resolveAgentBotId(
+  argvBotId: string | undefined,
+  agentInfo: AgentInfo | undefined,
+  linkBotId: number | undefined
+): string | undefined {
+  return argvBotId ?? agentInfo?.botId ?? (linkBotId !== undefined ? String(linkBotId) : undefined)
+}
+
+// One-time auto-migration: when bot.json already links a bot (link.botId
+// present) but agent.json is absent, compute the agent.json contents to
+// write so agent.json becomes canonical from here on. Returns undefined when
+// no migration is needed (agent.json already present) OR when there is
+// nothing to migrate (bot.json has no botId either).
+//
+// workspaceId prefers bot.json's own link.workspaceId; when that is absent
+// falls back to the resolved profile's workspaceId. Never writes an empty/
+// unknown workspaceId — if neither source has one, migration is skipped
+// (the caller keeps reading bot.json as fallback; nothing is lost).
+export function computeAutoMigrateInfo(
+  agentInfo: AgentInfo | undefined,
+  link: { botId?: number; workspaceId?: number },
+  resolvedBotId: string | undefined,
+  profileWorkspaceId: string | undefined,
+  apiUrl: string | undefined
+): AgentInfo | undefined {
+  if (agentInfo !== undefined) return undefined // agent.json already canonical
+  if (link.botId === undefined) return undefined // only migrate when a legacy bot.json link exists
+  if (resolvedBotId === undefined) return undefined // nothing to persist
+  const workspaceId = link.workspaceId !== undefined ? String(link.workspaceId) : profileWorkspaceId
+  if (workspaceId === undefined) return undefined
+  // Persist the RESOLVED bot id (which honors an explicit --bot-id override),
+  // NOT link.botId: `deploy --adk --bot-id 999` against a legacy bot.json(123)
+  // deploys to 999, so agent.json must become 999 too — writing 123 here would
+  // silently diverge the canonical link from the deployed bot on the next run.
+  return { botId: resolvedBotId, workspaceId, apiUrl }
 }

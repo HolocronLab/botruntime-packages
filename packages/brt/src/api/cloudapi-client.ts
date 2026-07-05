@@ -95,6 +95,7 @@ interface RequestOpts {
   body?: unknown
   botId?: string
   internalToken?: string
+  workspaceId?: string
   timeoutMs?: number
   idempotent?: boolean // retry on 5xx/network
 }
@@ -125,6 +126,7 @@ export class CloudapiClient {
     if (opts.body !== undefined) headers['content-type'] = 'application/json'
     if (opts.botId) headers['x-bot-id'] = opts.botId
     if (opts.internalToken) headers['x-internal-token'] = opts.internalToken
+    if (opts.workspaceId) headers['x-workspace-id'] = opts.workspaceId
 
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const attempts = opts.idempotent ? MAX_RETRIES : 1
@@ -171,8 +173,13 @@ export class CloudapiClient {
   }
 
   // ---- provision (NOT idempotent, NOT retried) -----------------------------
-  public async provisionBot(name?: string): Promise<ProvisionResponse> {
-    return this.raw({ method: 'POST', path: '/v1/admin/provision-bot', body: { name } })
+  // workspaceId is threaded onto x-workspace-id UNCONDITIONALLY from the
+  // resolved workspaceId — required now that provision-under-PAT is live: a
+  // workspace-scoped PAT provisioning with no x-workspace-id returns 400. The
+  // server reads x-workspace-id only on the PAT auth path and ignores it for
+  // legacy/bot-scoped keys (auth.go:12), so sending it is harmless for those.
+  public async provisionBot(name?: string, workspaceId?: string): Promise<ProvisionResponse> {
+    return this.raw({ method: 'POST', path: '/v1/admin/provision-bot', body: { name }, workspaceId })
   }
 
   // ---- deploy bundle (idempotent upsert) -----------------------------------

@@ -6,6 +6,7 @@ import * as path from 'path'
 import semver from 'semver'
 import * as apiUtils from '../api'
 import { CloudapiClient } from '../api/cloudapi-client'
+import * as agentLink from '../adk-agent-link'
 import * as adkBundle from '../adk-bundle'
 import * as botsStore from '../bots-store'
 import { cloudInfo, cloudWarn } from '../cloud-io'
@@ -636,7 +637,11 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   private async _deployAdkBundle(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
-    let link: cloudLink.BotLink = cloudLink.loadLinkIfPresent(dir, linkEnv) ?? {}
+    // bot.json/bot.local.json — read as a LEGACY fallback only, for one
+    // release. agent.json (below) is the canonical prod link for agent
+    // projects; this fork never writes bot.json for an agent project again.
+    const link: cloudLink.BotLink = cloudLink.loadLinkIfPresent(dir, linkEnv) ?? {}
+    const agentInfo = agentLink.readAgentInfoIfPresent(dir)
 
     const { name: profileName, profile } = await cloudProfileResolve.resolveProfile({
       argvProfile: this.argv.profile,
@@ -646,15 +651,20 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     const apiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile, link)
     const botsStorePath = this.globalPaths.abs.botsStoreFile
 
+    // READ precedence for the prod bot id: --bot-id flag > agent.json.botId
+    // (canonical) > bot.json's link.botId (legacy graceful fallback).
+    const resolvedBotId = agentLink.resolveAgentBotId(this.argv.botId, agentInfo, link.botId)
+
     let botId: string
     let perBotKey: string
-    if (this.argv.botId === undefined && link.botId === undefined) {
-      // 1. provision once (no botId yet, and no --bot-id override). Persist
-      // the key BEFORE the link, atomically, so a crash leaves a recoverable
-      // bot rather than an orphan with a lost key.
+    if (resolvedBotId === undefined) {
+      // 1. provision once (no botId anywhere yet, and no --bot-id override).
+      // Persist the key BEFORE the link, atomically, so a crash leaves a
+      // recoverable bot rather than an orphan with a lost key.
       cloudInfo(`provision new bot on ${apiUrl} ...`)
       const machineClient = new CloudapiClient(apiUrl, profile.token)
-      const prov = await machineClient.provisionBot(this.argv.name)
+      const provisionWorkspaceId = profile.workspaceId ?? (link.workspaceId !== undefined ? String(link.workspaceId) : undefined)
+      const prov = await machineClient.provisionBot(this.argv.name, provisionWorkspaceId)
       botId = String(prov.botId)
       perBotKey = prov.apiKey
       if (!botId || !perBotKey) {
@@ -665,11 +675,22 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       botsStore.setBotCreds(store, profileName, botId, { apiKey: perBotKey })
       botsStore.writeBotsStore(botsStorePath, store)
 
-      link = { ...link, botId: prov.botId, workspaceId: prov.workspaceId, apiUrl }
-      cloudLink.saveLink(dir, linkEnv, link)
+      // Agent projects: agent.json ONLY. Never saveLink/write bot.json here —
+      // that would recreate the exact split-brain this stage removes.
+      agentLink.writeAgentInfo(dir, { botId, workspaceId: String(prov.workspaceId), apiUrl })
       cloudInfo(`provisioned botId=${botId} workspaceId=${prov.workspaceId}`)
     } else {
-      botId = this.argv.botId ?? String(link.botId)
+      botId = resolvedBotId
+
+      // AUTO-MIGRATE (one-time): bot.json already links a bot but agent.json
+      // is absent — write agent.json from bot.json so it becomes canonical
+      // from here on. Keeps reading bot.json as fallback for one release.
+      const migrated = agentLink.computeAutoMigrateInfo(agentInfo, link, resolvedBotId, profile.workspaceId, apiUrl)
+      if (migrated) {
+        agentLink.writeAgentInfo(dir, migrated)
+        cloudInfo(`migrated legacy ${cloudLink.linkFileName(linkEnv)} -> agent.json (botId=${migrated.botId})`)
+      }
+
       const store = botsStore.readBotsStore(botsStorePath)
       const creds = botsStore.getBotCreds(store, profileName, botId)
       if (!creds?.apiKey) {
