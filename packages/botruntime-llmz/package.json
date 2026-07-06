@@ -2,7 +2,7 @@
   "name": "@holocronlab/botruntime-llmz",
   "type": "module",
   "description": "An LLM-native Typescript VM built on top of botruntime Zui - code-generation agent framework",
-  "version": "0.0.84",
+  "version": "0.0.85",
   "types": "./dist/index.d.ts",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -85,5 +85,8 @@
     "@babel/core": "7.26.9",
     "@babel/template": "7.26.9",
     "@babel/helpers": "7.26.9"
+  },
+  "patchedDependencies": {
+    "source-map-js@1.2.1": "patches/source-map-js@1.2.1.patch"
   }
 }

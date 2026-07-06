@@ -1,0 +1,14 @@
+diff --git a/lib/quick-sort.js b/lib/quick-sort.js
+index 23f9eda..1a5a0f2 100644
+--- a/lib/quick-sort.js
++++ b/lib/quick-sort.js
+@@ -107,8 +107,7 @@ function doQuickSort(ary, comparator, p, r) {
+ }
+ 
+ function cloneSort(comparator) {
+-  let template = SortTemplate.toString();
+-  let templateFn = new Function(`return ${template}`)();
++  let templateFn = (...args) => SortTemplate(...args);
+   return templateFn(comparator);
+ }
+ 
