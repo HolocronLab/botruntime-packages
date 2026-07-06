@@ -113,6 +113,50 @@ describe('CloudapiClient', () => {
     expect(headers['x-workspace-id']).toBeUndefined()
   })
 
+  it('putBundle sends x-workspace-id + x-bot-id under a workspace PAT (Botpress-parity deploy)', async () => {
+    stubFetch(() => new Response('{}', { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await client.putBundle('3', 'lawyer-bot', 'export default {}', [], 'ws_123')
+
+    const [call] = calls
+    expect(call!.url).toBe('https://cloud.example/v1/admin/bots/3')
+    expect(call!.init.method).toBe('PUT')
+    const headers = call!.init.headers as Record<string, string>
+    expect(headers['authorization']).toBe('Bearer brt_pat_xxx')
+    expect(headers['x-workspace-id']).toBe('ws_123')
+    expect(headers['x-bot-id']).toBe('3')
+  })
+
+  it('putBundle omits x-workspace-id when none is passed (legacy bot-key deploy)', async () => {
+    stubFetch(() => new Response('{}', { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'bot-key')
+
+    await client.putBundle('3', 'lawyer-bot', 'export default {}')
+
+    const headers = calls[0]!.init.headers as Record<string, string>
+    expect(headers['x-workspace-id']).toBeUndefined()
+    expect(headers['x-bot-id']).toBe('3')
+  })
+
+  it('listTables/createTable send x-workspace-id + x-bot-id under a workspace PAT', async () => {
+    stubFetch(() => new Response(JSON.stringify({ tables: [] }), { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await client.listTables('3', 'ws_123')
+    await client.createTable('3', 'Users', { columns: [] }, 'ws_123')
+
+    const list = calls[0]!.init.headers as Record<string, string>
+    expect(calls[0]!.url).toBe('https://cloud.example/v1/tables')
+    expect(list['x-workspace-id']).toBe('ws_123')
+    expect(list['x-bot-id']).toBe('3')
+
+    const create = calls[1]!.init.headers as Record<string, string>
+    expect(calls[1]!.init.method).toBe('POST')
+    expect(create['x-workspace-id']).toBe('ws_123')
+    expect(create['x-bot-id']).toBe('3')
+  })
+
   it('withKey returns a new client scoped to the given key, same base URL', async () => {
     stubFetch(() => new Response('{}', { status: 200 }))
     const client = new CloudapiClient('https://cloud.example', 'machine-key')

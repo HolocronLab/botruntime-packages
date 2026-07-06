@@ -183,11 +183,24 @@ export class CloudapiClient {
   }
 
   // ---- deploy bundle (idempotent upsert) -----------------------------------
-  public async putBundle(botId: string, name: string, code: string, commands: BotCommand[] = []): Promise<unknown> {
+  // workspaceId (x-workspace-id) is what lets a workspace-scoped PAT deploy any
+  // bot it owns/admins (Botpress parity: one `brt login` deploys the workspace).
+  // The server resolves the bot by the numeric path id within that workspace and
+  // gates owner|admin; it ignores x-workspace-id for legacy bot-scoped keys, so
+  // threading it is harmless for the machine/CI principal too. Omitted → the
+  // server falls back to bot-key scoping (the legacy path).
+  public async putBundle(
+    botId: string,
+    name: string,
+    code: string,
+    commands: BotCommand[] = [],
+    workspaceId?: string
+  ): Promise<unknown> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/bots/${botId}`,
       botId,
+      workspaceId,
       body: { name, code, type: 'adk', commands },
       timeoutMs: BUNDLE_TIMEOUT_MS,
       idempotent: true,
@@ -339,12 +352,16 @@ export class CloudapiClient {
   }
 
   // ---- tables (list idempotent; create NOT — 409 means already exists) ------
-  public async listTables(botId: string): Promise<{ tables: Array<{ name: string }> }> {
-    return this.raw({ method: 'GET', path: '/v1/tables', botId, idempotent: true })
+  // /v1/tables/* discriminates the deploy caller from the dev callback by the
+  // presence of x-workspace-id (dev does not send it); under a workspace PAT
+  // the deploy therefore sends BOTH x-workspace-id (writer gate owner|admin)
+  // and x-bot-id (numeric, which table set to address).
+  public async listTables(botId: string, workspaceId?: string): Promise<{ tables: Array<{ name: string }> }> {
+    return this.raw({ method: 'GET', path: '/v1/tables', botId, workspaceId, idempotent: true })
   }
 
-  public async createTable(botId: string, name: string, schema: unknown): Promise<unknown> {
-    return this.raw({ method: 'POST', path: '/v1/tables', botId, body: { name, schema } })
+  public async createTable(botId: string, name: string, schema: unknown, workspaceId?: string): Promise<unknown> {
+    return this.raw({ method: 'POST', path: '/v1/tables', botId, workspaceId, body: { name, schema } })
   }
 }
 

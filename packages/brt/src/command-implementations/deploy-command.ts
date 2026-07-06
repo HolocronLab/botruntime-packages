@@ -655,18 +655,29 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // (canonical) > bot.json's link.botId (legacy graceful fallback).
     const resolvedBotId = agentLink.resolveAgentBotId(this.argv.botId, agentInfo, link.botId)
 
+    // Deploy is workspace-scoped (Botpress parity): the bundle PUT and table
+    // sync go under the workspace PAT (profile.token) + x-workspace-id, so a
+    // profile with no workspaceId cannot deploy. Fail loud here rather than let
+    // the server 400/404 after we have already built the bundle.
+    if (!profile.workspaceId) {
+      throw new errors.BotpressCLIError(
+        `profile "${profileName}" has no workspaceId — re-run \`brt login\` (deploy is workspace-scoped)`
+      )
+    }
+
     let botId: string
-    let perBotKey: string
     if (resolvedBotId === undefined) {
       // 1. provision once (no botId anywhere yet, and no --bot-id override).
-      // Persist the key BEFORE the link, atomically, so a crash leaves a
-      // recoverable bot rather than an orphan with a lost key.
+      // Persist the per-bot key BEFORE the link, atomically, so a crash leaves
+      // a recoverable bot rather than an orphan with a lost key. The key is NOT
+      // used to deploy (deploy is under the workspace PAT, below) — it is kept
+      // only for operations that still need a per-bot principal
+      // (`brt integrations install/register`, webhookSecret).
       cloudInfo(`provision new bot on ${apiUrl} ...`)
       const machineClient = new CloudapiClient(apiUrl, profile.token)
-      const provisionWorkspaceId = profile.workspaceId ?? (link.workspaceId !== undefined ? String(link.workspaceId) : undefined)
-      const prov = await machineClient.provisionBot(this.argv.name, provisionWorkspaceId)
+      const prov = await machineClient.provisionBot(this.argv.name, profile.workspaceId)
       botId = String(prov.botId)
-      perBotKey = prov.apiKey
+      const perBotKey = prov.apiKey
       if (!botId || !perBotKey) {
         throw new errors.BotpressCLIError(`provision returned no botId/apiKey: ${JSON.stringify(prov)}`)
       }
@@ -691,15 +702,9 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
         cloudInfo(`migrated legacy ${cloudLink.linkFileName(linkEnv)} -> agent.json (botId=${migrated.botId})`)
       }
 
-      const store = botsStore.readBotsStore(botsStorePath)
-      const creds = botsStore.getBotCreds(store, profileName, botId)
-      if (!creds?.apiKey) {
-        throw new errors.BotpressCLIError(
-          `bot ${botId} is linked but its per-bot key is missing from ${botsStorePath} (profile "${profileName}") — ` +
-            `run \`brt link --bot-id ${botId} --key-stdin\`, or re-provision (drop ${cloudLink.linkFileName(linkEnv)} to orphan the old bot)`
-        )
-      }
-      perBotKey = creds.apiKey
+      // No per-bot key is read here: an already-linked bot deploys under the
+      // workspace PAT. bots.json remains the store for the per-bot principal
+      // that `brt integrations install/register` still needs.
     }
 
     // 2. build if needed — in-process: generate the synthetic classic bot with
@@ -717,10 +722,12 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       commands.length === 0 ? 'commands: none declared' : `commands: ${commands.map((c) => '/' + c.command).join(', ')}`
     )
 
-    // 3. PUT bundle under the per-bot key
-    const bot = new CloudapiClient(apiUrl, perBotKey)
-    cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId}`)
-    await bot.putBundle(botId, this.argv.name ?? botId, code, commands)
+    // 3. PUT bundle under the workspace PAT (profile.token) — Botpress parity.
+    // The server resolves the bot by its numeric id within profile.workspaceId
+    // and gates owner|admin; the CLI no longer reads the per-bot key to deploy.
+    const bot = new CloudapiClient(apiUrl, profile.token)
+    cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId} (workspace ${profile.workspaceId})`)
+    await bot.putBundle(botId, this.argv.name ?? botId, code, commands, profile.workspaceId)
 
     // 4. verify round-trip by sha256 (length alone would pass on a corrupt/raced copy)
     const internalToken = profile.internalToken
@@ -741,7 +748,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // 5. synchronize declared tables (mirrors the Botpress-shaped deploy's own
     // bundle-then-tables order above): without this step the bot's first
     // table write 404s and the web console shows no tables.
-    await this._syncAdkTables(dir, bot, botId)
+    await this._syncAdkTables(dir, bot, botId, profile.workspaceId)
 
     this._writeAdkLastDeploy(dir, { botId, sha256: localHash, at: new Date().toISOString() })
 
@@ -753,14 +760,14 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   // Existing tables are left untouched (column migration is out of scope); a
   // create failure aborts loudly naming the offending table. Idempotent: a
   // re-run sees them all listed and creates nothing.
-  private async _syncAdkTables(dir: string, bot: CloudapiClient, botId: string): Promise<void> {
+  private async _syncAdkTables(dir: string, bot: CloudapiClient, botId: string, workspaceId: string): Promise<void> {
     const declared = declaredTables.extractDeclaredTables(dir)
     if (declared.length === 0) {
       cloudInfo('tables: none declared')
       return
     }
     cloudInfo(`synchronizing ${declared.length} table(s)…`)
-    const existing = new Set((await bot.listTables(botId)).tables.map((t) => t.name))
+    const existing = new Set((await bot.listTables(botId, workspaceId)).tables.map((t) => t.name))
     let created = 0
     for (const table of declared) {
       if (existing.has(table.name)) {
@@ -768,7 +775,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
         continue
       }
       try {
-        await bot.createTable(botId, table.name, table.schema)
+        await bot.createTable(botId, table.name, table.schema, workspaceId)
       } catch (thrown) {
         throw errors.BotpressCLIError.wrap(thrown, `table "${table.name}": create failed`)
       }
