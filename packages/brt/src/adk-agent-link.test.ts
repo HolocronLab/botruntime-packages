@@ -163,6 +163,58 @@ describe('adk-agent-link', () => {
     })
   })
 
+  describe('isBotpressCloudHost', () => {
+    it('recognizes botpress.cloud and its subdomains', () => {
+      expect(agentLink.isBotpressCloudHost('https://botpress.cloud')).toBe(true)
+      expect(agentLink.isBotpressCloudHost('https://api.botpress.cloud/v1')).toBe(true)
+      expect(agentLink.isBotpressCloudHost('https://api.botpress.cloud:443')).toBe(true)
+    })
+
+    it('does not match our self-hosted cloudapi or look-alikes', () => {
+      expect(agentLink.isBotpressCloudHost('https://botruntime.ru')).toBe(false)
+      expect(agentLink.isBotpressCloudHost('https://botpress.cloud.evil.com')).toBe(false)
+      expect(agentLink.isBotpressCloudHost('http://localhost:8090')).toBe(false)
+    })
+
+    it('treats a non-URL string as NOT Botpress Cloud (keeps the guard active)', () => {
+      expect(agentLink.isBotpressCloudHost('not a url')).toBe(false)
+    })
+  })
+
+  describe('checkDeployableBotId', () => {
+    const UUID = '5e14d95c-1111-2222-3333-444455556666'
+
+    it('fails a UUID botId (from agent.json) against our numeric-only cloudapi', () => {
+      const err = agentLink.checkDeployableBotId(UUID, undefined, 'https://botruntime.ru')
+      expect(err).toContain(UUID)
+      expect(err).toContain('numeric')
+      expect(err).toContain('--bot-id')
+    })
+
+    it('passes a numeric botId', () => {
+      expect(agentLink.checkDeployableBotId('3', undefined, 'https://botruntime.ru')).toBeUndefined()
+    })
+
+    it('skips the check for an explicit --bot-id override (user escape hatch)', () => {
+      expect(agentLink.checkDeployableBotId(UUID, UUID, 'https://botruntime.ru')).toBeUndefined()
+    })
+
+    it('allows a UUID botId when the target really is Botpress Cloud', () => {
+      expect(agentLink.checkDeployableBotId(UUID, undefined, 'https://api.botpress.cloud')).toBeUndefined()
+    })
+
+    it('returns undefined when nothing is resolved (provision path)', () => {
+      expect(agentLink.checkDeployableBotId(undefined, undefined, 'https://botruntime.ru')).toBeUndefined()
+    })
+
+    it('gives a blank-botId message (not "Botpress Cloud id") for an empty botId', () => {
+      const err = agentLink.checkDeployableBotId('', undefined, 'https://botruntime.ru')
+      expect(err).toContain('blank botId')
+      expect(err).not.toContain('looks like a Botpress Cloud id')
+      expect(err).toContain('--bot-id')
+    })
+  })
+
   describe('computeAutoMigrateInfo', () => {
     it('returns undefined when agent.json is already present (no migration needed)', () => {
       const result = agentLink.computeAutoMigrateInfo(

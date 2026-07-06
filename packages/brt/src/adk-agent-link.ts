@@ -137,6 +137,48 @@ export function resolveAgentBotId(
   return argvBotId ?? agentInfo?.botId ?? (linkBotId !== undefined ? String(linkBotId) : undefined)
 }
 
+// True when the deploy target is Botpress Cloud (where UUID bot ids are valid).
+// Parsed via URL so it is robust to scheme/port/trailing path; a non-URL string
+// is treated as NOT Botpress Cloud (our self-hosted cloudapi is the default),
+// which keeps the stale-UUID guard active rather than silently bypassing it.
+export function isBotpressCloudHost(apiUrl: string): boolean {
+  try {
+    const host = new URL(apiUrl).hostname
+    return host === 'botpress.cloud' || host.endsWith('.botpress.cloud')
+  } catch {
+    return false
+  }
+}
+
+// Stale-migration guard for `brt deploy --adk`. Our cloudapi resolves bots by a
+// NUMERIC id, but a bot migrated off Botpress Cloud still carries a UUID botId
+// in agent.json; a non-numeric id can never deploy against our cloudapi
+// (guaranteed 404). Returns an actionable error message when the resolved botId
+// is not deployable to `apiUrl`, or undefined when the deploy may proceed.
+// Skipped for an explicit --bot-id override (the user's escape hatch) and for
+// Botpress Cloud targets (where UUID ids are valid).
+export function checkDeployableBotId(
+  resolvedBotId: string | undefined,
+  argvBotId: string | undefined,
+  apiUrl: string
+): string | undefined {
+  if (resolvedBotId === undefined) return undefined // nothing resolved → provision path
+  if (argvBotId !== undefined) return undefined // explicit --bot-id override — user's call
+  if (/^\d+$/.test(resolvedBotId)) return undefined // numeric → deployable
+  if (isBotpressCloudHost(apiUrl)) return undefined // UUID is valid against Botpress Cloud
+  // A non-numeric id can never deploy against our numeric-only cloudapi.
+  if (resolvedBotId.trim() === '') {
+    return (
+      `agent.json has a blank botId, but ${apiUrl} resolves bots by numeric id. ` +
+      `Set agent.json's botId to the numeric bot id, or pass --bot-id <N>.`
+    )
+  }
+  return (
+    `agent.json botId "${resolvedBotId}" looks like a Botpress Cloud id, but you are deploying to ${apiUrl}, ` +
+    `which resolves bots by numeric id. Update agent.json's botId to the numeric bot id, or pass --bot-id <N>.`
+  )
+}
+
 // One-time auto-migration: when bot.json already links a bot (link.botId
 // present) but agent.json is absent, compute the agent.json contents to
 // write so agent.json becomes canonical from here on. Returns undefined when

@@ -665,6 +665,17 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       )
     }
 
+    // Stale-migration guard: our cloudapi resolves bots by a NUMERIC id, but a
+    // bot migrated off Botpress Cloud still carries a UUID botId in agent.json.
+    // A non-numeric id can never deploy here (guaranteed 404), so make the
+    // config error visible immediately with an actionable message instead of
+    // proceeding into that 404. (Skipped for explicit --bot-id overrides and
+    // for Botpress Cloud targets — see checkDeployableBotId.)
+    const botIdError = agentLink.checkDeployableBotId(resolvedBotId, this.argv.botId, apiUrl)
+    if (botIdError) {
+      throw new errors.BotpressCLIError(botIdError)
+    }
+
     let botId: string
     if (resolvedBotId === undefined) {
       // 1. provision once (no botId anywhere yet, and no --bot-id override).
