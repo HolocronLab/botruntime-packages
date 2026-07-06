@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-runtime",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Lightweight runtime library for ADK-based botruntime agents",
   "keywords": [
     "adk",
