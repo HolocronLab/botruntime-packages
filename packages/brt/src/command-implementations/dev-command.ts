@@ -6,7 +6,6 @@ import chalk from 'chalk'
 import { isEqual } from 'lodash'
 import * as pathlib from 'path'
 import * as uuid from 'uuid'
-import * as fs from 'fs'
 import * as apiUtils from '../api'
 import * as adkBundle from '../adk-bundle'
 import * as adkDevId from '../adk-dev-id'
@@ -307,20 +306,11 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       bypassBreakingChangeDetection: false,
     })
 
-    // Force a real rebuild on every iteration of the loop: drop the cached
-    // bundle BEFORE handing off to DeployCommand, so its own
-    // `adkBundle.ensureBundle(dir, /*force*/ false, buildFn)` (see
-    // deploy-command.ts _deployAdkBundle) never short-circuits on a stale
-    // .brt/dist/index.cjs left over from a previous pass through this loop. A
-    // source change must always produce a freshly rebuilt bundle, never a
-    // reused stale one.
-    const forceDropCachedBundle = (): void => {
-      const bundlePath = pathlib.join(dir, adkBundle.ADK_BUNDLE_REL_PATH)
-      if (fs.existsSync(bundlePath)) fs.rmSync(bundlePath)
-    }
-
+    // Each iteration deploys via DeployCommand, whose _deployAdkBundle now
+    // always rebuilds the bundle from current sources (adkBundle.ensureBundle
+    // no longer reuses a cached .brt/dist/index.cjs) — so a source change always
+    // produces a freshly built bundle, no manual cache drop needed here.
     const deployOnce = async (): Promise<void> => {
-      forceDropCachedBundle()
       await new DeployCommand(this.api, this.prompt, this.logger, deployArgv())
         .setProjectContext(this.projectContext)
         .run()

@@ -723,7 +723,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // native pipeline. No child process to any adk/bp binary.
     const bundlePath = this.argv.noBuild
       ? adkBundle.requireExistingBundle(dir)
-      : await adkBundle.ensureBundle(dir, false, () => this._buildAdkBundle(dir))
+      : await adkBundle.ensureBundle(() => this._buildAdkBundle(dir))
     const code = await fs.promises.readFile(bundlePath, 'utf-8')
     const localHash = adkBundle.sha256(code)
     cloudInfo(`bundle ${bundlePath} (${code.length} bytes, sha256 ${localHash.slice(0, 12)}…)`)

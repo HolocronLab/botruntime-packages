@@ -81,7 +81,7 @@ describe('ensureBundle / requireExistingBundle', () => {
     const build = async () => {
       throw new Error('build must not be called when BRT_BUNDLE_PATH is set')
     }
-    await expect(adkBundle.ensureBundle(dir, true, build)).resolves.toBe(overridePath)
+    await expect(adkBundle.ensureBundle(build)).resolves.toBe(overridePath)
     expect(adkBundle.requireExistingBundle(dir)).toBe(overridePath)
   })
 
@@ -94,18 +94,6 @@ describe('ensureBundle / requireExistingBundle', () => {
     expect(() => adkBundle.requireExistingBundle(dir)).toThrow(/--noBuild was set but no existing bundle/)
   })
 
-  it('ensureBundle reuses an existing bundle without building when force is false', async () => {
-    const out = path.join(dir, '.brt', 'dist', 'index.cjs')
-    fs.mkdirSync(path.dirname(out), { recursive: true })
-    fs.writeFileSync(out, 'existing')
-    // build throws: if reuse did not short-circuit, this would surface loudly.
-    const build = async () => {
-      throw new Error('build must not be called when a reusable bundle exists')
-    }
-    await expect(adkBundle.ensureBundle(dir, false, build)).resolves.toBe(out)
-    expect(fs.readFileSync(out, 'utf8')).toBe('existing')
-  })
-
   it('ensureBundle invokes build when no bundle exists and returns its result', async () => {
     const out = path.join(dir, '.brt', 'dist', 'index.cjs')
     let called = false
@@ -115,20 +103,26 @@ describe('ensureBundle / requireExistingBundle', () => {
       fs.writeFileSync(out, 'freshly-built')
       return out
     }
-    await expect(adkBundle.ensureBundle(dir, false, build)).resolves.toBe(out)
+    await expect(adkBundle.ensureBundle(build)).resolves.toBe(out)
     expect(called).toBe(true)
     expect(adkBundle.requireExistingBundle(dir)).toBe(out)
   })
 
-  it('ensureBundle invokes build even when a bundle exists if force is true', async () => {
+  // Regression (prod bug 2026-07-07): a plain `brt deploy --adk` reused a stale
+  // .brt/dist/index.cjs and shipped old code under a new version. ensureBundle
+  // must ALWAYS rebuild — never short-circuit on an existing artifact.
+  it('ensureBundle always rebuilds even when a bundle already exists (no stale reuse)', async () => {
     const out = path.join(dir, '.brt', 'dist', 'index.cjs')
     fs.mkdirSync(path.dirname(out), { recursive: true })
     fs.writeFileSync(out, 'stale')
+    let called = false
     const build = async () => {
+      called = true
       fs.writeFileSync(out, 'rebuilt')
       return out
     }
-    await expect(adkBundle.ensureBundle(dir, true, build)).resolves.toBe(out)
+    await expect(adkBundle.ensureBundle(build)).resolves.toBe(out)
+    expect(called).toBe(true)
     expect(fs.readFileSync(out, 'utf8')).toBe('rebuilt')
   })
 })

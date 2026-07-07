@@ -5,7 +5,7 @@ import * as path from 'path'
 // loaded lazily — this import adds ZERO runtime cost and just recovers the exact
 // type of the dynamically-imported `generateBotProject` (see generateAgentBot).
 import type * as adkLib from '@holocronlab/botruntime-adk'
-import { cloudInfo, cloudWarn } from './cloud-io'
+import { cloudInfo } from './cloud-io'
 import * as errors from './errors'
 
 // brt deploy --adk — build path for ADK "agent" projects (manifest:
@@ -139,19 +139,18 @@ export function normalizeBundle(dir: string, opts: { quiet?: boolean } = {}): st
   return out
 }
 
-// ensureBundle returns an up-to-date bundle path, invoking `build` (the
-// in-process generate + native-build orchestration owned by the caller) if the
-// bundle is missing or `force` is set. BRT_BUNDLE_PATH still short-circuits to
-// a prebuilt file; a reusable existing bundle short-circuits before building.
-export async function ensureBundle(dir: string, force: boolean, build: () => Promise<string>): Promise<string> {
+// ensureBundle returns a FRESHLY built bundle path, always invoking `build`
+// (the in-process generate + native-build orchestration owned by the caller).
+// It deliberately does NOT reuse an existing .brt/dist/index.cjs: deploy must
+// reflect the current sources, and reusing a stale artifact silently ships old
+// code under a new version (a source-map-js fix only landed after the artifact
+// was manually deleted). `brt deploy --adk --noBuild` (requireExistingBundle)
+// is the explicit opt-out that reuses an existing bundle; BRT_BUNDLE_PATH still
+// short-circuits to a prebuilt file for tests/CI.
+export async function ensureBundle(build: () => Promise<string>): Promise<string> {
   const envOverride = bundlePathOverride()
   if (envOverride) return envOverride
 
-  const out = path.join(dir, ADK_BUNDLE_REL_PATH)
-  if (!force && fs.existsSync(out)) {
-    cloudWarn(`reusing existing ${ADK_BUNDLE_REL_PATH} (delete it to force a rebuild)`)
-    return out
-  }
   return build()
 }
 
