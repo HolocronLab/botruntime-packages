@@ -1,0 +1,28 @@
+# CI drift-check (ADR-0005 sync mechanism #2: "regenerate all, git diff must be clean").
+# scripts/check-drift.sh existed but wasn't wired into any workflow — a hand-edit to a
+# generated file (src/gen, openapi/) would pass review silently and get wiped on the next
+# `bun run generate` with no CI signal. Runs on every push/PR so drift is caught before merge.
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - fork-botpress-deps
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Regenerate codegen artifacts and fail on drift
+        run: bash scripts/check-drift.sh
