@@ -75,6 +75,40 @@ export type DependencyInstaller = (args: {
   credentials: { token: string; apiUrl: string }
 }) => Promise<void>
 
+// loadAdkModule lazy-imports @holocronlab/botruntime-adk. The ADK library
+// drags in a heavy dependency graph (runtime, otel, …) — load it only when an
+// agent build/table-sync actually runs, so plain brt commands — and the
+// pure-function unit tests in this module — never pay for it. This is a
+// deferred load of a load-bearing dep, NOT an optional fallback.
+//
+// Resolve the entry with Bun's NATIVE resolver, anchored to this module's dir.
+// Under a `bun install -g` the sibling lives at ~/.bun/install/global/
+// node_modules, which Node's CJS resolution — what a bare dynamic import() AND
+// createRequire().resolve() both use — does NOT search, so both fail to find
+// the (installed, runtime-complete) sibling. Bun.resolveSync knows the
+// bun-global layout and returns the absolute dist entry, which import() then
+// loads. brt only ever runs under bun (bin = src/cli.ts, `#!/usr/bin/env
+// bun`), so there is no non-bun path to fall back to — if `Bun` is ever
+// absent this throws loudly, which is the correct signal for an unsupported
+// runtime. Typed locally because brt's tsconfig uses node types, not bun-types.
+// Bun caches import() by resolved path, so repeat calls (e.g. one from
+// generateAgentBot, one from the table-sync step) return the SAME module
+// instance — load-once, and critically the SAME AgentProject class (its
+// static project cache is keyed per-class, not per-import-site).
+async function loadAdkModule(): Promise<typeof adkLib> {
+  const bun = (globalThis as unknown as { Bun: { resolveSync(id: string, parent: string): string } }).Bun
+  const adkEntry = bun.resolveSync('@holocronlab/botruntime-adk', (import.meta as unknown as { dir: string }).dir)
+  return (await import(adkEntry)) as typeof adkLib
+}
+
+// loadAdkTableManager exposes just the two ADK exports the table-sync step
+// needs: AgentProject (to load the already-parsed project.tables) and
+// TableManager (the sync engine itself).
+export async function loadAdkTableManager(): Promise<Pick<typeof adkLib, 'AgentProject' | 'TableManager'>> {
+  const { AgentProject, TableManager } = await loadAdkModule()
+  return { AgentProject, TableManager }
+}
+
 export async function generateAgentBot(
   dir: string,
   installer?: DependencyInstaller,
@@ -85,24 +119,7 @@ export async function generateAgentBot(
   }
   if (!opts.quiet) cloudInfo(`generate: @holocronlab/botruntime-adk -> ${AGENT_BOT_REL_PATH} (in ${dir})`)
 
-  // Lazy import: the ADK library drags in a heavy dependency graph (runtime,
-  // otel, …). Load it only when an agent build actually runs, so plain brt
-  // commands — and the pure-function unit tests in this module — never pay for
-  // it. This is a deferred load of a load-bearing dep, NOT an optional fallback.
-  //
-  // Resolve the entry with Bun's NATIVE resolver, anchored to this module's dir.
-  // Under a `bun install -g` the sibling lives at ~/.bun/install/global/
-  // node_modules, which Node's CJS resolution — what a bare dynamic import() AND
-  // createRequire().resolve() both use — does NOT search, so both fail to find
-  // the (installed, runtime-complete) sibling. Bun.resolveSync knows the
-  // bun-global layout and returns the absolute dist entry, which import() then
-  // loads. brt only ever runs under bun (bin = src/cli.ts, `#!/usr/bin/env
-  // bun`), so there is no non-bun path to fall back to — if `Bun` is ever
-  // absent this throws loudly, which is the correct signal for an unsupported
-  // runtime. Typed locally because brt's tsconfig uses node types, not bun-types.
-  const bun = (globalThis as unknown as { Bun: { resolveSync(id: string, parent: string): string } }).Bun
-  const adkEntry = bun.resolveSync('@holocronlab/botruntime-adk', (import.meta as unknown as { dir: string }).dir)
-  const { generateBotProject } = (await import(adkEntry)) as typeof adkLib
+  const { generateBotProject } = await loadAdkModule()
   // Passing `installer` makes the ADK dependency-sync vendor deps in-process
   // (no `bp add` child process). Without it, the ADK library falls back to its
   // standalone execa path — that only happens for non-brt callers.

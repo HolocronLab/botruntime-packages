@@ -179,6 +179,39 @@ export function checkDeployableBotId(
   )
 }
 
+// Stale/diverging-credential guard for `brt deploy --adk`'s table sync step.
+// TableManager's own credential resolution (@holocronlab/botruntime-adk's
+// resolveProjectCredentials) prefers the EFFECTIVE agentInfo — agent.json
+// MERGED with agent.local.json overrides — over any credentials explicitly
+// passed to it (agentInfo.workspaceId/apiUrl win over the caller's
+// baseCredentials there). Comparing only the raw, pre-merge agent.json (as
+// deploy-command.ts used to) misses an agent.local.json override entirely and
+// lets table sync silently target a different workspace/server than the one
+// `deploy` just PUT the bundle to. `effective` must be the POST-AgentProject
+// .load() value (project.agentInfo); `raw` is the pre-merge agent.json read
+// (used only to attribute the mismatch to the right file in the message).
+export function checkTableSyncCredentialMismatch(
+  effective: Pick<AgentInfo, 'workspaceId' | 'apiUrl'> | undefined,
+  raw: Pick<AgentInfo, 'workspaceId' | 'apiUrl'> | undefined,
+  profile: { workspaceId?: string; apiUrl: string }
+): string | undefined {
+  if (effective?.workspaceId && effective.workspaceId !== profile.workspaceId) {
+    const source = effective.workspaceId !== raw?.workspaceId ? 'agent.local.json' : 'agent.json'
+    return (
+      `table sync: ${source} resolves workspaceId=${effective.workspaceId}, which does not match the deploying ` +
+      `profile's workspaceId (${profile.workspaceId}) — fix the override or re-run \`brt login\` before deploying`
+    )
+  }
+  if (effective?.apiUrl && effective.apiUrl !== profile.apiUrl) {
+    const source = effective.apiUrl !== raw?.apiUrl ? 'agent.local.json' : 'agent.json'
+    return (
+      `table sync: ${source} resolves apiUrl=${effective.apiUrl}, which does not match the deploying profile's ` +
+      `apiUrl (${profile.apiUrl}) — fix the override or re-run \`brt login\` before deploying`
+    )
+  }
+  return undefined
+}
+
 // One-time auto-migration: when bot.json already links a bot (link.botId
 // present) but agent.json is absent, compute the agent.json contents to
 // write so agent.json becomes canonical from here on. Returns undefined when

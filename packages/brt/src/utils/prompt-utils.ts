@@ -38,6 +38,15 @@ export class CLIPrompt {
       return true
     }
 
+    return this.confirmInteractive(message)
+  }
+
+  // confirmInteractive ALWAYS goes to the real interactive prompt, ignoring
+  // the blanket -y/--confirm bypass that confirm() honors. Callers that must
+  // not let -y silently satisfy a confirm (e.g. destructive table-sync
+  // changes — see adk-table-sync.ts) use this instead, gating their OWN
+  // bypass behind a dedicated, narrower flag.
+  public async confirmInteractive(message: string): Promise<boolean> {
     const { confirm } = await this._prompts({
       type: 'confirm',
       name: 'confirm',
@@ -45,10 +54,7 @@ export class CLIPrompt {
       initial: false,
     })
 
-    if (!confirm) {
-      return false
-    }
-    return true
+    return Boolean(confirm)
   }
 
   public async password(message: string, opts: PasswordOptions = {}): Promise<string | undefined> {

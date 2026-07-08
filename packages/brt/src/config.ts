@@ -337,6 +337,15 @@ const deploySchema = {
     hidden: true,
     default: false,
   },
+  // Deliberately SEPARATE from -y/--confirm: a destructive table-sync change
+  // (column remove/modify, orphaned-table delete — see adk-table-sync.ts) must
+  // not be satisfiable by the blanket confirm-everything flag, so it gets its
+  // own explicit opt-in.
+  allowDestructiveTableChanges: {
+    type: 'boolean',
+    description: 'Allow destructive table schema changes (column removal/retype, orphaned table delete) without an interactive prompt',
+    default: false,
+  },
 } as const satisfies CommandSchema
 
 const devSchema = {

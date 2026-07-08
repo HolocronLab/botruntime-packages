@@ -15,13 +15,14 @@ import * as cloudLink from '../cloud-project-link'
 import type commandDefinitions from '../command-definitions'
 import type { CommandArgv } from '../typings'
 import * as declaredCommands from '../declared-commands'
-import * as declaredTables from '../declared-tables'
 import * as errors from '../errors'
+import * as tableSync from '../adk-table-sync'
 import * as tables from '../tables'
 import * as utils from '../utils'
 import { AddCommand, type AddCommandDefinition } from './add-command'
 import { BuildCommand } from './build-command'
 import { ProjectCommand, ProjectDefinitionContext } from './project-command'
+import type { ProfileCredentials } from './global-command'
 
 export type DeployCommandDefinition = typeof commandDefinitions.deploy
 export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
@@ -756,10 +757,10 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       )
     }
 
-    // 5. synchronize declared tables (mirrors the Botpress-shaped deploy's own
+    // 5. synchronize tables (mirrors the Botpress-shaped deploy's own
     // bundle-then-tables order above): without this step the bot's first
     // table write 404s and the web console shows no tables.
-    await this._syncAdkTables(dir, bot, botId, profile.workspaceId)
+    await this._syncAdkTables(dir, apiUrl, botId, profile, agentInfo)
 
     this._writeAdkLastDeploy(dir, { botId, sha256: localHash, at: new Date().toISOString() })
 
@@ -767,33 +768,69 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     cloudInfo('next: brt integrations install <name@version> --config-stdin   then   brt integrations register <webhookId>')
   }
 
-  // syncTables creates declared tables that do not yet exist on cloudapi.
-  // Existing tables are left untouched (column migration is out of scope); a
-  // create failure aborts loudly naming the offending table. Idempotent: a
-  // re-run sees them all listed and creates nothing.
-  private async _syncAdkTables(dir: string, bot: CloudapiClient, botId: string, workspaceId: string): Promise<void> {
-    const declared = declaredTables.extractDeclaredTables(dir)
-    if (declared.length === 0) {
+  // _syncAdkTables — full, unconditional schema sync (Botpress parity) through
+  // @holocronlab/botruntime-adk's TableManager (packages/botruntime-adk/src/
+  // tables/table-manager.ts) — the SAME diff/apply engine PreflightChecker
+  // already wires for computeDeployPlan (preflight/checker.ts). Replaces the
+  // old create-only botruntime.tables.json manifest entirely: create, update
+  // (incl. rename/remove/modify columns), and delete of orphaned tables are
+  // all now in scope, gated through adk-table-sync.ts's confirm/logging layer.
+  //
+  // project.tables gate mirrors PreflightChecker.computeDeployPlan's own
+  // `project.tables.length > 0 ? new TableManager(...) : null` — a bot that
+  // declares zero tables never even lists remote ones.
+  private async _syncAdkTables(
+    dir: string,
+    apiUrl: string,
+    botId: string,
+    profile: ProfileCredentials,
+    agentInfo: agentLink.AgentInfo | undefined
+  ): Promise<void> {
+    const { AgentProject, TableManager } = await adkBundle.loadAdkTableManager()
+    // adkCommand: 'adk-build' matches _buildAdkBundle's own generateAgentBot
+    // call — AgentProject.load caches by (path, adkCommand, offline), so this
+    // is a cache hit reusing the SAME parsed project, not a re-parse, whenever
+    // the bundle was just built (i.e. unless --noBuild skipped that step).
+    const project = await AgentProject.load(dir, { adkCommand: 'adk-build' })
+
+    // project.agentInfo is the MERGED value (agent.json + agent.local.json
+    // overrides) that TableManager's own credential resolution actually uses
+    // (see checkTableSyncCredentialMismatch) — checking only the pre-merge
+    // `agentInfo` param here would miss a local override and let table sync
+    // silently run against the wrong workspace/server. profile.workspaceId/
+    // apiUrl are authoritative for this deploy (already used above for
+    // putBundle) — fail loud on any mismatch BEFORE any table call is made.
+    const credentialMismatch = agentLink.checkTableSyncCredentialMismatch(project.agentInfo, agentInfo, {
+      workspaceId: profile.workspaceId,
+      apiUrl,
+    })
+    if (credentialMismatch) {
+      throw new errors.BotpressCLIError(credentialMismatch)
+    }
+
+    if (project.tables.length === 0) {
       cloudInfo('tables: none declared')
       return
     }
-    cloudInfo(`synchronizing ${declared.length} table(s)…`)
-    const existing = new Set((await bot.listTables(botId, workspaceId)).tables.map((t) => t.name))
-    let created = 0
-    for (const table of declared) {
-      if (existing.has(table.name)) {
-        cloudInfo(`  ${table.name}: up to date`)
-        continue
-      }
-      try {
-        await bot.createTable(botId, table.name, table.schema, workspaceId)
-      } catch (thrown) {
-        throw errors.BotpressCLIError.wrap(thrown, `table "${table.name}": create failed`)
-      }
-      created++
-      cloudInfo(`  ${table.name}: created`)
-    }
-    cloudInfo(`tables synchronized (${created} created, ${declared.length - created} up to date)`)
+
+    const tableManager = new TableManager({
+      project,
+      botId,
+      credentials: { token: profile.token, apiUrl, workspaceId: profile.workspaceId },
+    })
+
+    // Every confirm() call inside syncAdkTables gates a destructive change
+    // (column remove/modify, orphaned-table delete) — -y/--confirm must not
+    // silently satisfy it (see createDestructiveTableConfirm). The real
+    // interactive prompt still goes through confirmInteractive, which itself
+    // ignores the -y bypass (prompt-utils.ts).
+    const confirmDestructive = tableSync.createDestructiveTableConfirm({
+      allowDestructive: Boolean(this.argv.allowDestructiveTableChanges),
+      isTTY: Boolean(process.stdin.isTTY),
+      promptConfirm: (message) => this.prompt.confirmInteractive(message),
+    })
+
+    await tableSync.syncAdkTables(tableManager, confirmDestructive, (line) => cloudInfo(line))
   }
 
   private _writeAdkLastDeploy(dir: string, rec: { botId: string; sha256: string; at: string }): void {

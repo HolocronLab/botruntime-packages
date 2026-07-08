@@ -215,6 +215,73 @@ describe('adk-agent-link', () => {
     })
   })
 
+  describe('checkTableSyncCredentialMismatch', () => {
+    it('passes when the effective agentInfo matches the deploying profile', () => {
+      const effective = { botId: 'bot_1', workspaceId: 'ws_1', apiUrl: 'https://api.example' }
+      const err = agentLink.checkTableSyncCredentialMismatch(effective, effective, {
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.example',
+      })
+      expect(err).toBeUndefined()
+    })
+
+    it('passes when agentInfo carries no workspaceId/apiUrl at all', () => {
+      const err = agentLink.checkTableSyncCredentialMismatch(undefined, undefined, {
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.example',
+      })
+      expect(err).toBeUndefined()
+    })
+
+    it('fails loud and blames agent.local.json when its workspaceId override diverges from the profile', () => {
+      // raw = agent.json alone (ws_1, matches the profile); effective = AgentProject's
+      // MERGED value (agent.local.json overrides workspaceId to ws_evil) — this is the
+      // exact silent-divergence TableManager's own resolveProjectCredentials would fall
+      // for (agentInfo.workspaceId wins over the passed-in credentials).
+      const raw = { botId: 'bot_1', workspaceId: 'ws_1', apiUrl: 'https://api.example' }
+      const effective = { botId: 'bot_1', workspaceId: 'ws_evil', apiUrl: 'https://api.example' }
+      const err = agentLink.checkTableSyncCredentialMismatch(effective, raw, {
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.example',
+      })
+      expect(err).toContain('agent.local.json')
+      expect(err).toContain('ws_evil')
+      expect(err).toContain('ws_1')
+    })
+
+    it('fails loud and blames agent.local.json when its apiUrl override diverges from the profile', () => {
+      const raw = { botId: 'bot_1', workspaceId: 'ws_1', apiUrl: 'https://api.example' }
+      const effective = { botId: 'bot_1', workspaceId: 'ws_1', apiUrl: 'https://evil.example' }
+      const err = agentLink.checkTableSyncCredentialMismatch(effective, raw, {
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.example',
+      })
+      expect(err).toContain('agent.local.json')
+      expect(err).toContain('evil.example')
+    })
+
+    it('blames agent.json (not agent.local.json) when there is no local override and agent.json itself is stale', () => {
+      const raw = { botId: 'bot_1', workspaceId: 'ws_stale', apiUrl: 'https://api.example' }
+      const err = agentLink.checkTableSyncCredentialMismatch(raw, raw, {
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.example',
+      })
+      expect(err).toContain('agent.json')
+      expect(err).not.toContain('agent.local.json')
+    })
+
+    it('checks workspaceId before apiUrl and reports only the first mismatch', () => {
+      const raw = { workspaceId: 'ws_1', apiUrl: 'https://api.example' }
+      const effective = { workspaceId: 'ws_evil', apiUrl: 'https://evil.example' }
+      const err = agentLink.checkTableSyncCredentialMismatch(effective, raw, {
+        workspaceId: 'ws_1',
+        apiUrl: 'https://api.example',
+      })
+      expect(err).toContain('workspaceId')
+      expect(err).not.toContain('apiUrl')
+    })
+  })
+
   describe('computeAutoMigrateInfo', () => {
     it('returns undefined when agent.json is already present (no migration needed)', () => {
       const result = agentLink.computeAutoMigrateInfo(
