@@ -64,7 +64,8 @@ export class BundleCommand extends ProjectCommand<BundleCommandDefinition> {
     const rel = this.projectPaths.rel('workDir')
     const unixPath = utils.path.toUnix(rel.entryPoint)
     const importFrom = utils.path.rmExtension(unixPath)
-    return `import x from './${importFrom}'; export default x; export const handler = x.handler;`
+    // Named project handlers are IP0 envelope adapters; default.handler bypasses them and drops adapter behavior.
+    return `import x from './${importFrom}'; import * as m from './${importFrom}'; export default x; export const handler = m.handler ?? x.handler;`
   }
 
   private get _buildOptions(): Partial<utils.esbuild.BuildOptions> {
