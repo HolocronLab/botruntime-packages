@@ -27,6 +27,7 @@ export {
   StateDefinition,
   UserDefinition,
   SecretDefinition,
+  IntegrationNetworkDefinition,
   EntityDefinition,
 } from './integration'
 

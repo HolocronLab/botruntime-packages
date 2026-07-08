@@ -1,7 +1,25 @@
 import { test, expect } from 'vitest'
-import { IntegrationDefinition } from '.'
+import { IntegrationDefinition, type IntegrationDefinitionProps } from '.'
 import { InterfaceDefinition } from '../../interface'
 import { InterfacePackage } from '../../package'
+
+test('integration definition exposes optional network policy', () => {
+  const props = {
+    name: 'telegram',
+    version: '1.0.0',
+    network: {
+      providerHosts: ['api.telegram.org'],
+      ingressRelayed: true,
+    },
+  } satisfies IntegrationDefinitionProps
+
+  const integration = new IntegrationDefinition(props)
+
+  expect(integration.network).toEqual({
+    providerHosts: ['api.telegram.org'],
+    ingressRelayed: true,
+  })
+})
 
 test('integration with channel extending an interface with same channel merges channel tags', () => {
   // arrange

@@ -172,6 +172,36 @@ describe('CloudapiClient', () => {
     ])
   })
 
+  it('create/updateIntegrationDefinition include egress network policy when passed', async () => {
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({ id: 1, name: 'telegram', version: '1.0.0', configSchema: {}, visibility: 'private' }),
+          { status: 200 }
+        )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+    const network = { providerHosts: ['api.telegram.org'], ingressRelayed: true }
+
+    await client.createIntegrationDefinition('telegram', '1.0.0', {}, 'ws_123', network)
+    await client.updateIntegrationDefinition(1, 'telegram', '1.0.0', {}, 'ws_123', network)
+
+    expect(JSON.parse(calls[0]!.init.body as string)).toEqual({
+      name: 'telegram',
+      version: '1.0.0',
+      configSchema: {},
+      providerHosts: ['api.telegram.org'],
+      ingressRelayed: true,
+    })
+    expect(JSON.parse(calls[1]!.init.body as string)).toEqual({
+      name: 'telegram',
+      version: '1.0.0',
+      configSchema: {},
+      providerHosts: ['api.telegram.org'],
+      ingressRelayed: true,
+    })
+  })
+
   it('integration publish catalog calls omit x-workspace-id when none is passed', async () => {
     stubFetch((call) => {
       if (call.url.endsWith('/v1/admin/integration-definitions') && call.init.method === 'GET') {
@@ -195,6 +225,26 @@ describe('CloudapiClient', () => {
       const headers = call.init.headers as Record<string, string>
       expect(headers['x-workspace-id']).toBeUndefined()
       expect(headers['x-bot-id']).toBeUndefined()
+    }
+  })
+
+  it('create/updateIntegrationDefinition omit egress network policy when none is passed', async () => {
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({ id: 1, name: 'yadisk', version: '0.1.0', configSchema: {}, visibility: 'private' }),
+          { status: 200 }
+        )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'bot-key')
+
+    await client.createIntegrationDefinition('yadisk', '0.1.0', {})
+    await client.updateIntegrationDefinition(1, 'yadisk', '0.1.0', {})
+
+    for (const call of calls) {
+      const body = JSON.parse(call.init.body as string)
+      expect(body).not.toHaveProperty('providerHosts')
+      expect(body).not.toHaveProperty('ingressRelayed')
     }
   })
 

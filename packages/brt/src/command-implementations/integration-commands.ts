@@ -1,7 +1,7 @@
 import chalk from 'chalk'
 import * as fs from 'fs'
 import _ from 'lodash'
-import { CloudapiClient } from '../api/cloudapi-client'
+import { CloudapiClient, type IntegrationDefinitionNetwork } from '../api/cloudapi-client'
 import { ApiClient, PublicOrPrivateIntegration, IntegrationSummary } from '../api/client'
 import * as adkBundle from '../adk-bundle'
 import * as botsStore from '../bots-store'
@@ -267,7 +267,7 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
     const apiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
     const client = new CloudapiClient(apiUrl, profile.token)
 
-    const { name, version, configSchema } = await this._resolveNameVersionSchema()
+    const { name, version, configSchema, network } = await this._resolveNameVersionSchema()
 
     const existing = (await client.listIntegrationDefinitions(profile.workspaceId)).definitions.find(
       (d) => d.name === name && d.version === version
@@ -286,9 +286,23 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
             'integration.definition.ts, or pass --config-schema-file'
         )
       }
+      const networkArg: [] | [IntegrationDefinitionNetwork] = network === undefined ? [] : [network]
       const upserted = existing
-        ? await client.updateIntegrationDefinition(existing.id, name, version, configSchema, profile.workspaceId)
-        : await client.createIntegrationDefinition(name, version, configSchema, profile.workspaceId)
+        ? await client.updateIntegrationDefinition(
+            existing.id,
+            name,
+            version,
+            configSchema,
+            profile.workspaceId,
+            ...networkArg
+          )
+        : await client.createIntegrationDefinition(
+            name,
+            version,
+            configSchema,
+            profile.workspaceId,
+            ...networkArg
+          )
       cloudInfo(
         `${existing ? 'updated' : 'published'} integration definition ${upserted.name}@${upserted.version} (id=${upserted.id})`
       )
@@ -318,7 +332,12 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
     cloudInfo(`uploaded bundle (integrationId=${pub.integrationId}, versionId=${pub.versionId})`)
   }
 
-  private async _resolveNameVersionSchema(): Promise<{ name: string; version: string; configSchema: unknown }> {
+  private async _resolveNameVersionSchema(): Promise<{
+    name: string
+    version: string
+    configSchema: unknown
+    network?: IntegrationDefinitionNetwork
+  }> {
     if (this.argv.name && this.argv.versionNumber) {
       return {
         name: this.argv.name,
@@ -351,7 +370,12 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
       }
     }
 
-    return { name: definition.name, version: definition.version, configSchema }
+    return {
+      name: definition.name,
+      version: definition.version,
+      configSchema,
+      network: definition.network,
+    }
   }
 
   private async _readJsonFile(path: string): Promise<unknown> {

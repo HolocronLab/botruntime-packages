@@ -51,6 +51,11 @@ export interface IntegrationDefinitionEntity {
   visibility: string
 }
 
+export interface IntegrationDefinitionNetwork {
+  providerHosts?: string[]
+  ingressRelayed?: boolean
+}
+
 export interface PublishIntegrationBundleResponse {
   integrationId: number
   versionId: number
@@ -103,6 +108,27 @@ interface RequestOpts {
 const DEFAULT_TIMEOUT_MS = 30_000
 const BUNDLE_TIMEOUT_MS = 120_000
 const MAX_RETRIES = 3
+
+type IntegrationDefinitionWriteBody = {
+  name: string
+  version: string
+  configSchema: unknown
+  providerHosts?: string[]
+  ingressRelayed?: boolean
+}
+
+const integrationDefinitionWriteBody = (
+  name: string,
+  version: string,
+  configSchema: unknown,
+  network?: IntegrationDefinitionNetwork
+): IntegrationDefinitionWriteBody => ({
+  name,
+  version,
+  configSchema,
+  ...(network?.providerHosts !== undefined ? { providerHosts: network.providerHosts } : {}),
+  ...(network?.ingressRelayed !== undefined ? { ingressRelayed: network.ingressRelayed } : {}),
+})
 
 export class CloudapiClient {
   public constructor(
@@ -282,13 +308,14 @@ export class CloudapiClient {
     name: string,
     version: string,
     configSchema: unknown,
-    workspaceId?: string
+    workspaceId?: string,
+    network?: IntegrationDefinitionNetwork
   ): Promise<IntegrationDefinitionEntity> {
     return this.raw({
       method: 'POST',
       path: '/v1/admin/integration-definitions',
       workspaceId,
-      body: { name, version, configSchema },
+      body: integrationDefinitionWriteBody(name, version, configSchema, network),
     })
   }
 
@@ -297,13 +324,14 @@ export class CloudapiClient {
     name: string,
     version: string,
     configSchema: unknown,
-    workspaceId?: string
+    workspaceId?: string,
+    network?: IntegrationDefinitionNetwork
   ): Promise<IntegrationDefinitionEntity> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/integration-definitions/${id}`,
       workspaceId,
-      body: { name, version, configSchema },
+      body: integrationDefinitionWriteBody(name, version, configSchema, network),
     })
   }
 

@@ -20,6 +20,7 @@ import {
   AdditionalConfigurationDefinition,
   MessageDefinition,
   InterfaceExtension,
+  IntegrationNetworkDefinition,
 } from './types'
 
 export * from './types'
@@ -44,6 +45,8 @@ export type IntegrationDefinitionProps<
   readme?: string
 
   attributes?: Record<string, string>
+
+  network?: IntegrationNetworkDefinition
 
   identifier?: {
     extractScript?: string
@@ -205,6 +208,7 @@ export class IntegrationDefinition<
   public readonly interfaces: this['props']['interfaces']
   public readonly __advanced: this['props']['__advanced']
   public readonly attributes: this['props']['attributes']
+  public readonly network: this['props']['network']
 
   public constructor(
     public readonly props: IntegrationDefinitionProps<
@@ -238,6 +242,7 @@ export class IntegrationDefinition<
     this.interfaces = props.interfaces
     this.__advanced = props.__advanced
     this.attributes = props.attributes
+    this.network = props.network
   }
 
   public get metadata() {

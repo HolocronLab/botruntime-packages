@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CloudapiClient } from '../api/cloudapi-client'
 import * as adkBundle from '../adk-bundle'
@@ -74,5 +75,78 @@ describe('CloudIntegrationPublishCommand', () => {
     expect(listSpy).toHaveBeenCalledWith('ws_123')
     expect(createSpy).toHaveBeenCalledWith('telegram', '1.0.0', { fields: {} }, 'ws_123')
     expect(publishSpy).toHaveBeenCalledWith('telegram', '1.0.0', code, 'ws_123')
+  })
+
+  it('passes network from integration.definition.ts into the catalog definition upsert', async () => {
+    fs.writeFileSync(
+      path.join(botpressHome, 'profiles.json'),
+      JSON.stringify({
+        default: {
+          apiUrl: 'https://cloud.example',
+          workspaceId: 'ws_123',
+          token: 'brt_pat_xxx',
+        },
+      })
+    )
+    const sdkEntry = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../botruntime-sdk/src/index.ts'
+    )
+    fs.writeFileSync(
+      path.join(workDir, 'integration.definition.ts'),
+      `
+        import { IntegrationDefinition, z } from ${JSON.stringify(sdkEntry)}
+
+        export default new IntegrationDefinition({
+          name: 'telegram',
+          version: '1.0.0',
+          configuration: {
+            schema: z.object({ botToken: z.string() }),
+          },
+          network: {
+            providerHosts: ['api.telegram.org'],
+            ingressRelayed: true,
+          },
+        })
+      `
+    )
+
+    const listSpy = vi
+      .spyOn(CloudapiClient.prototype, 'listIntegrationDefinitions')
+      .mockResolvedValue({ definitions: [] })
+    const createSpy = vi.spyOn(CloudapiClient.prototype, 'createIntegrationDefinition').mockResolvedValue({
+      id: 1,
+      workspaceId: 123,
+      name: 'telegram',
+      version: '1.0.0',
+      configSchema: { fields: [] },
+      visibility: 'private',
+    })
+    const publishSpy = vi.spyOn(CloudapiClient.prototype, 'publishIntegrationBundle').mockResolvedValue({
+      integrationId: 1,
+      versionId: 2,
+      contentHash: adkBundle.sha256('module.exports = {}'),
+    })
+
+    const cmd = new CloudIntegrationPublishCommand({} as any, {} as any, new Logger(), {
+      botpressHome,
+      workDir,
+      profile: undefined,
+      apiUrl: undefined,
+      name: undefined,
+      versionNumber: undefined,
+      configSchemaFile: undefined,
+      noBundle: true,
+      noBuild: true,
+    } as any)
+
+    await (cmd as any).run()
+
+    expect(listSpy).toHaveBeenCalledWith('ws_123')
+    expect(createSpy).toHaveBeenCalledWith('telegram', '1.0.0', expect.anything(), 'ws_123', {
+      providerHosts: ['api.telegram.org'],
+      ingressRelayed: true,
+    })
+    expect(publishSpy).not.toHaveBeenCalled()
   })
 })

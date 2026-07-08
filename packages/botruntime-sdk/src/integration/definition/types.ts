@@ -90,6 +90,11 @@ export type SecretDefinition = {
   description?: string
 }
 
+export type IntegrationNetworkDefinition = {
+  providerHosts?: string[]
+  ingressRelayed?: boolean
+}
+
 export type EntityDefinition<TEntity extends BaseEntities[string] = BaseEntities[string]> =
   SchemaDefinition<TEntity> & {
     title?: string
