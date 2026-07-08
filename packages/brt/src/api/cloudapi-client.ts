@@ -281,11 +281,13 @@ export class CloudapiClient {
   public async createIntegrationDefinition(
     name: string,
     version: string,
-    configSchema: unknown
+    configSchema: unknown,
+    workspaceId?: string
   ): Promise<IntegrationDefinitionEntity> {
     return this.raw({
       method: 'POST',
       path: '/v1/admin/integration-definitions',
+      workspaceId,
       body: { name, version, configSchema },
     })
   }
@@ -294,19 +296,22 @@ export class CloudapiClient {
     id: number,
     name: string,
     version: string,
-    configSchema: unknown
+    configSchema: unknown,
+    workspaceId?: string
   ): Promise<IntegrationDefinitionEntity> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/integration-definitions/${id}`,
+      workspaceId,
       body: { name, version, configSchema },
     })
   }
 
-  public async listIntegrationDefinitions(): Promise<{ definitions: IntegrationDefinitionEntity[] }> {
+  public async listIntegrationDefinitions(workspaceId?: string): Promise<{ definitions: IntegrationDefinitionEntity[] }> {
     return this.raw({
       method: 'GET',
       path: '/v1/admin/integration-definitions',
+      workspaceId,
       idempotent: true,
     })
   }
@@ -321,11 +326,13 @@ export class CloudapiClient {
   public async publishIntegrationBundle(
     name: string,
     version: string,
-    code: string
+    code: string,
+    workspaceId?: string
   ): Promise<PublishIntegrationBundleResponse> {
     return this.raw({
       method: 'POST',
       path: '/v1/admin/integrations/publish-bundle',
+      workspaceId,
       body: { name, version, code },
       timeoutMs: BUNDLE_TIMEOUT_MS,
       idempotent: false,

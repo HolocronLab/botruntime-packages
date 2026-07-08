@@ -269,7 +269,7 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
 
     const { name, version, configSchema } = await this._resolveNameVersionSchema()
 
-    const existing = (await client.listIntegrationDefinitions()).definitions.find(
+    const existing = (await client.listIntegrationDefinitions(profile.workspaceId)).definitions.find(
       (d) => d.name === name && d.version === version
     )
     // An empty/undefined workspaceId marks a built-in, catalog-managed
@@ -287,8 +287,8 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
         )
       }
       const upserted = existing
-        ? await client.updateIntegrationDefinition(existing.id, name, version, configSchema)
-        : await client.createIntegrationDefinition(name, version, configSchema)
+        ? await client.updateIntegrationDefinition(existing.id, name, version, configSchema, profile.workspaceId)
+        : await client.createIntegrationDefinition(name, version, configSchema, profile.workspaceId)
       cloudInfo(
         `${existing ? 'updated' : 'published'} integration definition ${upserted.name}@${upserted.version} (id=${upserted.id})`
       )
@@ -311,7 +311,7 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
     const localHash = adkBundle.sha256(code)
     cloudInfo(`bundle ${bundlePath} (${code.length} bytes, sha256 ${localHash.slice(0, 12)}…)`)
 
-    const pub = await client.publishIntegrationBundle(name, version, code)
+    const pub = await client.publishIntegrationBundle(name, version, code, profile.workspaceId)
     if (pub.contentHash !== localHash) {
       throw new errors.BotpressCLIError(`publish MISMATCH: local sha256 ${localHash} != server ${pub.contentHash}`)
     }

@@ -139,6 +139,65 @@ describe('CloudapiClient', () => {
     expect(headers['x-bot-id']).toBe('3')
   })
 
+  it('integration publish catalog calls send x-workspace-id under a workspace PAT', async () => {
+    stubFetch((call) => {
+      if (call.url.endsWith('/v1/admin/integration-definitions') && call.init.method === 'GET') {
+        return new Response(JSON.stringify({ definitions: [] }), { status: 200 })
+      }
+      if (call.url.endsWith('/v1/admin/integrations/publish-bundle')) {
+        return new Response(JSON.stringify({ integrationId: 1, versionId: 2, contentHash: 'hash' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ id: 1, name: 'telegram', version: '1.0.0', configSchema: {}, visibility: 'private' }), {
+        status: 200,
+      })
+    })
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await client.listIntegrationDefinitions('ws_123')
+    await client.createIntegrationDefinition('telegram', '1.0.0', {}, 'ws_123')
+    await client.updateIntegrationDefinition(1, 'telegram', '1.0.0', {}, 'ws_123')
+    await client.publishIntegrationBundle('telegram', '1.0.0', 'code', 'ws_123')
+
+    expect(calls.map((call) => (call.init.headers as Record<string, string>)['x-workspace-id'])).toEqual([
+      'ws_123',
+      'ws_123',
+      'ws_123',
+      'ws_123',
+    ])
+    expect(calls.map((call) => (call.init.headers as Record<string, string>)['x-bot-id'])).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ])
+  })
+
+  it('integration publish catalog calls omit x-workspace-id when none is passed', async () => {
+    stubFetch((call) => {
+      if (call.url.endsWith('/v1/admin/integration-definitions') && call.init.method === 'GET') {
+        return new Response(JSON.stringify({ definitions: [] }), { status: 200 })
+      }
+      if (call.url.endsWith('/v1/admin/integrations/publish-bundle')) {
+        return new Response(JSON.stringify({ integrationId: 1, versionId: 2, contentHash: 'hash' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ id: 1, name: 'telegram', version: '1.0.0', configSchema: {}, visibility: 'private' }), {
+        status: 200,
+      })
+    })
+    const client = new CloudapiClient('https://cloud.example', 'bot-key')
+
+    await client.listIntegrationDefinitions()
+    await client.createIntegrationDefinition('telegram', '1.0.0', {})
+    await client.updateIntegrationDefinition(1, 'telegram', '1.0.0', {})
+    await client.publishIntegrationBundle('telegram', '1.0.0', 'code')
+
+    for (const call of calls) {
+      const headers = call.init.headers as Record<string, string>
+      expect(headers['x-workspace-id']).toBeUndefined()
+      expect(headers['x-bot-id']).toBeUndefined()
+    }
+  })
+
   it('listTables/createTable send x-workspace-id + x-bot-id under a workspace PAT', async () => {
     stubFetch(() => new Response(JSON.stringify({ tables: [] }), { status: 200 }))
     const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
