@@ -8,8 +8,12 @@ set -euo pipefail
 # Deterministic: same generator + same pinned @botpress/api@1.108.0 => identical output.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "[regen] 1/3 botruntime-api: emit canonical OpenAPI spec (openapi/*.json)"
-( cd "$ROOT/packages/botruntime-api" && bun install >/dev/null 2>&1 && bun run gen )
+echo "[regen] 1/3 botruntime-api: emit canonical OpenAPI spec and build the local package"
+# botruntime-client consumes botruntime-api through a file: dependency whose package
+# entrypoints live under dist/. A clean checkout has no dist, so build it before the
+# client installs/resolves the local package. Reusing a developer's stale dist would
+# make drift-check pass locally and fail only in CI.
+( cd "$ROOT/packages/botruntime-api" && bun install >/dev/null 2>&1 && bun run gen && bun run build )
 
 echo "[regen] 2/3 botruntime-client: regenerate typed client (src/gen) via the botruntime-api seam"
 ( cd "$ROOT/packages/botruntime-client" && bun install >/dev/null 2>&1 && bun run generate )
