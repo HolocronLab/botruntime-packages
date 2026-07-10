@@ -35,11 +35,27 @@ export function linkFilePath(dir: string, env: LinkEnv): string {
 export function loadLinkIfPresent(dir: string, env: LinkEnv): BotLink | undefined {
   const filePath = linkFilePath(dir, env)
   if (!fs.existsSync(filePath)) return undefined
+  let parsed: unknown
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as BotLink
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
   } catch (thrown) {
     throw errors.BotpressCLIError.wrap(thrown, `${linkFileName(env)} is not valid JSON`)
   }
+  const fileName = linkFileName(env)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new errors.BotpressCLIError(`${fileName} must contain an object`)
+  }
+  const value = parsed as Record<string, unknown>
+  for (const field of ['botId', 'workspaceId'] as const) {
+    const id = value[field]
+    if (id !== undefined && (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 0)) {
+      throw new errors.BotpressCLIError(`${fileName} ${field} must be a non-negative safe integer`)
+    }
+  }
+  if (value['apiUrl'] !== undefined && (typeof value['apiUrl'] !== 'string' || value['apiUrl'].length === 0)) {
+    throw new errors.BotpressCLIError(`${fileName} apiUrl must be a non-empty string when present`)
+  }
+  return value as BotLink
 }
 
 export function loadLink(dir: string, env: LinkEnv): BotLink {

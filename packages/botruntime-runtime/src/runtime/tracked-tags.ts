@@ -15,9 +15,9 @@ export const BUILT_IN_TAGS = {
   conversation: {
     /** Last synced message timestamp - automatically updated when messages are processed */
     adkSyncTs: {
-      title: 'ADK Sync Timestamp',
+      title: 'Runtime Sync Timestamp',
       description:
-        'Built-in: Last synced message timestamp. Automatically updated by the ADK when messages are processed.',
+        'Built-in: Last synced message timestamp. Automatically updated by the runtime when messages are processed.',
     },
     /** Set when a conversation session expires via lifecycle management */
     sessionExpired: {
@@ -61,7 +61,7 @@ function isPluginTag(key: string): boolean {
 }
 
 /**
- * Check if a tag key is a built-in ADK tag for any entity type.
+ * Check if a tag key is a built-in runtime tag for any entity type.
  * Built-in tags are always allowed and don't need to be defined in agent.config.ts
  */
 function isBuiltInTag(key: string): boolean {
@@ -432,7 +432,7 @@ export class TrackedTags {
         continue
       }
 
-      // Built-in ADK tags are always allowed (e.g., adk_sync_ts).
+      // Built-in runtime tags are always allowed (e.g., adk_sync_ts).
       // Plugin tags (alias#tagName) are managed by the plugin and not declared
       // in the bot's config, so they are persisted as-is without warning.
       // Otherwise only persist tags defined in the schema or that are built-in.

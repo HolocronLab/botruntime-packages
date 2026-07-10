@@ -56,7 +56,7 @@ export function resolveAgent0PrimaryAgentSteps(env: Record<string, string | unde
   const parsed = Number(raw)
   if (Number.isInteger(parsed) && parsed > 0) return parsed
   process.stderr.write(
-    `[adk] Ignoring invalid ${AGENT0_PRIMARY_AGENT_STEPS_ENV}=${JSON.stringify(raw)}: ` +
+    `[brt] Ignoring invalid ${AGENT0_PRIMARY_AGENT_STEPS_ENV}=${JSON.stringify(raw)}: ` +
       `expected a positive integer of agentic steps. Falling back to ${AGENT0_DEFAULT_PRIMARY_AGENT_STEPS}.\n`
   )
   return AGENT0_DEFAULT_PRIMARY_AGENT_STEPS
@@ -89,13 +89,13 @@ export function buildAgent0BuiltInCapabilities(options: Agent0BuiltInCapabilityO
     command: commandsRoot ? loadAgent0BuiltInCommandConfig(commandsRoot) : {},
     agent: {
       default: {
-        description: 'Agent(0) - helps build and debug Botpress ADK agents',
+        description: 'Agent(0) - helps build and debug Holocron agents',
         prompt: AGENT0_DEFAULT_PROMPT,
         mode: 'primary',
         steps: primaryAgentSteps,
       },
       guided: {
-        description: 'ADK guided setup - interviews the developer and scaffolds a new agent',
+        description: 'Holocron guided setup - turns a product goal into an agent project',
         prompt: GUIDED_SETUP_PROMPT,
         mode: 'primary',
         steps: primaryAgentSteps,

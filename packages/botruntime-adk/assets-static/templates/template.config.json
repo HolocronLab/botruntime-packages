@@ -2,46 +2,17 @@
   "templates": [
     {
       "name": "blank",
-      "description": "Empty project with webchat pre-wired so you can test in the dev console",
+      "description": "Minimal Holocron agent with a generic conversation handler",
       "category": "starter",
       "complexity": "beginner",
       "dependencies": { "integrations": ["chat@latest", "webchat@latest"], "plugins": [] }
     },
     {
       "name": "hello-world",
-      "description": "A working chatbot with chat and webchat integrations",
+      "description": "Holocron starter agent that greets users on any configured channel",
       "category": "starter",
       "complexity": "beginner",
       "dependencies": { "integrations": ["chat@latest", "webchat@latest"], "plugins": [] }
-    },
-    {
-      "name": "botpress-desk",
-      "title": "Desk Deflecting Agent",
-      "description": "Customer support bot with human handoff via Botpress Desk",
-      "category": "support",
-      "complexity": "intermediate",
-      "dependencies": { "integrations": ["chat@latest", "webchat@latest"], "plugins": ["desk-hitl@latest"] }
-    },
-    {
-      "name": "slack-triage",
-      "description": "Slack bot that monitors a channel, classifies requests, and routes to the right person",
-      "category": "triage",
-      "complexity": "intermediate",
-      "dependencies": { "integrations": ["slack@latest", "chat@latest"], "plugins": [] }
-    },
-    {
-      "name": "knowledge-assistant",
-      "description": "RAG-powered Q&A agent with knowledge base and source citations",
-      "category": "knowledge",
-      "complexity": "beginner",
-      "dependencies": { "integrations": ["chat@latest", "webchat@latest"], "plugins": [] }
-    },
-    {
-      "name": "crm-enrichment",
-      "description": "Scheduled workflow that enriches CRM contacts with AI-driven classification",
-      "category": "enrichment",
-      "complexity": "intermediate",
-      "dependencies": { "integrations": ["chat@latest"], "plugins": [] }
     }
   ]
 }

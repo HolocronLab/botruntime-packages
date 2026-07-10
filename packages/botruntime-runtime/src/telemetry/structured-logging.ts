@@ -87,7 +87,7 @@ function getLogExporter(): HttpLogExporter | null {
 
 /**
  * Emit a structured log record. When the CLI ingest server is reachable
- * (`ADK_SPAN_INGEST_URL` set, i.e. under `adk dev`) records are shipped over HTTP
+ * (`ADK_SPAN_INGEST_URL` explicitly set by a local CLI) records are shipped over HTTP
  * to /v1/logs — the log sibling of the span exporter. Otherwise they fall back to
  * the legacy stdout NDJSON stream so nothing is lost when there is no ingest server.
  */
@@ -108,7 +108,7 @@ function writeStructuredLog(type: LogLevel, ...args: unknown[]): void {
     // stdout noise nothing reads — unlike real logs below, which DO fall back to stdout.
     const url = getIngestUrl()
     if (url) {
-      postJsonToCli(url, '/v1/worker-stats', safeStringify(maybeArgObj.stats ?? maybeArgObj))
+      void postJsonToCli(url, '/v1/worker-stats', safeStringify(maybeArgObj.stats ?? maybeArgObj))
     }
     return
   }

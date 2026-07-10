@@ -1,5 +1,3 @@
-import { existsSync } from 'fs'
-import * as path from 'path'
 import type { StatusVerdict } from '@holocronlab/botruntime-runtime'
 import type { DependencySnapshotData, DependencyStateData, DependencyStatus } from './types.js'
 import type { IntegrationDefinition } from '../integrations/types.js'
@@ -11,7 +9,7 @@ import {
   mapPluginDependencyStatuses,
   transitiveDependencyVerdict,
 } from './status.js'
-import { bpModuleDirName } from '../utils/ids.js'
+import { inspectDependencyModule } from './module-identity.js'
 
 /** Minimal registry surface the resolver needs (best-effort spec fetch). */
 interface SpecSource<TDef> {
@@ -37,8 +35,8 @@ export interface ResolveDependencyStatusesInput {
 /**
  * Offline-first capability resolver: the single place that turns a dependency snapshot (+ optional
  * catalog specs + on-disk presence) into the flat {@link DependencyStatus} records
- * the CLI (`adk integrations status`, `adk check`), the `adk dev` boot summary, and
- * the deploy gate all consume. It gathers the I/O inputs and delegates the verdict to
+ * readiness reconciliation, the `brt dev` boot summary, and the production deploy gate
+ * consume. It gathers the I/O inputs and delegates the verdict to
  * the pure `compute*Status` functions; integrations are resolved first so each plugin
  * can see its backing integrations' verdicts (the transitive rule).
  *
@@ -50,11 +48,18 @@ export async function resolveDependencyStatuses(input: ResolveDependencyStatuses
   const integrationVerdicts = new Map<string, StatusVerdict>()
 
   for (const [alias, entry] of Object.entries(input.snapshot.integrations)) {
-    const installed = input.bpModulesDir
-      ? existsSync(path.join(input.bpModulesDir, bpModuleDirName('integration', alias)))
-      : true
+    const module = input.bpModulesDir
+      ? inspectDependencyModule({
+          bpModulesDir: input.bpModulesDir,
+          type: 'integration',
+          alias,
+          name: entry.name,
+          version: entry.version,
+        })
+      : undefined
+    const installed = module?.ready ?? true
     const spec = await tryGetSpec(input.integrationRegistry, entry.name, entry.version)
-    const verdict = spec
+    let verdict = spec
       ? computeIntegrationStatus({
           installed,
           spec,
@@ -70,6 +75,7 @@ export async function resolveDependencyStatuses(input: ResolveDependencyStatuses
           ...(entry.missingFields !== undefined ? { missingFields: entry.missingFields } : {}),
           ...(entry.authorizationPending !== undefined ? { authorizationPending: entry.authorizationPending } : {}),
         })
+    if (module && !module.ready) verdict = { state: 'not_installed', reason: module.reason }
     integrationVerdicts.set(alias, verdict)
     out.push({
       type: 'integration',
@@ -82,9 +88,16 @@ export async function resolveDependencyStatuses(input: ResolveDependencyStatuses
   }
 
   for (const [alias, entry] of Object.entries(input.snapshot.plugins)) {
-    const installed = input.bpModulesDir
-      ? existsSync(path.join(input.bpModulesDir, bpModuleDirName('plugin', alias)))
-      : true
+    const module = input.bpModulesDir
+      ? inspectDependencyModule({
+          bpModulesDir: input.bpModulesDir,
+          type: 'plugin',
+          alias,
+          name: entry.name,
+          version: entry.version,
+        })
+      : undefined
+    const installed = module?.ready ?? true
     const spec = await tryGetSpec(input.pluginRegistry, entry.name, entry.version)
     const dependencyStatuses = mapPluginDependencyStatuses(entry.dependencies, (intAlias) =>
       integrationVerdicts.get(intAlias)
@@ -113,6 +126,7 @@ export async function resolveDependencyStatuses(input: ResolveDependencyStatuses
           ...(entry.missingFields !== undefined ? { missingFields: entry.missingFields } : {}),
         })
     }
+    if (module && !module.ready) verdict = { state: 'not_installed', reason: module.reason }
     out.push({ type: 'plugin', alias, name: entry.name, version: entry.version, enabled: entry.enabled, ...verdict })
   }
 

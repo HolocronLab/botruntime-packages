@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { debounceAsync } from './concurrency-utils'
 
 const TIMEOUT_MS = 100
+const advanceTimersByTime = async (ms: number) => {
+  vi.advanceTimersByTime(ms)
+  await Promise.resolve()
+}
 
 describe('debounceAsync', () => {
   beforeEach(() => {
@@ -20,7 +24,7 @@ describe('debounceAsync', () => {
 
     // Act
     debouncedFn('a')
-    await vi.advanceTimersByTimeAsync(TIMEOUT_MS - 1)
+    await advanceTimersByTime(TIMEOUT_MS - 1)
 
     // Assert
     expect(fn).not.toHaveBeenCalled()
@@ -34,9 +38,9 @@ describe('debounceAsync', () => {
     // Act
     debouncedFn('a')
     debouncedFn('b')
-    await vi.advanceTimersByTimeAsync(TIMEOUT_MS - 1)
+    await advanceTimersByTime(TIMEOUT_MS - 1)
     debouncedFn('c')
-    await vi.advanceTimersByTimeAsync(TIMEOUT_MS)
+    await advanceTimersByTime(TIMEOUT_MS)
 
     // Assert
     expect(fn).toHaveBeenCalledTimes(1)
@@ -54,7 +58,7 @@ describe('debounceAsync', () => {
     // Act
     const promise = debouncedFn.call(context)
 
-    await vi.advanceTimersByTimeAsync(TIMEOUT_MS)
+    await advanceTimersByTime(TIMEOUT_MS)
 
     // Assert
     await expect(promise).resolves.toBe(42)
@@ -65,9 +69,10 @@ describe('debounceAsync', () => {
     const error = new Error('test rejection')
     const fn = vi.fn().mockRejectedValue(error)
     const debouncedFn = debounceAsync(fn, 1)
-    vi.useRealTimers()
+    const promise = debouncedFn()
 
     // Act & Assert
-    await expect(debouncedFn).rejects.toThrow(error)
+    await advanceTimersByTime(1)
+    await expect(promise).rejects.toThrow(error)
   })
 })

@@ -1,5 +1,12 @@
-import { Client } from '@holocronlab/botruntime-client'
-import { getProjectClient, type Credentials, type ProjectCredentialsContext } from '../../auth/index.js'
+import type { Client } from '@holocronlab/botruntime-client'
+import { AdkError } from '@holocronlab/botruntime-analytics'
+import {
+  assertCompleteCredentials,
+  getProjectClient,
+  type Credentials,
+  type ProjectCredentialsContext,
+} from '../../auth/index.js'
+import type { CatalogCacheAuthority } from './resolution-cache.js'
 
 /**
  * Connection options shared by every catalog source (integrations, plugins,
@@ -31,33 +38,56 @@ const CATALOG_HEADERS = { 'x-multiple-integrations': 'true' } as const
  */
 export class CatalogClientFactory {
   private client?: Client
+  private authorityValidation?: Promise<void>
 
-  constructor(public readonly options: CatalogClientOptions = {}) {}
+  constructor(public readonly options: CatalogClientOptions = {}) {
+    const credentials = options.credentials
+    if (credentials) {
+      assertCompleteCredentials(credentials, 'Catalog credentials')
+      if (
+        (options.apiUrl && options.apiUrl.replace(/\/+$/, '') !== credentials.apiUrl.replace(/\/+$/, '')) ||
+        (options.workspaceId && options.workspaceId !== credentials.workspaceId)
+      ) {
+        throw new AdkError({
+          code: 'CREDENTIAL_AUTHORITY_MISMATCH',
+          message: 'Catalog API/workspace options do not match the provided credential authority.',
+          expected: true,
+        })
+      }
+    }
+  }
+
+  get cacheAuthority(): CatalogCacheAuthority | undefined {
+    // Mirror resolveProjectCredentials exactly: explicit fields, then provided
+    // credential authority, then ambient project material.
+    const apiUrl = this.options.apiUrl ?? this.options.credentials?.apiUrl ?? this.options.project?.agentInfo?.apiUrl
+    const workspaceId =
+      this.options.workspaceId ?? this.options.credentials?.workspaceId ?? this.options.project?.agentInfo?.workspaceId
+    if (!apiUrl || !workspaceId) return undefined
+    return { apiUrl: apiUrl.replace(/\/+$/, ''), workspaceId }
+  }
+
+  get hasCacheAuthority(): boolean {
+    return this.cacheAuthority !== undefined
+  }
+
+  async validateAuthority(): Promise<void> {
+    if (this.options.credentials) return
+    this.authorityValidation ??= this.getClient().then(() => undefined)
+    await this.authorityValidation
+  }
 
   async getClient(): Promise<Client> {
     if (this.client) return this.client
 
     const { project, workspaceId, credentials, apiUrl } = this.options
-    const hasProjectScope = !!(project || workspaceId)
-
-    if (hasProjectScope) {
-      this.client = await getProjectClient({
-        project,
-        credentials,
-        apiUrl,
-        workspaceId,
-        headers: { ...CATALOG_HEADERS },
-      })
-    } else if (credentials) {
-      this.client = new Client({
-        token: credentials.token,
-        apiUrl: apiUrl || credentials.apiUrl,
-        ...(credentials.workspaceId ? { workspaceId: credentials.workspaceId } : {}),
-        headers: { ...CATALOG_HEADERS },
-      })
-    } else {
-      this.client = await getProjectClient({ headers: { ...CATALOG_HEADERS } })
-    }
+    this.client = await getProjectClient({
+      project,
+      credentials,
+      apiUrl,
+      workspaceId,
+      headers: { ...CATALOG_HEADERS },
+    })
 
     return this.client
   }

@@ -121,8 +121,8 @@ export const Environment = Object.assign(env, {
 })
 
 /**
- * Set the ADK command being executed
- * @internal - Only called by ADK internal code during primitive scanning
+ * Set the generator compatibility command being executed.
+ * @internal - Only called by generated primitive-scanning code.
  */
 export function setAdkCommand(command: 'adk-dev' | 'adk-build' | 'adk-deploy'): void {
   Object.assign(env, { type: 'command', command })

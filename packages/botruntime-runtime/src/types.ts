@@ -4,10 +4,10 @@ import { ZodType, ZodTypeDef } from '@holocronlab/botruntime-zui'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic default type parameter
 export type ZuiType<Output = any, Input = Output> = ZodType<Output, ZodTypeDef, Input>
 
-export type Integrations = never // Will be overridden by the ADK
-export type Interfaces = never // Will be overridden by the ADK
+export type Integrations = never // Overridden by brt code generation.
+export type Interfaces = never // Overridden by brt code generation.
 
-// Re-export event types that will be overridden by the ADK
+// Re-export event types that will be overridden by brt code generation.
 export type { Events, EventName, EventPayload } from './_types/events'
 export type { Triggers } from './_types/triggers'
 
@@ -62,7 +62,7 @@ export type DependencyState = 'available' | 'not_installed' | 'unconfigured' | '
  * CLI surfaces so they cannot disagree.
  *
  * `state` strings are a public contract: they appear in
- * `adk integrations status --format=json` and in the typed runtime error
+ * `brt dev --check --json` and in the typed runtime error
  * payload. Treat additions/renames as breaking.
  *
  * Consumers MUST branch on `state` — never infer "configured" from

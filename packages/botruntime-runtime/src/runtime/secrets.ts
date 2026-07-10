@@ -34,7 +34,7 @@ export const secrets: SecretsType = new Proxy({} as SecretsType, {
       try {
         if (Environment.isDevelopment()) {
           warnedKeys.add(prop)
-          console.warn(`[ADK] Secret ${prop} is not set. Export SECRET_${prop}=... in your environment.`)
+          console.warn(`[brt] Secret ${prop} is not set. Export SECRET_${prop}=... in your environment.`)
         }
       } catch {
         // Environment may not be initialized yet — skip warning
@@ -44,7 +44,7 @@ export const secrets: SecretsType = new Proxy({} as SecretsType, {
     return value
   },
   set(_target, prop: string, _value: unknown) {
-    throw new Error(`Cannot set secret "${prop}". Secrets are read-only. Use "adk secret:set ${prop}" to set values.`)
+    throw new Error(`Cannot set secret "${prop}". Secrets are read-only; configure it through brt/cloud settings.`)
   },
   ownKeys() {
     // Enumeration is not supported — secrets are access-by-name only.

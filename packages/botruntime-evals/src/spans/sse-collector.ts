@@ -1,5 +1,5 @@
 /**
- * SSECollector — connects to the ADK dev server's SSE trace stream,
+ * SSECollector — connects to the brt dev server's SSE trace stream,
  * accumulates spans, and provides promise-based wait methods for
  * turn completion and workflow signals.
  *
@@ -145,7 +145,7 @@ export class SSECollector {
         code: 'SSE_CONNECT_FAILED',
         message: `SSE connection failed: ${response.status} ${response.statusText}`,
         expected: true,
-        suggestion: 'Make sure the dev server is running (`adk dev`) and reachable.',
+        suggestion: 'Make sure the dev server is running (`brt dev`) and reachable.',
       })
     }
 

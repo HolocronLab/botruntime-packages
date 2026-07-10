@@ -45,9 +45,9 @@ export function classifyFatalStderr(text: string, port: string): string | null {
  * `registration_failed` status even after the integration is disabled — so codegen leaving it
  * `enabled: false` can't always prevent the abort.
  *
- * This failure is RECOVERABLE from inside the dev console: the Integrations page talks to Botpress
- * Cloud directly (not the dead bot worker), so the user can authorize/connect/configure the
- * integration there and re-run. Detecting it lets `adk dev` keep the console up with a warning
+ * This failure is recoverable from the web console: the Integrations page talks to the Cloud
+ * control plane directly (not the dead bot worker), so the user can authorize/connect/configure the
+ * integration there and retry. Detecting it lets `brt dev` keep the console up with a warning
  * instead of tearing the session down. Returns each affected integration's name AND `bp`'s own
  * `statusReason` (parsed from the `• <name>: <reason>` bullets) so the warning can echo the real
  * cause — OAuth ("No refresh token found …") vs. missing config differ — rather than assuming one.

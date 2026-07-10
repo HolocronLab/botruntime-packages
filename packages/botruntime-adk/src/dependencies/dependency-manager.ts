@@ -1,5 +1,6 @@
 import type { Client } from '@holocronlab/botruntime-client'
 import * as semver from 'semver'
+import path from 'path'
 import { jsonEqual } from './json-utils.js'
 import { dependencyStateSchema } from './types.js'
 import type {
@@ -17,6 +18,7 @@ import type {
   DiffResult,
   ApplyResult,
   ApplyAction,
+  DependencySnapshotTarget,
 } from './types.js'
 import { DependencyError } from './errors.js'
 import { integrationRequiresAuthorization } from './status.js'
@@ -25,8 +27,13 @@ import { IntegrationResolver } from './resolvers/integration-resolver.js'
 import { PluginResolver } from './resolvers/plugin-resolver.js'
 import { IntegrationRegistry } from './registry/integration-registry.js'
 import { PluginRegistry } from './registry/plugin-registry.js'
-import { AgentProject } from '../agent-project/agent-project.js'
-import { DependencySnapshotStore, dependencySnapshotFromBot } from './snapshot-store.js'
+import {
+  DependencySnapshotStore,
+  dependencySnapshotFromBot,
+  normalizeDependencySnapshotTarget,
+} from './snapshot-store.js'
+import { assertDevBotMatchesTarget } from '../integrations/config-utils.js'
+import { readAgentInfo, readAgentLocalInfo } from '../agent-project/agent-resolver.js'
 
 export interface ResourceEntry {
   type: ResourceType
@@ -38,9 +45,9 @@ export interface ResourceEntry {
 
 export interface DependencyManagerOptions {
   projectPath: string
-  env: Environment
+  target: DependencySnapshotTarget
   client: Client
-  botId: string
+  runtimeBotId?: string
   integrationRegistry?: IntegrationRegistry
   pluginRegistry?: PluginRegistry
   integrationResolver?: IntegrationResolver
@@ -50,9 +57,9 @@ export interface DependencyManagerOptions {
 export interface CopyOptions {
   from: Environment
   to: Environment
+  sourceTarget: DependencySnapshotTarget
   dryRun?: boolean
   yes?: boolean
-  sourceBotId?: string
 }
 
 export class DependencyManager {
@@ -60,7 +67,10 @@ export class DependencyManager {
   private readonly env: Environment
   private readonly client: Client
   private readonly projectPath: string
+  private readonly target: DependencySnapshotTarget
   private readonly botId: string
+  private readonly runtimeBotId?: string
+  private devTargetVerification?: Promise<void>
   private readonly integrationRegistry: IntegrationRegistry
   private readonly pluginRegistry: PluginRegistry
   private readonly integrationResolver: IntegrationResolver
@@ -68,9 +78,11 @@ export class DependencyManager {
 
   constructor(opts: DependencyManagerOptions) {
     this.projectPath = opts.projectPath
-    this.env = opts.env
+    this.target = normalizeDependencySnapshotTarget(opts.target)
+    this.env = this.target.env
     this.client = opts.client
-    this.botId = opts.botId
+    this.botId = this.target.botId
+    this.runtimeBotId = opts.runtimeBotId
     this.snapshotStore = new DependencySnapshotStore({ projectPath: opts.projectPath })
     this.integrationRegistry = opts.integrationRegistry ?? new IntegrationRegistry()
     this.pluginRegistry = opts.pluginRegistry ?? new PluginRegistry()
@@ -94,20 +106,47 @@ export class DependencyManager {
     integrationResolver?: IntegrationResolver
     pluginResolver?: PluginResolver
     botId?: string
+    apiUrl: string
+    workspaceId: string
   }): Promise<DependencyManager> {
-    const project = await AgentProject.load(opts.projectPath)
-    const botId = opts.botId ?? DependencyManager.getProjectBotId(project, opts.env)
-    if (!botId) {
+    const projectPath = path.resolve(opts.projectPath)
+    const projectTarget = await DependencyManager.readProjectTarget(projectPath, opts.env)
+    if (!projectTarget.botId) {
       throw new DependencyError({
         code: 'BOT_NOT_FOUND',
-        message: `No ${opts.env} bot ID found in ${opts.projectPath}. Run 'adk link' to link the project to a bot.`,
+        message: `No ${opts.env} bot ID found in ${opts.projectPath}. Run 'brt link --bot-id <id> --key-stdin'.`,
+      })
+    }
+    if (opts.botId !== undefined && opts.botId !== projectTarget.botId) {
+      throw new DependencyError({
+        code: 'INVALID_CONFIG',
+        message: `The selected ${opts.env} bot ${opts.botId} does not match the environment-specific project link bot ${projectTarget.botId}.`,
+      })
+    }
+    const botId = projectTarget.botId
+    if (!projectTarget.apiUrl || !projectTarget.workspaceId) {
+      throw new DependencyError({
+        code: 'INVALID_CONFIG',
+        message: `The ${opts.env} link must contain exact apiUrl and workspaceId authority.`,
+      })
+    }
+    const target = normalizeDependencySnapshotTarget({
+      env: opts.env,
+      apiUrl: opts.apiUrl,
+      workspaceId: opts.workspaceId,
+      botId,
+    })
+    if (target.apiUrl !== projectTarget.apiUrl.replace(/\/+$/, '') || target.workspaceId !== projectTarget.workspaceId) {
+      throw new DependencyError({
+        code: 'INVALID_CONFIG',
+        message: `The selected ${opts.env} apiUrl/workspaceId does not match the environment-specific project link.`,
       })
     }
     return new DependencyManager({
-      projectPath: project.path,
-      env: opts.env,
+      projectPath,
+      target,
       client: opts.client,
-      botId,
+      runtimeBotId: opts.env === 'dev' ? projectTarget.runtimeBotId : undefined,
       integrationRegistry: opts.integrationRegistry,
       pluginRegistry: opts.pluginRegistry,
       integrationResolver: opts.integrationResolver,
@@ -115,66 +154,121 @@ export class DependencyManager {
     })
   }
 
-  private static getProjectBotId(project: AgentProject, env: Environment): string | undefined {
-    const info = project.agentInfo
-    if (!info) return undefined
-    return env === 'dev' ? (info.devId ?? info.botId) : info.botId
+  private static async readProjectTarget(
+    projectPath: string,
+    env: Environment
+  ): Promise<{ botId?: string; runtimeBotId?: string; apiUrl?: string; workspaceId?: string }> {
+    if (env === 'prod') {
+      const info = await readAgentInfo(projectPath)
+      return { botId: info?.botId, apiUrl: info?.apiUrl, workspaceId: info?.workspaceId }
+    }
+
+    const localInfo = await readAgentLocalInfo(projectPath)
+    return {
+      botId: localInfo?.devTargetBotId,
+      runtimeBotId: localInfo?.devId,
+      apiUrl: localInfo?.devApiUrl,
+      workspaceId: localInfo?.devWorkspaceId,
+    }
   }
 
-  private async getProjectBotId(env: Environment): Promise<string> {
-    const project = await AgentProject.load(this.projectPath)
-    const botId = DependencyManager.getProjectBotId(project, env)
+  private async getProjectTarget(
+    env: Environment
+  ): Promise<{ botId: string; runtimeBotId?: string; apiUrl: string; workspaceId: string }> {
+    const target = await DependencyManager.readProjectTarget(this.projectPath, env)
+    const botId = target.botId
     if (!botId) {
       throw new DependencyError({
         code: 'BOT_NOT_FOUND',
-        message: `No ${env} bot ID found in ${this.projectPath}. Run 'adk link' to link the project to a bot.`,
+        message: `No ${env} bot ID found in ${this.projectPath}. Run 'brt link --bot-id <id> --key-stdin'.`,
       })
     }
-    return botId
+    const runtimeBotId = env === 'dev' ? target.runtimeBotId : undefined
+    if (env === 'dev' && !runtimeBotId) {
+      throw new DependencyError({
+        code: 'BOT_NOT_FOUND',
+        message: `No dev runtime bot ID found in ${this.projectPath}. Run 'brt dev' to create the dev target.`,
+      })
+    }
+    if (!target.apiUrl || !target.workspaceId) {
+      throw new DependencyError({
+        code: 'INVALID_CONFIG',
+        message: `The ${env} project link must contain exact apiUrl and workspaceId authority.`,
+      })
+    }
+    return {
+      botId,
+      ...(runtimeBotId ? { runtimeBotId } : {}),
+      apiUrl: target.apiUrl.replace(/\/+$/, ''),
+      workspaceId: target.workspaceId,
+    }
   }
 
-  private async readSnapshot(options?: { tolerant?: boolean }): Promise<DependencySnapshotData> {
-    return this.snapshotStore.readOrEmpty(this.env, {
-      tolerant: options?.tolerant,
-      botId: this.botId,
+  private async ensureDevTargetVerified(): Promise<void> {
+    if (this.env !== 'dev') return
+    if (!this.runtimeBotId) {
+      throw new DependencyError({
+        code: 'BOT_NOT_FOUND',
+        message: `No dev runtime bot ID found in ${this.projectPath}. Run 'brt dev' to create the dev target.`,
+      })
+    }
+    this.devTargetVerification ??= this.client.getBot({ id: this.runtimeBotId }).then(({ bot }) => {
+      assertDevBotMatchesTarget(bot, { botId: this.botId, runtimeBotId: this.runtimeBotId! })
     })
+    await this.devTargetVerification
+  }
+
+  private async readTargetBot(): Promise<Awaited<ReturnType<Client['getBot']>>['bot']> {
+    await this.ensureDevTargetVerified()
+    const addressBotId = this.env === 'dev' ? this.runtimeBotId! : this.botId
+    const { bot } = await this.client.getBot({ id: addressBotId })
+    if (this.env === 'dev') {
+      assertDevBotMatchesTarget(bot, { botId: this.botId, runtimeBotId: this.runtimeBotId! })
+    }
+    return bot
+  }
+
+  private async readSnapshot(): Promise<DependencySnapshotData> {
+    return this.snapshotStore.readOrEmpty(this.target)
   }
 
   private async writeSnapshot(snapshot: DependencySnapshotData): Promise<void> {
-    await this.snapshotStore.write({
+    await this.ensureDevTargetVerified()
+    await this.snapshotStore.write(this.target, {
       ...snapshot,
-      botId: snapshot.botId || this.botId,
+      env: this.target.env,
+      target: { apiUrl: this.target.apiUrl, workspaceId: this.target.workspaceId, botId: this.target.botId },
       fetchedAt: new Date().toISOString(),
     })
   }
 
   private async readCloudSnapshot(previous?: DependencySnapshotData): Promise<DependencySnapshotData> {
-    const { bot } = await this.client.getBot({ id: this.botId })
+    const bot = await this.readTargetBot()
     return dependencySnapshotFromBot({
       bot,
-      botId: this.botId,
-      env: this.env,
+      target: this.target,
       fetchedAt: new Date(),
       previous,
     })
   }
 
   async snapshotStateFromCloud(): Promise<DependencyStateData> {
-    const previous = await this.readSnapshot({ tolerant: true })
-    const cloud = await this.readCloudSnapshot(previous)
+    const previous = await this.snapshotStore.read(this.target)
+    const cloud = await this.readCloudSnapshot(previous ?? undefined)
     return dependencySnapshotToState(cloud)
   }
 
   async applyState(state: DependencyStateData, opts?: { dryRun?: boolean; yes?: boolean }): Promise<ApplyResult> {
+    await this.ensureDevTargetVerified()
     const parsed = dependencyStateSchema.parse({
       ...state,
       env: this.env,
     })
 
     await this.writeSnapshot({
-      version: 1,
+      version: 2,
       env: this.env,
-      botId: this.botId,
+      target: { apiUrl: this.target.apiUrl, workspaceId: this.target.workspaceId, botId: this.target.botId },
       fetchedAt: new Date().toISOString(),
       integrations: parsed.integrations,
       plugins: parsed.plugins,
@@ -188,9 +282,9 @@ export class DependencyManager {
   }
 
   async list(type?: ResourceType): Promise<ResourceEntry[]> {
-    // Read-only: tolerate a corrupt snapshot (treat as empty) so listing/status never
-    // aborts. Mutating methods keep the strict read so they can't act on a misread.
-    const data = await this.readSnapshot({ tolerant: true })
+    // A missing exact-target snapshot is empty; an invalid or foreign snapshot
+    // remains a hard error even for read-only status/list surfaces.
+    const data = await this.readSnapshot()
     const out: ResourceEntry[] = []
     if (!type || type === 'integration') {
       for (const [alias, e] of Object.entries(data.integrations)) {
@@ -212,10 +306,14 @@ export class DependencyManager {
 
   // Poll until integration `name` has a live webhook; returns true once live, false on timeout.
   async waitForIntegrationWebhook(name: string, opts: { timeoutMs: number; intervalMs: number }): Promise<boolean> {
+    await this.ensureDevTargetVerified()
     const deadline = Date.now() + opts.timeoutMs
     for (;;) {
       try {
-        const { bot } = await this.client.getBot({ id: this.botId })
+        const { bot } = await this.client.getBot({ id: this.env === 'dev' ? this.runtimeBotId! : this.botId })
+        if (this.env === 'dev') {
+          assertDevBotMatchesTarget(bot, { botId: this.botId, runtimeBotId: this.runtimeBotId! })
+        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cloud bot integrations shape is wider than the client type
         const integrations = Object.values((bot.integrations ?? {}) as Record<string, any>)
         if (integrations.some((i) => i?.name === name && !!i?.webhookId)) {
@@ -232,6 +330,7 @@ export class DependencyManager {
   }
 
   async add(type: ResourceType, spec: AddSpec): Promise<MutationResult> {
+    await this.ensureDevTargetVerified()
     if (type === 'interface') {
       throw new DependencyError({
         code: 'BUILTIN_INTERFACE_IMMUTABLE',
@@ -355,7 +454,7 @@ export class DependencyManager {
       }
       // WS0/WS5, symmetric with the integration branch above: when Cloud rejects the
       // enable for missing required config, install disabled and persist the verdict
-      // so the offline resolver (`adk plugins status`, `adk check`, the deploy gate)
+      // so offline readiness resolution and the deploy gate
       // can report `unconfigured` instead of trusting `enabled` blindly.
       let installedDisabled: { missingFields: string[] } | undefined
       try {
@@ -399,6 +498,7 @@ export class DependencyManager {
   }
 
   async remove(type: ResourceType, alias: string): Promise<MutationResult> {
+    await this.ensureDevTargetVerified()
     if (type === 'interface') {
       throw new DependencyError({ code: 'BUILTIN_INTERFACE_IMMUTABLE', message: 'Interfaces cannot be removed.' })
     }
@@ -416,6 +516,7 @@ export class DependencyManager {
   }
 
   async upgrade(type: ResourceType, alias: string, version?: string): Promise<MutationResult> {
+    await this.ensureDevTargetVerified()
     if (type === 'interface') {
       throw new DependencyError({ code: 'BUILTIN_INTERFACE_IMMUTABLE', message: 'Interfaces cannot be upgraded.' })
     }
@@ -446,6 +547,7 @@ export class DependencyManager {
   }
 
   private async toggleEnabled(type: ResourceType, alias: string, enabled: boolean): Promise<MutationResult> {
+    await this.ensureDevTargetVerified()
     if (type === 'interface') {
       throw new DependencyError({
         code: 'BUILTIN_INTERFACE_IMMUTABLE',
@@ -481,6 +583,7 @@ export class DependencyManager {
   }
 
   async configure(type: ResourceType, alias: string, patch: ConfigPatch): Promise<MutationResult> {
+    await this.ensureDevTargetVerified()
     if (type === 'interface') {
       throw new DependencyError({ code: 'BUILTIN_INTERFACE_IMMUTABLE', message: 'Interfaces cannot be configured.' })
     }
@@ -510,7 +613,7 @@ export class DependencyManager {
     type: ResourceType,
     alias: string,
     entry: IntegrationDependencyEntry | PluginDependencyEntry,
-    state: DependencyStateData
+    state: Pick<DependencyStateData, 'integrations' | 'plugins'>
   ): Promise<void> {
     if (type === 'integration') {
       await this.integrationResolver.applyToCloud({
@@ -541,7 +644,7 @@ export class DependencyManager {
     pluginName: string
     pluginVersion: string
     userDeps: Record<string, { integrationAlias: string }>
-    state: DependencyStateData
+    state: Pick<DependencyStateData, 'integrations' | 'plugins'>
   }): Promise<{
     dependencies: Record<string, { integrationAlias: string }>
     autoResolved: Array<{ pluginInterfaceAlias: string; integrationAlias: string }>
@@ -662,10 +765,11 @@ export class DependencyManager {
   }
 
   private async refreshSnapshotFromCloud(): Promise<DependencySnapshotData> {
+    await this.ensureDevTargetVerified()
     return this.snapshotStore.refreshFromCloud({
       client: this.client,
-      botId: this.botId,
-      env: this.env,
+      target: this.target,
+      runtimeBotId: this.env === 'dev' ? this.runtimeBotId : undefined,
       integrationRegistry: this.integrationRegistry,
     })
   }
@@ -714,6 +818,7 @@ export class DependencyManager {
   }
 
   async apply(opts?: { dryRun?: boolean; yes?: boolean }): Promise<ApplyResult> {
+    await this.ensureDevTargetVerified()
     const snapshot = await this.readSnapshot()
     const cloud = await this.readCloudSnapshot(snapshot)
 
@@ -896,21 +1001,53 @@ export class DependencyManager {
         message: `DependencyManager constructed with env='${this.env}' but copy targets '${opts.to}'`,
       })
     }
-    const sourceBotId = opts.sourceBotId?.trim() || (await this.getProjectBotId(opts.from))
-    if (sourceBotId === this.botId) {
+    const sourceTarget = normalizeDependencySnapshotTarget(opts.sourceTarget)
+    if (sourceTarget.env !== opts.from) {
+      throw new DependencyError({ code: 'INVALID_CONFIG', message: 'copy sourceTarget.env must match --from' })
+    }
+    if (sourceTarget.apiUrl !== this.target.apiUrl || sourceTarget.workspaceId !== this.target.workspaceId) {
       throw new DependencyError({
-        code: 'SAME_SOURCE_TARGET',
-        message: `${opts.from} and ${opts.to} resolve to the same Cloud bot (${sourceBotId}).`,
+        code: 'INVALID_CONFIG',
+        message: 'Cross-authority dependency copy requires a separately authenticated source client and is not supported.',
       })
     }
+    if (sourceTarget.botId === this.botId) {
+      throw new DependencyError({
+        code: 'SAME_SOURCE_TARGET',
+        message: `${opts.from} and ${opts.to} resolve to the same Cloud bot (${sourceTarget.botId}).`,
+      })
+    }
+    const sourceProjectTarget = await this.getProjectTarget(opts.from)
+    if (
+      sourceProjectTarget.apiUrl !== sourceTarget.apiUrl ||
+      sourceProjectTarget.workspaceId !== sourceTarget.workspaceId
+    ) {
+      throw new DependencyError({
+        code: 'INVALID_CONFIG',
+        message: `copy sourceTarget authority does not match the ${opts.from} project link apiUrl/workspaceId.`,
+      })
+    }
+    if (sourceProjectTarget.botId !== sourceTarget.botId) {
+      throw new DependencyError({
+        code: 'INVALID_CONFIG',
+        message: `copy source target bot ${sourceTarget.botId} does not match the ${opts.from} project link`,
+      })
+    }
+    await this.ensureDevTargetVerified()
+    const sourceBotId = sourceTarget.botId
     const sourceStore = new DependencySnapshotStore({ projectPath: this.projectPath })
+    if (opts.from === 'dev') {
+      const runtimeBotId = sourceProjectTarget.runtimeBotId!
+      const { bot } = await this.client.getBot({ id: runtimeBotId })
+      assertDevBotMatchesTarget(bot, { botId: sourceBotId, runtimeBotId })
+    }
     const sourceData = await sourceStore.refreshFromCloud({
       client: this.client,
-      botId: sourceBotId,
-      env: opts.from,
+      target: sourceTarget,
+      runtimeBotId: opts.from === 'dev' ? sourceProjectTarget.runtimeBotId : undefined,
       integrationRegistry: this.integrationRegistry,
     })
-    const targetSnapshotExists = await this.snapshotStore.exists(this.env)
+    const targetSnapshotExists = await this.snapshotStore.exists(this.target)
     const targetSnapshot = await this.readSnapshot()
 
     const originalSnapshot = JSON.stringify(targetSnapshot)
@@ -923,7 +1060,7 @@ export class DependencyManager {
         if (targetSnapshotExists) {
           await this.writeSnapshot(JSON.parse(originalSnapshot))
         } else {
-          await this.snapshotStore.delete(this.env)
+          await this.snapshotStore.delete(this.target)
         }
       }
       return result
@@ -931,7 +1068,7 @@ export class DependencyManager {
       if (targetSnapshotExists) {
         await this.writeSnapshot(JSON.parse(originalSnapshot)).catch(() => {})
       } else {
-        await this.snapshotStore.delete(this.env).catch(() => {})
+        await this.snapshotStore.delete(this.target).catch(() => {})
       }
       throw err
     }
@@ -946,7 +1083,8 @@ function formatMissingDependencySuggestion(opts: {
   if (opts.implementers.length === 0) {
     return (
       `Install an integration that implements '${opts.interfaceName}' first, ` +
-      `then retry — or pass --dep ${opts.pluginInterfaceAlias}=<alias> if you already have one.`
+      `then update plugin binding '${opts.pluginInterfaceAlias}' through the Cloud bot-definition API and retry ` +
+      `'brt dev' or 'brt deploy --adk'. Agent plugin binding mutation has no public brt command.`
     )
   }
   const lines = [`Hub integrations that implement '${opts.interfaceName}':`]
@@ -955,9 +1093,13 @@ function formatMissingDependencySuggestion(opts: {
     lines.push(`  • ${i.name}@${i.version}${title}`)
   }
   lines.push('')
-  lines.push(`Install one and retry:  adk integrations add ${opts.implementers[0]!.name}`)
   lines.push(
-    `Or, if you have an installed integration that implements this:  --dep ${opts.pluginInterfaceAlias}=<alias>`
+    `Install one on the selected target:  brt integrations install ${opts.implementers[0]!.name} --config-file <path>`
+  )
+  lines.push(`Register the returned webhookId:  brt integrations register <webhook-id>`)
+  lines.push(
+    `Update plugin binding '${opts.pluginInterfaceAlias}' through the Cloud bot-definition API, then retry brt dev (or brt deploy --adk for production). ` +
+      `Agent plugin binding mutation has no public brt command.`
   )
   return lines.join('\n')
 }

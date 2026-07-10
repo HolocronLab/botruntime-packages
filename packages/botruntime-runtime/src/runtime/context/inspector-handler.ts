@@ -6,7 +6,7 @@
  * - POST /__debug/inspector — Returns the process PID so VS Code can attach by PID.
  *   The inspector is NOT started here — VS Code starts it automatically when attaching.
  *
- * Debugging is one-way: press [d] in `adk dev` to enable, then disconnect from
+ * Debugging is one-way: press [d] in `brt dev` to enable, then disconnect from
  * VS Code when done (or let the process restart on file changes).
  */
 

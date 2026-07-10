@@ -6,7 +6,7 @@
 const RESERVED_PREFIXES = ['SECRET_', 'BP_', 'BOTPRESS_']
 
 /**
- * Validates a secret name according to ADK rules:
+ * Validates a secret name according to botruntime rules:
  * - SCREAMING_SNAKE_CASE: only uppercase letters (A-Z), digits (0-9), and underscores
  * - Minimum 2 characters
  * - Must start with a letter

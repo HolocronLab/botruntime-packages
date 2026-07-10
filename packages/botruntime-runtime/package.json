@@ -1,9 +1,9 @@
 {
   "name": "@holocronlab/botruntime-runtime",
   "version": "2.0.5",
-  "description": "Lightweight runtime library for ADK-based botruntime agents",
+  "description": "Lightweight runtime library for brt-built botruntime agents",
   "keywords": [
-    "adk",
+    "brt",
     "agent",
     "ai",
     "chatbot",
@@ -61,7 +61,8 @@
     "build:watch": "bun esbuild.ts --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "bun run clean && bun run build",
-    "check:type": "tsc --noEmit"
+    "check:type": "tsc --noEmit",
+    "test": "vitest --run"
   },
   "dependencies": {
     "@holocronlab/botruntime-chat": "file:../botruntime-chat",
@@ -109,7 +110,8 @@
     "@types/react": ">=18",
     "bun-types": "1.3.14",
     "esbuild": "^0.25.10",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
   },
   "peerDependencies": {
     "@types/react": ">=18",

@@ -4,10 +4,13 @@ import { existsSync } from 'fs'
 import { AdkError } from '@holocronlab/botruntime-analytics'
 import { AgentProject } from '../agent-project/agent-project.js'
 import { resolveWorkspaceCredentials } from '../auth/index.js'
+import type { ServerConnectionCredentials } from '../auth/index.js'
 import { pascalCase } from '../utils/strings.js'
 import { BUILTIN_INTERFACES } from '../constants.js'
 import { BpAddCommand } from '../commands/bp-add-command.js'
 import type { DependencyInstaller } from './generator.js'
+import type { ServerConfigTarget } from '../integrations/config-utils.js'
+import { resolveSyncCredentials } from './sync-credentials.js'
 
 export interface InterfaceInfo {
   alias: string
@@ -22,14 +25,23 @@ export interface InterfaceSyncResult {
 }
 
 export interface InterfaceSyncOptions {
+  adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
+  configTarget?: ServerConfigTarget
+  credentials?: ServerConnectionCredentials
   installer?: DependencyInstaller
+  /** Operation-scoped project shared by generateBotProject. */
+  projectPromise?: Promise<AgentProject>
 }
 
 export class InterfaceSync {
   private projectPath: string
   private botProjectPath: string
   private bpModulesPath: string
+  private adkCommand?: InterfaceSyncOptions['adkCommand']
+  private configTarget?: ServerConfigTarget
+  private credentials?: ServerConnectionCredentials
   private installer?: DependencyInstaller
+  private projectPromise?: Promise<AgentProject>
   // Memoized so the per-item install loop resolves credentials once, not once
   // per interface (each resolution reloads + parses the agent project).
   private credentialsPromise: ReturnType<typeof resolveWorkspaceCredentials> | null = null
@@ -38,13 +50,32 @@ export class InterfaceSync {
     this.projectPath = projectPath
     this.botProjectPath = botProjectPath
     this.bpModulesPath = path.join(botProjectPath, 'bp_modules')
+    this.adkCommand = options.adkCommand
+    this.configTarget = options.configTarget
+    this.credentials = resolveSyncCredentials(options.configTarget, options.credentials)
     this.installer = options.installer
+    this.projectPromise = options.projectPromise
+  }
+
+  private loadProject(): Promise<AgentProject> {
+    this.projectPromise ??= AgentProject.load(this.projectPath, {
+      ...(this.adkCommand ? { adkCommand: this.adkCommand } : {}),
+      ...(this.configTarget ? { configTarget: this.configTarget } : {}),
+    })
+    return this.projectPromise
   }
 
   private getCredentials(): ReturnType<typeof resolveWorkspaceCredentials> {
     if (!this.credentialsPromise) {
       this.credentialsPromise = (async () => {
-        const project = await AgentProject.load(this.projectPath)
+        if (this.credentials) {
+          return resolveWorkspaceCredentials({
+            credentials: this.credentials,
+            apiUrl: this.credentials.apiUrl,
+            workspaceId: this.credentials.workspaceId,
+          })
+        }
+        const project = await this.loadProject()
         return resolveWorkspaceCredentials({ project })
       })()
     }

@@ -1,0 +1,875 @@
+{
+  "schemaVersion": 1,
+  "package": "@holocronlab/brt",
+  "source": "packages/brt/src/command-definitions.ts",
+  "commands": [
+    {
+      "path": "add",
+      "aliases": [
+        "i",
+        "install"
+      ],
+      "options": [
+        "alias",
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "installPath",
+        "json",
+        "packageRef",
+        "profile",
+        "token",
+        "useDev",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "bots create",
+      "aliases": [
+        "new"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "ifNotExists",
+        "json",
+        "name",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "bots delete",
+      "aliases": [
+        "rm"
+      ],
+      "options": [
+        "apiUrl",
+        "botRef",
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "bots get",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botRef",
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "bots list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "build",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "minify",
+        "profile",
+        "sourceMap",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "bundle",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "minify",
+        "profile",
+        "sourceMap",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "chat",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "chatApiUrl",
+        "confirm",
+        "json",
+        "profile",
+        "protocol",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "config list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "local",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "config rm",
+      "aliases": [
+        "delete"
+      ],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "local",
+        "name",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "config set",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "local",
+        "name",
+        "profile",
+        "valueFile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "deploy",
+      "aliases": [],
+      "options": [
+        "adk",
+        "allowDeprecated",
+        "allowDestructiveTableChanges",
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "bypassBreakingChangeDetection",
+        "confirm",
+        "createNewBot",
+        "dryRun",
+        "json",
+        "local",
+        "minify",
+        "name",
+        "noBuild",
+        "profile",
+        "public",
+        "secrets",
+        "sourceMap",
+        "token",
+        "url",
+        "verbose",
+        "visibility",
+        "watch",
+        "workDir",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "dev",
+      "aliases": [],
+      "options": [
+        "adk",
+        "apiUrl",
+        "botpressHome",
+        "check",
+        "confirm",
+        "json",
+        "local",
+        "minify",
+        "noSecretCaching",
+        "port",
+        "profile",
+        "secrets",
+        "sourceMap",
+        "token",
+        "tunnelId",
+        "tunnelUrl",
+        "verbose",
+        "watch",
+        "workDir",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "generate",
+      "aliases": [
+        "gen"
+      ],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "init",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "name",
+        "profile",
+        "template",
+        "type",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "integrations delete",
+      "aliases": [
+        "rm"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "integrationRef",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "integrations get",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "integrationRef",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "integrations install",
+      "aliases": [],
+      "options": [
+        "alias",
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "configFile",
+        "configStdin",
+        "confirm",
+        "dev",
+        "json",
+        "local",
+        "profile",
+        "ref",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "integrations list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "limit",
+        "name",
+        "owned",
+        "profile",
+        "public",
+        "token",
+        "verbose",
+        "versionNumber",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "integrations publish",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "configSchemaFile",
+        "confirm",
+        "json",
+        "name",
+        "noBuild",
+        "noBundle",
+        "profile",
+        "verbose",
+        "versionNumber",
+        "workDir"
+      ]
+    },
+    {
+      "path": "integrations register",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "local",
+        "profile",
+        "verbose",
+        "webhookId",
+        "workDir"
+      ]
+    },
+    {
+      "path": "interfaces delete",
+      "aliases": [
+        "rm"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "interfaceRef",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "interfaces get",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "interfaceRef",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "interfaces list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "link",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "json",
+        "key",
+        "keyStdin",
+        "local",
+        "profile",
+        "verbose",
+        "workDir",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "lint",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "login",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "device",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "logout",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose"
+      ]
+    },
+    {
+      "path": "logs",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "conversationId",
+        "follow",
+        "grep",
+        "json",
+        "level",
+        "limit",
+        "local",
+        "profile",
+        "since",
+        "until",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "plugins delete",
+      "aliases": [
+        "rm"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "json",
+        "pluginRef",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "plugins get",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "json",
+        "pluginRef",
+        "profile",
+        "token",
+        "verbose",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "plugins list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "json",
+        "name",
+        "profile",
+        "token",
+        "verbose",
+        "versionNumber",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "profiles active",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "displayToken",
+        "json",
+        "profile",
+        "verbose"
+      ]
+    },
+    {
+      "path": "profiles get",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "displayToken",
+        "json",
+        "profile",
+        "profileToGet",
+        "verbose"
+      ]
+    },
+    {
+      "path": "profiles list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "displayToken",
+        "json",
+        "profile",
+        "verbose"
+      ]
+    },
+    {
+      "path": "profiles use",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "profileToUse",
+        "verbose"
+      ]
+    },
+    {
+      "path": "read",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "remove",
+      "aliases": [
+        "rm"
+      ],
+      "options": [
+        "alias",
+        "apiUrl",
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "token",
+        "verbose",
+        "workDir",
+        "workspaceId"
+      ]
+    },
+    {
+      "path": "secret set",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "local",
+        "name",
+        "profile",
+        "valueFile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "serve",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "port",
+        "profile",
+        "secrets",
+        "verbose",
+        "workDir"
+      ]
+    }
+  ],
+  "documentation": {
+    "overviewCommandPaths": [
+      "chat",
+      "deploy",
+      "dev",
+      "integrations install",
+      "integrations register",
+      "link",
+      "login",
+      "logs",
+      "profiles active",
+      "profiles use",
+      "secret set"
+    ],
+    "criticalOptions": {
+      "chat": [
+        "chatApiUrl",
+        "protocol"
+      ],
+      "deploy": [
+        "adk",
+        "allowDestructiveTableChanges",
+        "local",
+        "noBuild",
+        "watch"
+      ],
+      "dev": [
+        "check",
+        "json",
+        "local",
+        "port",
+        "watch"
+      ],
+      "integrations install": [
+        "alias",
+        "configFile",
+        "configStdin",
+        "dev",
+        "local"
+      ],
+      "integrations publish": [
+        "apiUrl",
+        "configSchemaFile",
+        "name",
+        "noBuild",
+        "noBundle",
+        "versionNumber"
+      ],
+      "integrations register": [
+        "dev",
+        "local"
+      ],
+      "link": [
+        "apiUrl",
+        "botId",
+        "keyStdin",
+        "local",
+        "workspaceId"
+      ],
+      "login": [
+        "apiUrl",
+        "device",
+        "token",
+        "workspaceId"
+      ],
+      "logs": [
+        "botId",
+        "conversationId",
+        "follow",
+        "limit",
+        "local"
+      ],
+      "config set": [
+        "dev",
+        "local",
+        "valueFile"
+      ],
+      "secret set": [
+        "dev",
+        "local",
+        "valueFile"
+      ]
+    },
+    "criticalUsages": {
+      "integrations install": [
+        "<name@version>"
+      ]
+    },
+    "requirements": [
+      {
+        "id": "single-cli",
+        "assertion": "brt is the only developer executable; botruntime-adk is a library used by brt",
+        "documents": [
+          "overview"
+        ]
+      },
+      {
+        "id": "dev-production-isolation",
+        "assertion": "brt dev targets an isolated dev bot; production changes require explicit brt deploy --adk",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "cloud-authoritative-dependencies",
+        "assertion": "brt dev and brt deploy --adk reconcile dependencies with the authoritative selected Cloud target",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "explicit-integration-version",
+        "assertion": "brt integrations install requires canonical exact SemVer in name@version form",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "safe-secret-input",
+        "assertion": "config, secret, and integration values use stdin or files instead of value argv",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      }
+    ],
+    "workflows": [
+      {
+        "id": "profile-authentication",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "login"
+        ]
+      },
+      {
+        "id": "agent-development",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "dev"
+        ]
+      },
+      {
+        "id": "agent-production",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "deploy"
+        ]
+      },
+      {
+        "id": "integration-lifecycle",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "integrations install",
+          "integrations register"
+        ]
+      },
+      {
+        "id": "target-repair",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "link"
+        ]
+      },
+      {
+        "id": "bot-configuration",
+        "documents": [
+          "reference"
+        ],
+        "commandPaths": [
+          "config set",
+          "config list",
+          "config rm",
+          "secret set"
+        ]
+      }
+    ]
+  }
+}

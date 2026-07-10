@@ -411,7 +411,8 @@ export class KnowledgeManager {
 
   /**
    * Trigger website source sync by creating the builtin_knowledge_indexing workflow.
-   * For dev bots, this requires adk dev to be running. For prod bots, runs in Botpress Cloud.
+   * Development sync requires the exact target to be active through `brt dev`.
+   * Production sync runs against the configured production target.
    */
   async syncWebsiteSource(kbName: string, kbId: string, force: boolean): Promise<{ workflowId: string }> {
     const client = await this.getClient()

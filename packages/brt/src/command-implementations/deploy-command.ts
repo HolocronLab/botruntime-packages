@@ -24,17 +24,99 @@ import { BuildCommand } from './build-command'
 import { ProjectCommand, ProjectDefinitionContext } from './project-command'
 import type { ProfileCredentials } from './global-command'
 
+const ADK_DEPLOY_WATCH_DEBOUNCE_MS = 500
+
+function validateProvisionResponse(
+  value: unknown,
+  expectedWorkspaceId: string
+): { botId: string; apiKey: string; workspaceId: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new errors.BotpressCLIError('invalid provision response: expected an object')
+  }
+  const response = value as Record<string, unknown>
+  const botId = (() => {
+    if (typeof response['botId'] === 'number') {
+      if (Number.isSafeInteger(response['botId']) && response['botId'] > 0) return String(response['botId'])
+      return undefined
+    }
+    if (typeof response['botId'] === 'string' && /^[1-9][0-9]*$/.test(response['botId'])) {
+      return response['botId']
+    }
+    return undefined
+  })()
+  if (!botId) {
+    throw new errors.BotpressCLIError('invalid provision response: botId must be a positive decimal string or safe integer')
+  }
+  const apiKey = response['apiKey']
+  if (typeof apiKey !== 'string' || apiKey.length === 0) {
+    throw new errors.BotpressCLIError('invalid provision response: apiKey must be a non-empty string')
+  }
+  const returnedWorkspaceId = (() => {
+    if (typeof response['workspaceId'] === 'number' && Number.isSafeInteger(response['workspaceId'])) {
+      return String(response['workspaceId'])
+    }
+    if (typeof response['workspaceId'] === 'string' && response['workspaceId'].length > 0) {
+      return response['workspaceId']
+    }
+    return undefined
+  })()
+  if (!returnedWorkspaceId || returnedWorkspaceId !== expectedWorkspaceId) {
+    throw new errors.BotpressCLIError(
+      `invalid provision response: workspaceId must equal requested workspace ${expectedWorkspaceId}`
+    )
+  }
+  return { botId, apiKey, workspaceId: returnedWorkspaceId }
+}
+
 export type DeployCommandDefinition = typeof commandDefinitions.deploy
 export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
+  protected override async bootstrap(): Promise<void> {
+    this._validateWatchOptions()
+    await super.bootstrap()
+  }
+
+  private _validateWatchOptions(): void {
+    if (
+      this.argv.adk &&
+      (this.argv.token !== undefined || this.argv.workspaceId !== undefined || this.argv.apiUrl !== undefined)
+    ) {
+      const unsupported = [
+        this.argv.token !== undefined ? '--token' : undefined,
+        this.argv.workspaceId !== undefined ? '--workspace-id' : undefined,
+        this.argv.apiUrl !== undefined ? '--api-url' : undefined,
+      ].filter((flag): flag is string => flag !== undefined)
+      throw new errors.BotpressCLIError(
+        `\`brt deploy --adk\` uses the selected profile as its credential authority; remove ${unsupported.join(' and ')}`
+      )
+    }
+    if (this.argv.adk && this.argv.dryRun) {
+      throw new errors.BotpressCLIError(
+        '`brt deploy --adk --dry-run` is not supported: a side-effect-free agent deployment plan does not exist yet. ' +
+          'Remove `--dry-run` to perform a real agent deployment.'
+      )
+    }
+    if (this.argv.watch && !this.argv.adk) {
+      throw new errors.BotpressCLIError('`brt deploy --watch` requires `--adk`')
+    }
+    if (this.argv.watch && this.argv.noBuild) {
+      throw new errors.BotpressCLIError('`brt deploy --adk --watch` cannot be combined with `--noBuild`')
+    }
+  }
+
   public async run(): Promise<void> {
+    // Keep direct programmatic callers as safe as the normal handler/bootstrap path.
+    this._validateWatchOptions()
+
     // --adk gates the bespoke-cloudapi-wire ADK-bundle deploy path (ported
     // from the (deleted) thin brt CLI's commands/deploy.ts). This is a
-    // SEPARATE surface from the Botpress-shaped deploy below: it targets a
-    // bot.json/bot.local.json-linked bot via CloudapiClient instead of
-    // @holocronlab/botruntime-client, and never touches botDefinition.ts /
-    // integration.definition.ts. The default (Botpress-shaped) deploy below
-    // is unchanged and still runs whenever --adk is not passed.
+    // SEPARATE surface from the Botpress-shaped deploy below: it targets an
+    // agent.json/agent.local.json-linked bot via CloudapiClient instead of
+    // @holocronlab/botruntime-client, and never touches botDefinition.ts or
+    // integration.definition.ts. The classic deploy remains unchanged.
     if (this.argv.adk) {
+      if (this.argv.watch) {
+        return this._watchAdkDeploy()
+      }
       return this._deployAdkBundle()
     }
 
@@ -573,6 +655,73 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   }
 
   // ---------------------------------------------------------------------
+  // brt deploy --adk --watch — explicit production-like cloud redeploy loop.
+  // A plain deploy --adk remains one-shot; this path performs the same deploy
+  // once initially, then repeats it only for agent source changes.
+  // ---------------------------------------------------------------------
+  private async _watchAdkDeploy(): Promise<void> {
+    const dir = this.projectPaths.abs.workDir
+    let deploying = false
+    let dirty = false
+
+    const redeploy = async (): Promise<void> => {
+      if (deploying) {
+        dirty = true
+        return
+      }
+
+      deploying = true
+      let lastFailure: { error: unknown } | undefined
+      try {
+        do {
+          dirty = false
+          try {
+            await this._deployAdkBundle()
+            lastFailure = undefined
+          } catch (error) {
+            lastFailure = { error }
+          }
+        } while (dirty)
+
+        if (lastFailure) throw lastFailure.error
+      } finally {
+        deploying = false
+      }
+    }
+
+    const watcher = await utils.filewatcher.FileWatcher.watch(
+      dir,
+      async (events) => {
+        if (!events.some((event) => adkBundle.isAgentSourceChange(dir, event.path, { dependencyEnv: 'prod' }))) return
+
+        this.logger.log('Agent source changed, rebuilding + redeploying')
+        try {
+          await redeploy()
+        } catch (thrown) {
+          const err = errors.BotpressCLIError.wrap(thrown, 'brt deploy --adk --watch: redeploy failed')
+          this.logger.error(err.message)
+          this.logger.debug(errors.BotpressCLIError.fullStack(err))
+        }
+      },
+      { debounceMs: ADK_DEPLOY_WATCH_DEBOUNCE_MS }
+    )
+
+    try {
+      cloudInfo(`brt deploy --adk --watch: building + deploying ${dir} ...`)
+      await redeploy().catch((thrown) => {
+        throw errors.BotpressCLIError.wrap(thrown, 'brt deploy --adk --watch: initial deploy failed')
+      })
+      cloudInfo(
+        'brt deploy --adk --watch: live. The runtime-host supervisor will hot-swap after each successful deployment.'
+      )
+
+      await watcher.wait()
+    } finally {
+      await watcher.close()
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // brt deploy --adk — provision-if-needed -> build-if-needed -> PUT bundle
   // -> verify(sha256) -> sync tables. Contract-identical to the (deleted)
   // thin brt CLI's commands/deploy.ts against the SAME bespoke cloudapi wire
@@ -587,15 +736,19 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   // native BuildCommand (codegen + esbuild — the SAME pipeline as a Botpress-
   // shaped bot), and (c) normalizes the produced bundle to .brt/dist/index.cjs.
   // Nothing here spawns an external adk/bp binary.
-  private async _buildAdkBundle(dir: string): Promise<string> {
+  private async _buildAdkBundle(
+    dir: string,
+    configTargetBotId: string,
+    credentials: { token: string; apiUrl: string; workspaceId: string }
+  ): Promise<string> {
     // In-process dependency installer: instead of spawning a provisioned brt
-    // binary to `bp add` each integration/plugin/interface into the generated
+    // CLI subprocess to add each integration/plugin/interface into the generated
     // bot's bp_modules, drive brt's OWN native AddCommand as a plain function
     // call. `resource` is already a package ref in brt's grammar
     // (`integration:name@ver` | `plugin:…` | `interface:…`), so it maps
     // directly onto the `add` positional `packageRef`. Credentials come from
     // the ADK-side resolveWorkspaceCredentials (the same explicit token/apiUrl/
-    // workspaceId the old execa `bp add` was handed) — passed explicitly and
+    // workspaceId the former execa subprocess received) — passed explicitly and
     // with no `profile`, so the add uses exactly those creds. `confirm: true`
     // suppresses interactive prompts; no `alias`, so each package installs
     // under its native name and the ADK sync then renames the folder, exactly
@@ -616,7 +769,12 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       await new AddCommand(this.api, this.prompt, this.logger, addArgv).run()
     }
 
-    const botPath = await adkBundle.generateAgentBot(dir, installer)
+    const botPath = await adkBundle.generateAgentBot(dir, installer, {
+      // Keep the shipping dependency snapshot semantics of adk-build while
+      // pinning remote config to the canonical bot resolved by this deploy.
+      adkCommand: 'adk-build',
+      configTarget: { environment: 'prod', botId: configTargetBotId, credentials },
+    })
 
     // Point a fresh BuildCommand at the generated bot dir. A fresh
     // ProjectDefinitionContext (its own esbuild context) is used and disposed,
@@ -637,33 +795,109 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
   private async _deployAdkBundle(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
-    const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
-    // bot.json/bot.local.json — read as a LEGACY fallback only, for one
-    // release. agent.json (below) is the canonical prod link for agent
-    // projects; this fork never writes bot.json for an agent project again.
-    const link: cloudLink.BotLink = cloudLink.loadLinkIfPresent(dir, linkEnv) ?? {}
-    const agentInfo = agentLink.readAgentInfoIfPresent(dir)
+    const usesLocalTarget = Boolean(this.argv.local)
+    // Target files are environment-isolated. A local deploy never reads or
+    // writes agent.json; a production deploy never lets agent.local.json
+    // override its coordinates. bot.json remains a one-release fallback only
+    // when the canonical production agent.json does not exist.
+    const agentInfo = usesLocalTarget ? undefined : agentLink.readAgentInfoIfPresent(dir)
+    const agentLocalInfo = usesLocalTarget ? agentLink.readAgentLocalInfo(dir) : undefined
+    const legacyLink: cloudLink.BotLink =
+      !usesLocalTarget && agentInfo === undefined ? (cloudLink.loadLinkIfPresent(dir, 'prod') ?? {}) : {}
 
     const { name: profileName, profile } = await cloudProfileResolve.resolveProfile({
       argvProfile: this.argv.profile,
       getActiveProfile: () => this.globalCache.get('activeProfile'),
       readProfile: (n) => this.readProfileFromFS(n),
     })
-    const apiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile, link)
+    if (usesLocalTarget) {
+      cloudProfileResolve.assertProfileAuthority('agent.local.json', agentLocalInfo ?? {}, profile, {
+        requireCoordinates: true,
+      })
+    }
+    let selectedApiUrl: string | undefined
+    let apiUrl: string
+    let workspaceId: string
+    if (usesLocalTarget) {
+      if (!agentLocalInfo?.apiUrl) {
+        throw new errors.BotpressCLIError(
+          'agent.local.json has no apiUrl — `brt deploy --adk --local` never falls back to the selected profile stack'
+        )
+      }
+      if (!agentLocalInfo.workspaceId) {
+        throw new errors.BotpressCLIError(
+          'agent.local.json has no workspaceId — `brt deploy --adk --local` never falls back to the selected profile stack'
+        )
+      }
+      apiUrl = agentLocalInfo.apiUrl.replace(/\/+$/, '')
+      workspaceId = agentLocalInfo.workspaceId
+    } else {
+      // A legacy bot.json may identify the bot during one-time migration, but
+      // it is repository-controlled input and must never redirect the selected
+      // profile PAT to another host.
+      selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
+      cloudProfileResolve.assertProfileAuthority(
+        'command target override',
+        { apiUrl: selectedApiUrl, workspaceId: profile.workspaceId },
+        profile,
+        { requireCoordinates: true }
+      )
+      apiUrl = selectedApiUrl
+      workspaceId = profile.workspaceId
+    }
     const botsStorePath = this.globalPaths.abs.botsStoreFile
 
-    // READ precedence for the prod bot id: --bot-id flag > agent.json.botId
-    // (canonical) > bot.json's link.botId (legacy graceful fallback).
-    const resolvedBotId = agentLink.resolveAgentBotId(this.argv.botId, agentInfo, link.botId)
+    const resolvedBotId = usesLocalTarget
+      ? (this.argv.botId ?? agentLocalInfo?.botId)
+      : agentLink.resolveAgentBotId(this.argv.botId, agentInfo, legacyLink.botId)
 
     // Deploy is workspace-scoped (Botpress parity): the bundle PUT and table
     // sync go under the workspace PAT (profile.token) + x-workspace-id, so a
     // profile with no workspaceId cannot deploy. Fail loud here rather than let
     // the server 400/404 after we have already built the bundle.
-    if (!profile.workspaceId) {
+    if (!workspaceId) {
       throw new errors.BotpressCLIError(
         `profile "${profileName}" has no workspaceId — re-run \`brt login\` (deploy is workspace-scoped)`
       )
+    }
+
+    if (
+      !usesLocalTarget &&
+      agentInfo === undefined &&
+      legacyLink.workspaceId !== undefined &&
+      String(legacyLink.workspaceId) !== workspaceId
+    ) {
+      throw new errors.BotpressCLIError(
+        `bot.json workspaceId=${legacyLink.workspaceId} does not match selected profile "${profileName}" workspaceId=${workspaceId}`
+      )
+    }
+
+    if (agentInfo?.workspaceId !== undefined && agentInfo.workspaceId !== profile.workspaceId) {
+      throw new errors.BotpressCLIError(
+        `agent.json workspaceId=${agentInfo.workspaceId} does not match selected profile "${profileName}" workspaceId=${profile.workspaceId}`
+      )
+    }
+    const canonicalApiUrl = agentInfo?.apiUrl?.replace(/\/+$/, '')
+    if (canonicalApiUrl !== undefined && canonicalApiUrl !== selectedApiUrl) {
+      throw new errors.BotpressCLIError(
+        `agent.json apiUrl=${canonicalApiUrl} does not match selected profile "${profileName}" apiUrl=${selectedApiUrl}`
+      )
+    }
+
+    // --noBuild is artifact reuse, never a provisioning shortcut. Resolve the
+    // target before touching BRT_BUNDLE_PATH so a fresh project fails without
+    // reading arbitrary bundle paths, creating a bot, or writing credentials.
+    if (this.argv.noBuild && (!resolvedBotId || resolvedBotId.trim() === '')) {
+      throw new errors.BotpressCLIError(
+        '`brt deploy --adk --noBuild` requires an existing linked target (or an explicit --bot-id); rebuild with a normal deploy first'
+      )
+    }
+    const hasExplicitBotId = this.argv.botId !== undefined
+    if (
+      hasExplicitBotId &&
+      (this.argv.botId === '' || this.argv.botId !== this.argv.botId.trim())
+    ) {
+      throw new errors.BotpressCLIError('`brt deploy --adk --bot-id` must be a non-empty exact bot id')
     }
 
     // Stale-migration guard: our cloudapi resolves bots by a NUMERIC id, but a
@@ -677,6 +911,27 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       throw new errors.BotpressCLIError(botIdError)
     }
 
+    const bundleTarget = resolvedBotId
+      ? { apiUrl, workspaceId, botId: resolvedBotId }
+      : undefined
+    const verifiedNoBuildBundle = this.argv.noBuild
+      ? (() => {
+          const bundlePath = adkBundle.requireExistingBundle(dir)
+          const verified = adkBundle.validateBundleProvenance(bundlePath, bundleTarget!)
+          return { path: bundlePath, code: verified.code, sha256: verified.sha256 }
+        })()
+      : undefined
+    // A normal-deploy override is an explicit trusted escape from the native
+    // build. Read it once before provisioning so a missing/directory/unreadable
+    // path cannot leave a freshly created bot behind, and retain those exact
+    // bytes for the later PUT.
+    const trustedOverrideBundle = this.argv.noBuild ? undefined : adkBundle.readBundlePathOverride()
+    if (trustedOverrideBundle) {
+      cloudWarn(
+        'BRT_BUNDLE_PATH is explicitly trusted for this agent deployment; bundle provenance verification is bypassed.'
+      )
+    }
+
     let botId: string
     if (resolvedBotId === undefined) {
       // 1. provision once (no botId anywhere yet, and no --bot-id override).
@@ -687,20 +942,22 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       // (`brt integrations install/register`, webhookSecret).
       cloudInfo(`provision new bot on ${apiUrl} ...`)
       const machineClient = new CloudapiClient(apiUrl, profile.token)
-      const prov = await machineClient.provisionBot(this.argv.name, profile.workspaceId)
-      botId = String(prov.botId)
+      const prov = validateProvisionResponse(
+        await machineClient.provisionBot(this.argv.name, workspaceId),
+        workspaceId
+      )
+      botId = prov.botId
       const perBotKey = prov.apiKey
-      if (!botId || !perBotKey) {
-        throw new errors.BotpressCLIError(`provision returned no botId/apiKey: ${JSON.stringify(prov)}`)
-      }
 
       const store = botsStore.readBotsStore(botsStorePath)
       botsStore.setBotCreds(store, profileName, botId, { apiKey: perBotKey })
       botsStore.writeBotsStore(botsStorePath, store)
 
-      // Agent projects: agent.json ONLY. Never saveLink/write bot.json here —
-      // that would recreate the exact split-brain this stage removes.
-      agentLink.writeAgentInfo(dir, { botId, workspaceId: String(prov.workspaceId), apiUrl })
+      if (usesLocalTarget) {
+        agentLink.writeAgentLocalInfo(dir, { botId, workspaceId: prov.workspaceId, apiUrl })
+      } else {
+        agentLink.writeAgentInfo(dir, { botId, workspaceId: prov.workspaceId, apiUrl })
+      }
       cloudInfo(`provisioned botId=${botId} workspaceId=${prov.workspaceId}`)
     } else {
       botId = resolvedBotId
@@ -708,10 +965,12 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       // AUTO-MIGRATE (one-time): bot.json already links a bot but agent.json
       // is absent — write agent.json from bot.json so it becomes canonical
       // from here on. Keeps reading bot.json as fallback for one release.
-      const migrated = agentLink.computeAutoMigrateInfo(agentInfo, link, resolvedBotId, profile.workspaceId, apiUrl)
+      const migrated = usesLocalTarget || hasExplicitBotId
+        ? undefined
+        : agentLink.computeAutoMigrateInfo(agentInfo, legacyLink, resolvedBotId, workspaceId, apiUrl)
       if (migrated) {
         agentLink.writeAgentInfo(dir, migrated)
-        cloudInfo(`migrated legacy ${cloudLink.linkFileName(linkEnv)} -> agent.json (botId=${migrated.botId})`)
+        cloudInfo(`migrated legacy bot.json -> agent.json (botId=${migrated.botId})`)
       }
 
       // No per-bot key is read here: an already-linked bot deploys under the
@@ -719,14 +978,51 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       // that `brt integrations install/register` still needs.
     }
 
+    const { migrateFromConfig } = await adkBundle.loadAdkMigrationTools()
+    const migrationApi = this.api.newClient(
+      { token: profile.token, apiUrl, workspaceId },
+      this.logger
+    )
+    await migrateFromConfig({
+      projectPath: dir,
+      client: migrationApi.client as unknown as Parameters<typeof migrateFromConfig>[0]['client'],
+      target: { env: 'prod', apiUrl, workspaceId, botId },
+      authority: hasExplicitBotId
+        ? { source: 'explicit', botId }
+        : usesLocalTarget
+          ? { source: 'agentLocalBot' }
+          : { source: 'agent' },
+    })
+
     // 2. build if needed — in-process: generate the synthetic classic bot with
     // the @holocronlab/botruntime-adk library, then build it with brt's OWN
     // native pipeline. No child process to any adk/bp binary.
-    const bundlePath = this.argv.noBuild
-      ? adkBundle.requireExistingBundle(dir)
-      : await adkBundle.ensureBundle(() => this._buildAdkBundle(dir))
-    const code = await fs.promises.readFile(bundlePath, 'utf-8')
-    const localHash = adkBundle.sha256(code)
+    let bundle: adkBundle.LoadedBundle
+    if (verifiedNoBuildBundle) {
+      bundle = verifiedNoBuildBundle
+    } else if (trustedOverrideBundle) {
+      bundle = trustedOverrideBundle
+    } else {
+      const canonicalBundlePath = path.join(dir, adkBundle.ADK_BUNDLE_REL_PATH)
+      // A failed rebuild must not leave an older sidecar authorizing stale
+      // bytes for a later --noBuild retry.
+      adkBundle.invalidateBundleProvenance(canonicalBundlePath)
+      const bundlePath = await adkBundle.ensureBundle(() =>
+        this._buildAdkBundle(dir, botId, {
+          token: profile.token,
+          apiUrl,
+          workspaceId,
+        })
+      )
+      if (bundlePath !== canonicalBundlePath) {
+        adkBundle.invalidateBundleProvenance(bundlePath)
+      }
+      const code = await fs.promises.readFile(bundlePath, 'utf-8')
+      const localHash = adkBundle.sha256(code)
+      adkBundle.writeBundleProvenance(bundlePath, { apiUrl, workspaceId, botId }, code)
+      bundle = { path: bundlePath, code, sha256: localHash }
+    }
+    const { path: bundlePath, code, sha256: localHash } = bundle
     cloudInfo(`bundle ${bundlePath} (${code.length} bytes, sha256 ${localHash.slice(0, 12)}…)`)
 
     const commands = declaredCommands.extractDeclaredCommands(dir)
@@ -738,8 +1034,8 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // The server resolves the bot by its numeric id within profile.workspaceId
     // and gates owner|admin; the CLI no longer reads the per-bot key to deploy.
     const bot = new CloudapiClient(apiUrl, profile.token)
-    cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId} (workspace ${profile.workspaceId})`)
-    await bot.putBundle(botId, this.argv.name ?? botId, code, commands, profile.workspaceId)
+    cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId} (workspace ${workspaceId})`)
+    await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId)
 
     // 4. verify round-trip by sha256 (length alone would pass on a corrupt/raced copy)
     const internalToken = profile.internalToken
@@ -760,7 +1056,13 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // 5. synchronize tables (mirrors the Botpress-shaped deploy's own
     // bundle-then-tables order above): without this step the bot's first
     // table write 404s and the web console shows no tables.
-    await this._syncAdkTables(dir, apiUrl, botId, profile, agentInfo)
+    await this._syncAdkTables(
+      dir,
+      apiUrl,
+      botId,
+      { ...profile, apiUrl, workspaceId },
+      { botId, workspaceId, apiUrl }
+    )
 
     this._writeAdkLastDeploy(dir, { botId, sha256: localHash, at: new Date().toISOString() })
 
@@ -787,36 +1089,41 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     agentInfo: agentLink.AgentInfo | undefined
   ): Promise<void> {
     const { AgentProject, TableManager } = await adkBundle.loadAdkTableManager()
-    // adkCommand: 'adk-build' matches _buildAdkBundle's own generateAgentBot
-    // call — AgentProject.load caches by (path, adkCommand, offline), so this
-    // is a cache hit reusing the SAME parsed project, not a re-parse, whenever
-    // the bundle was just built (i.e. unless --noBuild skipped that step).
-    const project = await AgentProject.load(dir, { adkCommand: 'adk-build' })
-
-    // project.agentInfo is the MERGED value (agent.json + agent.local.json
-    // overrides) that TableManager's own credential resolution actually uses
-    // (see checkTableSyncCredentialMismatch) — checking only the pre-merge
-    // `agentInfo` param here would miss a local override and let table sync
-    // silently run against the wrong workspace/server. profile.workspaceId/
-    // apiUrl are authoritative for this deploy (already used above for
-    // putBundle) — fail loud on any mismatch BEFORE any table call is made.
-    const credentialMismatch = agentLink.checkTableSyncCredentialMismatch(project.agentInfo, agentInfo, {
-      workspaceId: profile.workspaceId,
-      apiUrl,
-    })
-    if (credentialMismatch) {
-      throw new errors.BotpressCLIError(credentialMismatch)
+    const workspaceId = profile.workspaceId
+    if (!workspaceId) {
+      throw new errors.BotpressCLIError('ADK table sync requires an authoritative workspaceId')
     }
+    const credentials = { token: profile.token, apiUrl, workspaceId }
+    // --noBuild has no prior generator cache to inherit. Supplying the exact
+    // deploy target here pins AgentProject's own online dependency resolution
+    // before TableManager is constructed; a local override cannot redirect the
+    // workspace PAT while the project is loading.
+    const project = await AgentProject.load(dir, {
+      adkCommand: 'adk-build',
+      configTarget: { environment: 'prod', botId, credentials },
+    })
 
     if (project.tables.length === 0) {
       cloudInfo('tables: none declared')
       return
     }
 
+    // AgentProject always merges agent.local.json into agentInfo, even for an
+    // adk-build load. TableManager later treats that merged value as higher
+    // priority than explicit credentials. Shadow only agentInfo on a wrapper
+    // so table declarations still come from the loaded project while all
+    // network coordinates stay pinned to this deploy's already-validated
+    // target. The underlying project and both link files remain untouched.
+    const targetProject = Object.create(project) as typeof project
+    Object.defineProperty(targetProject, 'agentInfo', {
+      value: agentInfo,
+      enumerable: true,
+    })
+
     const tableManager = new TableManager({
-      project,
+      project: targetProject,
       botId,
-      credentials: { token: profile.token, apiUrl, workspaceId: profile.workspaceId },
+      credentials,
     })
 
     // Every confirm() call inside syncAdkTables gates a destructive change

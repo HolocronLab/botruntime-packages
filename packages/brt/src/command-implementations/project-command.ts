@@ -19,6 +19,9 @@ export type ProjectCommandDefinition = CommandDefinition<typeof config.schemas.p
 export type ProjectCache = {
   botId: string
   devId: string
+  devTargetBotId: string
+  devApiUrl: string
+  devWorkspaceId: string
   tunnelId: string
   secrets: {
     [secretName: string]: string
@@ -336,7 +339,9 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     this.logger.log('Integrations:')
     for (const [alias, integration] of Object.entries(bot.integrations)) {
       if (integration.enabled) {
-        this.logger.log(`${alias} ${integration.version}:`, { prefix: { symbol: '→', indent: 2 } })
+        this.logger.log(`${alias} ${integration.version}:`, {
+          prefix: { symbol: '→', indent: 2 },
+        })
       } else {
         this.logger.log(`${alias} ${integration.version} ${chalk.italic('(disabled)')}:`, {
           prefix: { symbol: '→', indent: 2 },
@@ -347,7 +352,11 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
       const linkTemplateScript = integrationDefinition
         ? this._getLinkTemplateScript({ integration, integrationDefinition })
         : undefined
-      this._displayWebhookUrl({ integration, integrationDefinition, linkTemplateScript })
+      this._displayWebhookUrl({
+        integration,
+        integrationDefinition,
+        linkTemplateScript,
+      })
       if (!integrationDefinition) {
         this.logger.debug(
           `No integration definition for integration ${alias} (${integration.name}, ${integration.id}), skipping OAuth or Sandbox links`
@@ -359,9 +368,19 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
         integration.configurationType === 'sandbox' && !!integrationDefinition.sandbox?.identifierExtractScript
       const showLink = !!linkTemplateScript && (isSandbox || !!integrationDefinition.identifier?.extractScript)
       if (showLink && isSandbox) {
-        await this._displaySandboxLinkAndCode({ integration, alias, bot, api, linkTemplateScript })
+        await this._displaySandboxLinkAndCode({
+          integration,
+          alias,
+          bot,
+          api,
+          linkTemplateScript,
+        })
       } else if (showLink) {
-        this._displayAuthorizationLink({ integration, api, linkTemplateScript })
+        this._displayAuthorizationLink({
+          integration,
+          api,
+          linkTemplateScript,
+        })
       }
       this.logger.line().commit()
     }
@@ -413,7 +432,11 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     api: apiUtils.ApiClient
     linkTemplateScript: string
   }) {
-    const authorizationLink = this._getAuthorizationLink({ integration, api, linkTemplateScript })
+    const authorizationLink = this._getAuthorizationLink({
+      integration,
+      api,
+      linkTemplateScript,
+    })
     const isAuthorized = !!integration.identifier
     const authorizationStatus = integration.identifier ? 'Authorized ✓' : 'Authorize'
     if (integration.enabled && isAuthorized) {
@@ -490,7 +513,12 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     linkTemplateScript: string
   }) {
     const shareableId = await api.getOrGenerateShareableId(bot.id, integration.id, alias)
-    const sandboxLink = this._getSandboxLink({ shareableId, integration, api, linkTemplateScript })
+    const sandboxLink = this._getSandboxLink({
+      shareableId,
+      integration,
+      api,
+      linkTemplateScript,
+    })
     const sandboxInstruction = `Send '${shareableId}' to ${sandboxLink}`
     if (integration.enabled) {
       this.logger.log(`${chalk.bold('Sandbox')}: ${sandboxInstruction}`, {
@@ -563,7 +591,9 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
       }
       const prompted = await this.prompt.confirm(`Secret "${secretName}" was removed. Do you wish to delete it?`)
       if (prompted) {
-        this.logger.log(`Deleting secret "${secretName}"`, { prefix: { symbol: '×', fg: 'red' } })
+        this.logger.log(`Deleting secret "${secretName}"`, {
+          prefix: { symbol: '×', fg: 'red' },
+        })
         values[secretName] = null
       }
     }
@@ -667,12 +697,22 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
       ...plugin,
       interfaces: await this._fetchDependencies({
         deps: plugin.interfaces ?? {},
-        fetcher: async ({ name, version }) => await api.getPublicOrPrivateIntegration({ name, version, type: 'name' }),
+        fetcher: async ({ name, version }) =>
+          await api.getPublicOrPrivateIntegration({
+            name,
+            version,
+            type: 'name',
+          }),
         cacheKey: ({ name, version }) => `interface:${name}@${version}`,
       }),
       integrations: await this._fetchDependencies({
         deps: plugin.integrations ?? {},
-        fetcher: async ({ name, version }) => await api.getPublicOrPrivateIntegration({ name, version, type: 'name' }),
+        fetcher: async ({ name, version }) =>
+          await api.getPublicOrPrivateIntegration({
+            name,
+            version,
+            type: 'name',
+          }),
         cacheKey: ({ name, version }) => `integration:${name}@${version}`,
       }),
     }))
@@ -883,7 +923,10 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     let failedIntegrations: UpdatedBot['integrations'] = {}
     for (const [integrationName, integration] of Object.entries(updatedBot.integrations)) {
       if (integration.status === 'registration_failed') {
-        failedIntegrations = { ...failedIntegrations, [integrationName]: integration }
+        failedIntegrations = {
+          ...failedIntegrations,
+          [integrationName]: integration,
+        }
       }
     }
     if (Object.keys(failedIntegrations).length > 0) {
@@ -902,7 +945,13 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
   protected async manageWorkspaceHandle(
     api: apiUtils.ApiClient,
     project: Extract<ResolvedProjectDefinition, { type: 'integration' | 'plugin' }>
-  ): Promise<{ definition: sdk.IntegrationDefinition | sdk.PluginDefinition; workspaceId?: string } | undefined> {
+  ): Promise<
+    | {
+        definition: sdk.IntegrationDefinition | sdk.PluginDefinition
+        workspaceId?: string
+      }
+    | undefined
+  > {
     const { type, definition } = project
     const { name: localName, workspaceHandle: localHandle } = this._parseHandledName(definition.name)
     if (!localHandle && api.isBotpressWorkspace) {
@@ -1012,22 +1061,34 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     if (def.type === 'integration') {
       const overrides = props as Partial<sdk.IntegrationDefinitionProps>
       return (def.definition.clone?.(overrides) ??
-        new sdk.IntegrationDefinition({ ...def.definition.props, ...overrides })) as T['definition']
+        new sdk.IntegrationDefinition({
+          ...def.definition.props,
+          ...overrides,
+        })) as T['definition']
     }
     if (def.type === 'plugin') {
       const overrides = props as Partial<sdk.PluginDefinitionProps>
       return (def.definition.clone?.(overrides) ??
-        new sdk.PluginDefinition({ ...def.definition.props, ...overrides })) as T['definition']
+        new sdk.PluginDefinition({
+          ...def.definition.props,
+          ...overrides,
+        })) as T['definition']
     }
     if (def.type === 'interface') {
       const overrides = props as Partial<sdk.InterfaceDefinitionProps>
       return (def.definition.clone?.(overrides) ??
-        new sdk.InterfaceDefinition({ ...def.definition.props, ...overrides })) as T['definition']
+        new sdk.InterfaceDefinition({
+          ...def.definition.props,
+          ...overrides,
+        })) as T['definition']
     }
     if (def.type === 'bot') {
       const overrides = props as Partial<sdk.BotDefinitionProps>
       return (def.definition.clone?.(overrides) ??
-        new sdk.BotDefinition({ ...def.definition.props, ...overrides })) as T['definition']
+        new sdk.BotDefinition({
+          ...def.definition.props,
+          ...overrides,
+        })) as T['definition']
     }
     def satisfies never
     throw new errors.BotpressCLIError('Unsupported definition type')

@@ -4,9 +4,13 @@ import { existsSync } from 'fs'
 import { AdkError } from '@holocronlab/botruntime-analytics'
 import { AgentProject } from '../agent-project/agent-project.js'
 import { resolveWorkspaceCredentials } from '../auth/index.js'
+import type { ServerConnectionCredentials } from '../auth/index.js'
 import { bpModuleDirName } from '../utils/ids.js'
 import { BpAddCommand } from '../commands/bp-add-command.js'
 import type { DependencyInstaller } from './generator.js'
+import { inspectDependencyModule } from '../dependencies/module-identity.js'
+import type { ServerConfigTarget } from '../integrations/config-utils.js'
+import { resolveSyncCredentials } from './sync-credentials.js'
 
 export interface PluginInfo {
   alias: string
@@ -22,7 +26,11 @@ export interface PluginSyncResult {
 
 export interface PluginSyncOptions {
   adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
+  configTarget?: ServerConfigTarget
+  credentials?: ServerConnectionCredentials
   installer?: DependencyInstaller
+  /** Operation-scoped project shared by generateBotProject. */
+  projectPromise?: Promise<AgentProject>
 }
 
 export class PluginSync {
@@ -30,7 +38,10 @@ export class PluginSync {
   private botProjectPath: string
   private bpModulesPath: string
   private adkCommand?: PluginSyncOptions['adkCommand']
+  private configTarget?: ServerConfigTarget
+  private credentials?: ServerConnectionCredentials
   private installer?: DependencyInstaller
+  private projectPromise?: Promise<AgentProject>
   // Memoized so the per-item install loop resolves credentials once, not once
   // per plugin (each resolution reloads + parses the agent project).
   private credentialsPromise: ReturnType<typeof resolveWorkspaceCredentials> | null = null
@@ -40,16 +51,31 @@ export class PluginSync {
     this.botProjectPath = botProjectPath
     this.bpModulesPath = path.join(botProjectPath, 'bp_modules')
     this.adkCommand = options.adkCommand
+    this.configTarget = options.configTarget
+    this.credentials = resolveSyncCredentials(options.configTarget, options.credentials)
     this.installer = options.installer
+    this.projectPromise = options.projectPromise
+  }
+
+  private loadProject(): Promise<AgentProject> {
+    this.projectPromise ??= AgentProject.load(this.projectPath, {
+      ...(this.adkCommand ? { adkCommand: this.adkCommand } : {}),
+      ...(this.configTarget ? { configTarget: this.configTarget } : {}),
+    })
+    return this.projectPromise
   }
 
   private getCredentials(): ReturnType<typeof resolveWorkspaceCredentials> {
     if (!this.credentialsPromise) {
       this.credentialsPromise = (async () => {
-        const project = await AgentProject.load(
-          this.projectPath,
-          this.adkCommand ? { adkCommand: this.adkCommand } : {}
-        )
+        if (this.credentials) {
+          return resolveWorkspaceCredentials({
+            credentials: this.credentials,
+            apiUrl: this.credentials.apiUrl,
+            workspaceId: this.credentials.workspaceId,
+          })
+        }
+        const project = await this.loadProject()
         return resolveWorkspaceCredentials({ project })
       })()
     }
@@ -60,7 +86,7 @@ export class PluginSync {
    * Parse agent.config.ts dependencies plugins into PluginInfo objects
    */
   private async parsePlugins(): Promise<PluginInfo[]> {
-    const project = await AgentProject.load(this.projectPath, this.adkCommand ? { adkCommand: this.adkCommand } : {})
+    const project = await this.loadProject()
     const dependencies = project.dependencies
 
     if (!dependencies?.plugins) {
@@ -89,31 +115,13 @@ export class PluginSync {
    * Check if a plugin is already installed with the correct version
    */
   private async isPluginSynced(plugin: PluginInfo): Promise<boolean> {
-    const targetFolder = path.join(this.bpModulesPath, bpModuleDirName('plugin', plugin.alias))
-
-    if (!existsSync(targetFolder)) {
-      return false
-    }
-
-    try {
-      const indexPath = path.join(targetFolder, 'index.ts')
-      if (!existsSync(indexPath)) {
-        return false
-      }
-
-      const indexContent = await fs.readFile(indexPath, 'utf-8')
-
-      // Look for version in the format: version: "1.3.0",
-      const versionMatch = indexContent.match(/version:\s*["']([^"']+)["']/)
-      if (!versionMatch) {
-        return false
-      }
-
-      const installedVersion = versionMatch[1]
-      return installedVersion === plugin.version
-    } catch {
-      return false
-    }
+    return inspectDependencyModule({
+      bpModulesDir: this.bpModulesPath,
+      type: 'plugin',
+      alias: plugin.alias,
+      name: plugin.name,
+      version: plugin.version,
+    }).ready
   }
 
   /**

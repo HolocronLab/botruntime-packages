@@ -217,7 +217,7 @@ export class BaseWorkflowInstance<TName extends keyof WorkflowDefinitions> {
    *
    * @param id - The workflow ID to load
    * @returns A BaseWorkflowInstance
-   * @throws If no ADK Workflow definition is found for the workflow name
+   * @throws If no agent workflow definition is found for the workflow name
    * @throws If called outside an execution context
    */
   static async get<TName extends keyof WorkflowDefinitions>(id: string): Promise<BaseWorkflowInstance<TName>> {
@@ -226,7 +226,7 @@ export class BaseWorkflowInstance<TName extends keyof WorkflowDefinitions> {
     const { workflow } = await client.getWorkflow({ id })
 
     if (!adk.project.workflows.find((w) => w.name === workflow.name)) {
-      throw new Error(`No ADK Workflow definition found for "${workflow.name}"`)
+      throw new Error(`No agent workflow definition found for "${workflow.name}"`)
     }
 
     const instance = new BaseWorkflowInstance<TName>(workflow, client)
@@ -245,7 +245,7 @@ export class BaseWorkflowInstance<TName extends keyof WorkflowDefinitions> {
       : await client.getWorkflow({ id: props.id }).then((x) => x.workflow)
 
     if (!adk.project.workflows.find((w) => w.name === workflow.name)) {
-      throw new Error(`No ADK Workflow definition found for "${workflow.name}"`)
+      throw new Error(`No agent workflow definition found for "${workflow.name}"`)
     }
 
     TrackedTags.create({
@@ -418,7 +418,7 @@ export class BaseWorkflowInstance<TName extends keyof WorkflowDefinitions> {
     const handler = adk.project.workflows.find((w) => w.name === this.name)!._handler
 
     if (!handler) {
-      throw new Error(`No ADK Workflow handler found for "${this.name as string}"`)
+      throw new Error(`No agent workflow handler found for "${this.name as string}"`)
     }
 
     await TrackedState.loadAll()

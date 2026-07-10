@@ -162,7 +162,7 @@ export function buildAgent0CognitiveProvider(
 
   return {
     api: 'openai-completions',
-    name: 'Botpress Cognitive',
+    name: 'Holocron Cognitive',
     options: { apiKey: 'cognitive', baseURL },
     models,
   }

@@ -25,8 +25,15 @@ export class PluginManager {
 
   constructor(options: PluginManagerOptions = {}) {
     const { noCache, ...clientOptions } = options
-    this.source = new PluginCatalogSource(new CatalogClientFactory(clientOptions))
-    this.service = new CatalogService(this.source, noCache || false)
+    const clientFactory = new CatalogClientFactory(clientOptions)
+    this.source = new PluginCatalogSource(clientFactory)
+    this.service = new CatalogService(
+      this.source,
+      noCache || !clientFactory.hasCacheAuthority,
+      clientFactory.cacheAuthority,
+      () => clientFactory.validateAuthority(),
+      !clientFactory.hasCacheAuthority
+    )
   }
 
   /**

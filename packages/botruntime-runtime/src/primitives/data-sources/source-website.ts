@@ -301,9 +301,9 @@ function wrapBrowserActionError(action: BrowserAction, err: unknown): Error {
   return new Error(
     `Failed to call browser:${action} via the bot's actions API: ${original}\n\n` +
       `If the 'browser' integration is not installed or enabled on this bot:\n` +
-      `  1. Add the dependency:  adk integrations add browser\n` +
-      `  2. Deploy & enable:     adk dev   (run once; can be stopped after the integration is enabled)\n` +
-      `  3. Re-run:              adk kb sync --dev\n\n` +
+      `  1. Ask the workspace operator to install and register the browser integration on this exact target.\n` +
+      `  2. For a dev target, restart \`brt dev\`; for production, rebuild and run \`brt deploy --adk\`.\n` +
+      `  3. Re-run the website sync after that same target is ready.\n\n` +
       fallback
   )
 }
@@ -374,7 +374,7 @@ type BrowsePagesResult = {
 
 /**
  * Call `browser:browsePages` via the bot's actions API. The runtime helper
- * `adk.project.integrations.get('browser').actions.browsePages(...)` is just
+ * The generated integration registry's `browser.actions.browsePages(...)` is just
  * sugar over this same call.
  */
 async function callBrowserBrowsePages(client: Client, url: string): Promise<BrowsePagesResult> {
@@ -509,7 +509,7 @@ export class WebsiteSource extends DataSource {
   /**
    * Resolve a Botpress Client to use for calling deployed integrations.
    *
-   * The CLI (`adk kb sync`) passes its authenticated client explicitly through
+   * The `brt`-managed sync path passes its authenticated client explicitly through
    * `syncDirect`. The runtime workflow path doesn't thread a client through
    * each call, so we fall back to the client stored in the bot context — the
    * same one used by `runtime/actions.ts` to invoke integration actions.
@@ -520,7 +520,7 @@ export class WebsiteSource extends DataSource {
     if (!ctxClient) {
       throw new Error(
         `Cannot call the 'browser' integration: no Botpress client available. ` +
-          `Run inside the ADK runtime (\`adk dev\`) or pass a client to syncDirect (CLI path).`
+          `Run inside the botruntime worker (\`brt dev\`) or pass a client to syncDirect (CLI path).`
       )
     }
     return ctxClient as unknown as Client

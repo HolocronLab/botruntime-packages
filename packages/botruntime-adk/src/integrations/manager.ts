@@ -25,8 +25,15 @@ export class IntegrationManager {
 
   constructor(options: IntegrationManagerOptions = {}) {
     const { noCache, ...clientOptions } = options
-    this.source = new IntegrationCatalogSource(new CatalogClientFactory(clientOptions))
-    this.service = new CatalogService(this.source, noCache || false)
+    const clientFactory = new CatalogClientFactory(clientOptions)
+    this.source = new IntegrationCatalogSource(clientFactory)
+    this.service = new CatalogService(
+      this.source,
+      noCache || !clientFactory.hasCacheAuthority,
+      clientFactory.cacheAuthority,
+      () => clientFactory.validateAuthority(),
+      !clientFactory.hasCacheAuthority
+    )
   }
 
   /**

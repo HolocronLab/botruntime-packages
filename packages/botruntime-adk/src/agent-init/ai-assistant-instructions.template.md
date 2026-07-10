@@ -1,96 +1,53 @@
-# Botpress ADK Agent
+# Holocron agent project
 
-> This project is built with the **Botpress Agent Development Kit (ADK)** — a TypeScript-first framework for building AI agents.
+This TypeScript project uses `@holocronlab/botruntime-runtime`. Treat `brt` as
+the only executable CLI; the framework library does not expose another one.
 
-## Key Files
+## Project map
 
-- `agent.config.ts` — Agent configuration, models, and state schemas
-- `.adk/dependencies/` — Generated local dependency snapshots; Botpress Cloud is the source of truth
-- `src/conversations/` — Message handlers (primary user interaction)
-- `src/workflows/` — Long-running background processes
-- `src/tools/` — AI-callable functions
-- `src/actions/` — Reusable business logic
-- `src/knowledge/` — RAG knowledge base sources
-- `src/tables/` — Database table definitions
-- `src/triggers/` — Event-based triggers
+- `agent.config.ts` — metadata, models, state, and declared dependencies
+- `src/conversations/` — channel handlers
+- `src/actions/` — reusable typed operations
+- `src/workflows/` — resumable multi-step work
+- `src/triggers/` — event handlers
+- `src/tables/` — durable structured data
+- `src/knowledge/` — retrieval sources
+- `.adk/` — generated target metadata and dependency snapshots
 
-## Development
+Do not edit `.adk/` snapshots manually. Development and production are separate
+targets and must use separate credentials.
+
+## Supported commands
 
 ```bash
-adk dev      # Start dev server with hot reload
-adk build    # Build and generate types
-adk deploy   # Deploy to Botpress Cloud
-adk chat     # Chat with your agent in the terminal
+brt dev               # stateful development reconciliation and watch loop
+brt dev --check       # read-only readiness check after development state exists
+tsc --noEmit          # local TypeScript validation
+brt deploy --adk      # production reconciliation and deployment
+brt profiles active   # selected CLI profile
 ```
 
-## CLI Commands (preferred interface)
+`brt integrations list`, `brt integrations get <id>`, and
+`brt integrations install <name>` are real integration surfaces. Installation
+changes remote state and requires confirmation unless explicitly requested.
 
-Use CLI commands with `--format json` for structured output.
+`brt chat` is experimental, interactive, and starts a new conversation. Use a
+real configured channel for acceptance testing. `brt logs` is
+deployment- and profile-dependent; report an authentication or route rejection
+instead of presenting logs as universally available.
 
-### Debugging & Testing
+The current CLI has no structured trace queries, conversation queries,
+workflow execution, eval execution, or project-status command. Do not invent
+commands or flags for those features. Use project files, process output, exact
+integration round-trips, and the web console when available.
 
-| Command                                       | Use for                                                                                  |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `adk check --format json`                     | Offline project validation — catch config and schema errors                              |
-| `adk chat --single "<message>" --format json` | Test messages to the running bot (use --conversation-id <id> to continue a conversation) |
-| `adk logs [error\|warning] --format json`     | Query dev server logs, build output, and errors                                          |
-| `adk traces [filters...] --format json`       | Query trace spans for debugging conversations/workflows                                  |
-| `adk status --format json`                    | Get project info: name, primitives, and integrations                                     |
+## Engineering rules
 
-### Dependencies (Integrations & Plugins)
-
-Manage dependencies through the `adk integrations` / `adk plugins` CLI commands or the Integrations view in the dev console. Botpress Cloud is the source of truth; `.adk/dependencies/` contains generated local snapshots for fast/offline reads and should not be edited manually.
-
-Use `adk dependencies export` / `adk dependencies import` when you need a dependency-only restore artifact. These commands save or load one environment's integration/plugin state as explicit JSON; they do not make `.adk/dependencies/` user-authored.
-
-**Integrations** (external services: Slack, webchat, etc.)
-
-| Command                             | Use for                                                  |
-| ----------------------------------- | -------------------------------------------------------- |
-| `adk integrations add <name>`       | Add an integration                                       |
-| `adk integrations remove <name>`    | Remove an integration                                    |
-| `adk integrations list`             | List installed integrations                              |
-| `adk integrations search <query>`   | Search available integrations on the Botpress Hub        |
-| `adk integrations info <name>`      | Get detailed info about an integration                   |
-| `adk integrations copy --from --to` | Copy integration state between dev and prod environments |
-| `adk dependencies export [file]`    | Save the current dependency state for one environment    |
-| `adk dependencies import <file>`    | Restore dependency state into one environment            |
-
-**Plugins** (reusable bot capabilities)
-
-| Command                        | Use for                                |
-| ------------------------------ | -------------------------------------- |
-| `adk plugins add <name>`       | Add a plugin                           |
-| `adk plugins remove <name>`    | Remove a plugin                        |
-| `adk plugins list`             | List installed plugins                 |
-| `adk plugins search <query>`   | Search available plugins               |
-| `adk plugins info <name>`      | Get detailed info about a plugin       |
-| `adk plugins copy --from --to` | Copy plugin state between dev and prod |
-
-### Workflows
-
-| Command                                              | Use for                                            |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `adk workflows list --format json`                   | Discover available workflows                       |
-| `adk workflows inspect <name> --format json`         | Get workflow input schema                          |
-| `adk workflows run <name> '<payload>' --format json` | Execute a workflow                                 |
-| `adk workflows runs [filters] --format json`         | List workflow runs                                 |
-| `adk workflows runs <wrkflow_id> --format json`      | Inspect a single run (status + state + step cache) |
-
-> **Tip:** The dev server must be running (`adk dev`) for testing and trace tools to work.
-
-### Skills
-
-`adk init` creates the Agent(0) project capability bundle at `.agent0/capabilities` and installs public ADK skills/commands for external coding harnesses. If the Agent(0) bundle is missing or stale after an ADK upgrade, run `adk agent0 upgrade`.
-
-## Project Overview
-
-<!-- Describe what your agent does -->
-
-## Architecture & Conventions
-
-<!-- Add project-specific patterns, decisions, and conventions -->
-
-## Notes
-
-<!-- Add anything else relevant to your project -->
+- Read `agent.config.ts` and relevant source files before editing.
+- Import framework primitives from `@holocronlab/botruntime-runtime`.
+- Inspect generated types or installed package declarations when an API is
+  unclear; do not guess signatures.
+- Run `tsc --noEmit` before declaring code complete.
+- Confirm deployment, integration installation, message sending, and other
+  remote mutations unless already authorized.
+- Never read or display credentials or `.env` contents.

@@ -1,9 +1,10 @@
 import { Client } from '@holocronlab/botruntime-client'
 import { AdkError } from '@holocronlab/botruntime-analytics'
-import { CredentialsManager, Credentials, Profile } from './credentials.js'
+import { CredentialsManager, Credentials, Profile, assertCompleteCredentials } from './credentials.js'
 import { AuthService, type AuthResult } from './service.js'
 import type { AgentInfo } from '../agent-project/types.js'
 import { resolveAgent } from '../agent-project/agent-resolver.js'
+import { DEFAULT_API_URL } from '../constants.js'
 
 export interface LoginOptions {
   profile?: string
@@ -20,6 +21,7 @@ export interface AuthAPI {
   setProfileOverride(profile: string | undefined): void
   getActiveCredentials(): Promise<Credentials>
   getAgentCredentials(agentPath: string): Promise<Credentials>
+  getAuthorityCredentials(apiUrl: string, workspaceId: string): Promise<Credentials>
   validateToken(token: string, apiUrl?: string): Promise<boolean>
 }
 
@@ -40,7 +42,7 @@ class Auth implements AuthAPI {
     const autoResolved = options.profile == null
     const profile = options.profile ?? (await this.resolveProfileName(authResult))
 
-    // Set account preference to indicate ADK CLI is connected (best effort, don't fail login)
+    // Set account preference to indicate the brt CLI is connected (best effort, don't fail login).
     try {
       const client = new Client({ apiUrl, token })
       await client.setAccountPreference({ key: 'adkCliConnected', value: true })
@@ -66,7 +68,7 @@ class Auth implements AuthAPI {
       }
     )
 
-    // Switch to the new profile when auto-resolved (dev console "Add profile" flow).
+    // Switch to the new profile when auto-resolved (web-console "Add profile" flow).
     // When the caller provides an explicit profile name (CLI), don't change the active profile.
     if (autoResolved) {
       await this.credentialsManager.setCurrentProfile(profile)
@@ -153,6 +155,10 @@ class Auth implements AuthAPI {
     return this.credentialsManager.getAgentCredentials(agentPath)
   }
 
+  async getAuthorityCredentials(apiUrl: string, workspaceId: string): Promise<Credentials> {
+    return this.credentialsManager.getAuthorityCredentials(apiUrl, workspaceId)
+  }
+
   async validateToken(token: string, apiUrl?: string): Promise<boolean> {
     const authService = new AuthService(apiUrl)
     return authService.testConnection(token)
@@ -175,18 +181,72 @@ export interface ResolveProjectCredentialsOptions {
   botId?: string
 }
 
+export type ServerConnectionCredentials = Pick<Credentials, 'token' | 'apiUrl'> & { workspaceId: string }
 export type WorkspaceCredentials = Credentials & { workspaceId: string }
 export type BotCredentials = WorkspaceCredentials & { botId: string }
 
 export async function resolveProjectCredentials(options: ResolveProjectCredentialsOptions = {}): Promise<Credentials> {
   const { project, credentials: providedCredentials } = options
 
+  if (providedCredentials) {
+    assertCompleteCredentials(providedCredentials)
+    if (
+      (options.apiUrl !== undefined &&
+        options.apiUrl.replace(/\/+$/, '') !== providedCredentials.apiUrl.replace(/\/+$/, '')) ||
+      (options.workspaceId !== undefined && options.workspaceId !== providedCredentials.workspaceId)
+    ) {
+      throw new AdkError({
+        code: 'CREDENTIAL_AUTHORITY_MISMATCH',
+        message: 'Explicit API/workspace options do not match the provided credential authority.',
+        expected: true,
+      })
+    }
+    return {
+      ...providedCredentials,
+      ...(options.botId ? { botId: options.botId } : {}),
+    }
+  }
+
   const agentInfo = project?.agentInfo ?? (project?.path ? await resolveAgent(project.path) : undefined)
+  const hasExplicitApiUrl = options.apiUrl !== undefined
+  const hasExplicitWorkspaceId = options.workspaceId !== undefined
+  if (
+    hasExplicitApiUrl !== hasExplicitWorkspaceId ||
+    (hasExplicitApiUrl && (!options.apiUrl!.trim() || !options.workspaceId!.trim()))
+  ) {
+    throw new AdkError({
+      code: 'CREDENTIAL_AUTHORITY_INCOMPLETE',
+      message: 'Explicit credential authority requires both apiUrl and workspaceId.',
+      expected: true,
+    })
+  }
+  if (agentInfo && (!agentInfo.workspaceId?.trim() || !(agentInfo.apiUrl ?? DEFAULT_API_URL).trim())) {
+    throw new AdkError({
+      code: 'CREDENTIAL_AUTHORITY_INCOMPLETE',
+      message: 'Project credential authority requires non-empty apiUrl and workspaceId.',
+      expected: true,
+    })
+  }
+  if (
+    hasExplicitApiUrl &&
+    hasExplicitWorkspaceId &&
+    agentInfo &&
+    ((agentInfo.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, '') !== options.apiUrl!.replace(/\/+$/, '') ||
+      agentInfo.workspaceId !== options.workspaceId)
+  ) {
+    throw new AdkError({
+      code: 'CREDENTIAL_AUTHORITY_MISMATCH',
+      message: 'Explicit API/workspace authority does not match the project authority.',
+      expected: true,
+    })
+  }
   const baseCredentials =
-    providedCredentials ||
-    (project?.path && agentInfo?.workspaceId
-      ? await auth.getAgentCredentials(project.path)
-      : await auth.getActiveCredentials())
+    hasExplicitApiUrl && hasExplicitWorkspaceId
+      ? await auth.getAuthorityCredentials(options.apiUrl!, options.workspaceId!)
+      : agentInfo
+        ? await auth.getAuthorityCredentials(agentInfo.apiUrl ?? DEFAULT_API_URL, agentInfo.workspaceId)
+        : await auth.getActiveCredentials()
+  assertCompleteCredentials(baseCredentials, 'Resolved credentials')
   const workspaceId = options.workspaceId || agentInfo?.workspaceId || baseCredentials.workspaceId
   const botId = options.botId || agentInfo?.botId || baseCredentials.botId
 
@@ -206,9 +266,9 @@ export async function resolveWorkspaceCredentials(
   if (!credentials.workspaceId) {
     throw new AdkError({
       code: 'WORKSPACE_ID_MISSING',
-      message: 'No workspace ID found. Please login again with "adk login" or link your agent first.',
+      message: 'No workspace ID found. Run "brt login", then link the project with "brt link".',
       expected: true,
-      suggestion: 'Login again with "adk login" or link your agent first.',
+      suggestion: 'Run "brt login", then "brt link --bot-id <id> --key-stdin".',
     })
   }
 
@@ -319,7 +379,7 @@ export type { Credentials, Profile } from './credentials.js'
 export type { AuthResult } from './service.js'
 
 // Export classes
-export { CredentialsManager } from './credentials.js'
+export { CredentialsManager, assertCompleteCredentials } from './credentials.js'
 
 // Export BP CLI importer
 export { bpCliImporter } from './bp-cli-import.js'

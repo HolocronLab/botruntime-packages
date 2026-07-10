@@ -1,6 +1,7 @@
 import chalk from 'chalk'
 import * as fs from 'fs'
 import _ from 'lodash'
+import semver from 'semver'
 import { CloudapiClient, type IntegrationDefinitionNetwork } from '../api/cloudapi-client'
 import { ApiClient, PublicOrPrivateIntegration, IntegrationSummary } from '../api/client'
 import * as adkBundle from '../adk-bundle'
@@ -17,6 +18,63 @@ import { BuildCommand } from './build-command'
 import { CloudCommand } from './cloud-command'
 import { GlobalCommand } from './global-command'
 import { ProjectCommand } from './project-command'
+
+type AgentDependencyMutationTarget = {
+  env: 'dev' | 'prod'
+  apiUrl: string
+  workspaceId: string
+  targetBotId: string
+  runtimeBotId?: string
+  client: CloudapiClient
+}
+
+async function refreshCompletedAgentDependencySnapshot(opts: {
+  projectDir: string
+  mutation: string
+  local: boolean
+  target: AgentDependencyMutationTarget
+}): Promise<void> {
+  const statefulCommand = opts.target.env === 'dev'
+    ? `brt dev${opts.local ? ' --local' : ''}`
+    : `brt deploy --adk${opts.local ? ' --local' : ''}`
+
+  const target = {
+    env: opts.target.env,
+    apiUrl: opts.target.apiUrl.replace(/\/+$/, ''),
+    workspaceId: opts.target.workspaceId,
+    botId: opts.target.targetBotId,
+  } as const
+  try {
+    const { refreshCompletedDependencySnapshot } = await adkBundle.loadAdkDependencyRefreshTools()
+    const client = {
+      getBot: ({ id }: { id: string }) => opts.target.client.getDevBotTarget(id, target.workspaceId),
+    }
+    const result = await refreshCompletedDependencySnapshot({
+      projectPath: opts.projectDir,
+      client: client as any,
+      target,
+      ...(target.env === 'dev' ? { runtimeBotId: opts.target.runtimeBotId } : {}),
+    })
+    if (result.status === 'not-initialized') {
+      cloudInfo(
+        `${opts.mutation} succeeded in Cloud. The selected target has no completed dependency snapshot; run ${statefulCommand}.`
+      )
+      return
+    }
+  } catch (thrown) {
+    throw errors.BotpressCLIError.wrap(
+      thrown,
+      `${opts.mutation} succeeded in Cloud, but the local ADK dependency snapshot could not be refreshed. ` +
+        `The previous snapshot was preserved; run ${statefulCommand} to reconcile the exact target before continuing.`
+    )
+  }
+
+  cloudInfo(
+    target.env === 'dev'
+      ? 'dependency snapshot refreshed; a running brt dev watcher will regenerate the agent bundle'
+      : `dependency snapshot refreshed; run ${statefulCommand} before production acceptance`
+  )
+}
 
 export type GetIntegrationCommandDefinition = typeof commandDefinitions.integrations.subcommands.get
 export class GetIntegrationCommand extends GlobalCommand<GetIntegrationCommandDefinition> {
@@ -169,6 +227,29 @@ export class DeleteIntegrationCommand extends GlobalCommand<DeleteIntegrationCom
 }
 
 // ---------------------------------------------------------------------------
+
+const EXACT_INTEGRATION_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+
+export function parseExactIntegrationRef(ref: string): { name: string; version: string } {
+  const separator = ref.indexOf('@')
+  const name = separator > 0 ? ref.slice(0, separator) : ''
+  const version = separator > 0 ? ref.slice(separator + 1) : ''
+  const canonicalVersion = semver.valid(version)
+  if (
+    separator !== ref.lastIndexOf('@') ||
+    !EXACT_INTEGRATION_NAME.test(name) ||
+    !canonicalVersion ||
+    canonicalVersion !== version
+  ) {
+    throw new errors.BotpressCLIError(
+      `invalid integration ref "${ref}" — expected name@version with an exact SemVer ` +
+        '(for example telegram@1.1.3); implicit, latest, and range versions are not supported'
+    )
+  }
+  return { name, version }
+}
+
+// ---------------------------------------------------------------------------
 // Bespoke cloudapi wire (brt integrations install|register|publish), ported
 // from the (deleted) thin brt CLI's commands/integrations.ts. Added ALONGSIDE
 // the Botpress-shaped get/list/delete above under new, non-colliding
@@ -181,17 +262,45 @@ export class DeleteIntegrationCommand extends GlobalCommand<DeleteIntegrationCom
 export type CloudIntegrationInstallCommandDefinition = typeof commandDefinitions.integrations.subcommands.install
 export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegrationInstallCommandDefinition> {
   public async run(): Promise<void> {
+    const { name, version } = parseExactIntegrationRef(this.argv.ref)
+    const alias = this.argv.alias ?? name
+    if (this.targetsDevBot) {
+      const target = await this.devCloudapiTarget()
+      const config = await this._readConfig()
+      const res = await target.client.installWorkspaceIntegration(
+        target.workspaceId,
+        target.targetBotId,
+        name,
+        version,
+        config,
+        this.argv.alias
+      )
+      if (this.isAgentProject) {
+        await refreshCompletedAgentDependencySnapshot({
+          projectDir: this.projectDir,
+          mutation: `Integration ${name}@${version} install`,
+          local: this.argv.local,
+          target: {
+            env: 'dev',
+            apiUrl: target.client.base,
+            workspaceId: target.workspaceId,
+            targetBotId: target.targetBotId,
+            runtimeBotId: target.runtimeBotId,
+            client: target.client,
+          },
+        })
+      }
+      cloudInfo(`installed ${name}@${version} alias=${alias} webhookId=${res.webhookId} status=${res.status}`)
+      cloudInfo(
+        `register with: brt integrations register ${res.webhookId} --dev${this.argv.local ? ' --local' : ''}`
+      )
+      return
+    }
     const link = this.loadLink()
     const botId = this.requireBotId(link)
     const { name: profileName, profile } = await this.resolveProfile()
     const apiUrl = this.resolveApiUrl(profile, link)
     const client = await this.botCloudapiClient(profileName, botId, apiUrl)
-
-    const [name, version = '0.0.1'] = this.argv.ref.split('@')
-    if (!name) {
-      throw new errors.BotpressCLIError(`invalid integration ref "${this.argv.ref}" — expected name or name@version`)
-    }
-    const alias = this.argv.alias ?? name
 
     const conflicting = (link.integrations ?? []).find((i) => i.alias !== alias)
     if (conflicting) {
@@ -218,6 +327,21 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
     const entry: cloudLink.IntegrationLink = { ref: `${name}@${version}`, alias, webhookId: res.webhookId }
     this.saveLink({ ...link, integrations: [...(link.integrations ?? []).filter((i) => i.alias !== alias), entry] })
 
+    if (this.isAgentProject) {
+      await refreshCompletedAgentDependencySnapshot({
+        projectDir: this.projectDir,
+        mutation: `Integration ${name}@${version} install`,
+        local: this.argv.local,
+        target: {
+          env: 'prod',
+          apiUrl,
+          workspaceId: profile.workspaceId,
+          targetBotId: botId,
+          client: new CloudapiClient(apiUrl, profile.token),
+        },
+      })
+    }
+
     cloudInfo(`installed ${name}@${version} alias=${alias} webhookId=${res.webhookId}`)
     cloudInfo(`webhookSecret stored in ${this.botsStorePath()} (shown once). Now: brt integrations register ${res.webhookId}`)
   }
@@ -238,6 +362,31 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
 export type CloudIntegrationRegisterCommandDefinition = typeof commandDefinitions.integrations.subcommands.register
 export class CloudIntegrationRegisterCommand extends CloudCommand<CloudIntegrationRegisterCommandDefinition> {
   public async run(): Promise<void> {
+    if (this.targetsDevBot) {
+      const target = await this.devCloudapiTarget()
+      const res = await target.client.registerWorkspaceIntegration(
+        target.workspaceId,
+        target.targetBotId,
+        this.argv.webhookId
+      )
+      if (this.isAgentProject) {
+        await refreshCompletedAgentDependencySnapshot({
+          projectDir: this.projectDir,
+          mutation: `Integration webhook ${this.argv.webhookId} registration`,
+          local: this.argv.local,
+          target: {
+            env: 'dev',
+            apiUrl: target.client.base,
+            workspaceId: target.workspaceId,
+            targetBotId: target.targetBotId,
+            runtimeBotId: target.runtimeBotId,
+            client: target.client,
+          },
+        })
+      }
+      cloudInfo(`registered ${this.argv.webhookId} -> ${res.webhookUrl}`)
+      return
+    }
     const link = this.loadLink()
     const botId = this.requireBotId(link)
     const { name: profileName, profile } = await this.resolveProfile()
@@ -245,6 +394,20 @@ export class CloudIntegrationRegisterCommand extends CloudCommand<CloudIntegrati
     const client = await this.botCloudapiClient(profileName, botId, apiUrl)
 
     const res = await client.registerIntegration(botId, this.argv.webhookId)
+    if (this.isAgentProject) {
+      await refreshCompletedAgentDependencySnapshot({
+        projectDir: this.projectDir,
+        mutation: `Integration webhook ${this.argv.webhookId} registration`,
+        local: this.argv.local,
+        target: {
+          env: 'prod',
+          apiUrl,
+          workspaceId: profile.workspaceId,
+          targetBotId: botId,
+          client: new CloudapiClient(apiUrl, profile.token),
+        },
+      })
+    }
     cloudInfo(`registered ${res.webhookId} -> ${res.webhookUrl}`)
   }
 }
@@ -265,6 +428,12 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
       readProfile: (n) => this.readProfileFromFS(n),
     })
     const apiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
+    cloudProfileResolve.assertProfileAuthority(
+      'command target override',
+      { apiUrl, workspaceId: profile.workspaceId },
+      profile,
+      { requireCoordinates: true }
+    )
     const client = new CloudapiClient(apiUrl, profile.token)
 
     const { name, version, configSchema, network } = await this._resolveNameVersionSchema()

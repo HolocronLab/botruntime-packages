@@ -14,6 +14,7 @@ const START = {
 
 const noopLogger = { log: () => {}, debug: () => {} }
 const noopDeps = { logger: noopLogger, openUrl: () => {}, sleep: async () => {} }
+const originalFetch = globalThis.fetch
 
 // Builds a fetch stub whose successive calls return the given JSON payloads.
 // First call is /device/start, the rest are /device/token polls.
@@ -31,6 +32,7 @@ const fetchReturning = (...payloads: Array<{ ok?: boolean; status?: number; body
 }
 
 afterEach(() => {
+  globalThis.fetch = originalFetch
   vi.restoreAllMocks()
 })
 
@@ -41,7 +43,7 @@ describe('deviceAuthenticate', () => {
       { body: { status: 'pending' } },
       { body: { status: 'complete', token: 'pat-abc' } }
     )
-    vi.stubGlobal('fetch', fetchMock)
+    globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const token = await deviceAuthenticate(API, noopDeps)
 
@@ -61,29 +63,30 @@ describe('deviceAuthenticate', () => {
     ['consumed', /already used/],
     ['invalid', /invalid/],
   ] as const)('throws a loud error on status=%s', async (status, expected) => {
-    vi.stubGlobal('fetch', fetchReturning({ body: START }, { body: { status } }))
+    globalThis.fetch = fetchReturning({ body: START }, { body: { status } }) as unknown as typeof fetch
     await expect(deviceAuthenticate(API, noopDeps)).rejects.toThrow(expected)
   })
 
   it('throws when the server reports complete but omits the token', async () => {
-    vi.stubGlobal('fetch', fetchReturning({ body: START }, { body: { status: 'complete' } }))
+    globalThis.fetch = fetchReturning({ body: START }, { body: { status: 'complete' } }) as unknown as typeof fetch
     await expect(deviceAuthenticate(API, noopDeps)).rejects.toThrow(/no token/)
   })
 
   it('surfaces an actionable error (pointing at --token) when device auth is unavailable (404)', async () => {
-    vi.stubGlobal('fetch', fetchReturning({ ok: false, status: 404, body: { error: 'not found' } }))
+    globalThis.fetch = fetchReturning({
+      ok: false,
+      status: 404,
+      body: { error: 'not found' },
+    }) as unknown as typeof fetch
     await expect(deviceAuthenticate(API, noopDeps)).rejects.toThrow(/--token/)
   })
 
   it('throws loud (never a timeout-less busy-loop) when /start omits interval/expiresIn', async () => {
     // A 200 that drops the cadence/timeout fields must fail loud, not NaN into a
     // tight poll loop with a dead deadline guard.
-    vi.stubGlobal(
-      'fetch',
-      fetchReturning({
-        body: { deviceCode: 'd', userCode: 'u', verificationUri: 'v', verificationUriComplete: 'vc' },
-      })
-    )
+    globalThis.fetch = fetchReturning({
+      body: { deviceCode: 'd', userCode: 'u', verificationUri: 'v', verificationUriComplete: 'vc' },
+    }) as unknown as typeof fetch
     await expect(deviceAuthenticate(API, noopDeps)).rejects.toThrow(/invalid response|positive numbers/)
   })
 
@@ -93,7 +96,7 @@ describe('deviceAuthenticate', () => {
     const nowSpy = vi.spyOn(Date, 'now')
     nowSpy.mockReturnValueOnce(0) // deadline computation
     nowSpy.mockReturnValue(301_000) // every subsequent check is past the deadline
-    vi.stubGlobal('fetch', fetchReturning({ body: START }, { body: { status: 'pending' } }))
+    globalThis.fetch = fetchReturning({ body: START }, { body: { status: 'pending' } }) as unknown as typeof fetch
     await expect(deviceAuthenticate(API, noopDeps)).rejects.toThrow(/timed out/)
   })
 
@@ -104,7 +107,7 @@ describe('deviceAuthenticate', () => {
       { body: { status: 'pending', interval: 12 } }, // slow_down -> 12s
       { body: { status: 'complete', token: 'pat-xyz' } }
     )
-    vi.stubGlobal('fetch', fetchMock)
+    globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const token = await deviceAuthenticate(API, { ...noopDeps, sleep })
 

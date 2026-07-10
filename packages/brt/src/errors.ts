@@ -172,7 +172,7 @@ export class HTTPError extends BotpressCLIError {
 
 export class NoBundleFoundError extends BotpressCLIError {
   public constructor() {
-    const message = 'No bundle found. Please run `bp bundle` first.'
+    const message = 'No bundle found. Please run `brt bundle` first.'
     super(message)
   }
 }
@@ -193,7 +193,7 @@ export class NoWorkspacesFoundError extends BotpressCLIError {
 
 export class NotLoggedInError extends BotpressCLIError {
   public constructor() {
-    const message = 'Not logged in. Please run `bp login` first.'
+    const message = 'Not logged in. Please run `brt login` first.'
     super(message)
   }
 }

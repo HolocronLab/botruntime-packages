@@ -1,4 +1,11 @@
-import type * as client from '@holocronlab/botruntime-client'
+import * as client from '@holocronlab/botruntime-client'
+import type {
+  CloudDependencyReadiness,
+  CloudReadinessDependency,
+  CloudReadinessProjection,
+  DependencyReadinessIssue,
+  DependencyStatus,
+} from '@holocronlab/botruntime-adk/dependencies'
 import * as sdk from '@holocronlab/botruntime-sdk'
 import { TunnelRequest, TunnelResponse } from '@holocronlab/botruntime-tunnel'
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
@@ -7,25 +14,316 @@ import { isEqual } from 'lodash'
 import * as pathlib from 'path'
 import * as uuid from 'uuid'
 import * as apiUtils from '../api'
+import {
+  CloudapiClient,
+  type DevBotReadinessBot,
+  type DevBotReadinessIntegration,
+} from '../api/cloudapi-client'
+import * as agentLink from '../adk-agent-link'
 import * as adkBundle from '../adk-bundle'
 import * as adkDevId from '../adk-dev-id'
 import { secretEnvVariableName, stripSecretEnvVariablePrefix } from '../code-generation/secret-module'
 import type commandDefinitions from '../command-definitions'
 import { cloudInfo } from '../cloud-io'
+import * as cloudProfileResolve from '../cloud-profile-resolve'
+import * as cloudLink from '../cloud-project-link'
 import * as errors from '../errors'
+import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
+import { buildDevWorkerEnvironment } from '../dev-worker-env'
 import * as tables from '../tables'
 import type { CommandArgv } from '../typings'
 import * as utils from '../utils'
 import { Worker } from '../worker'
 import { AddCommand, type AddCommandDefinition } from './add-command'
 import { BuildCommand } from './build-command'
-import { DeployCommand, type DeployCommandDefinition } from './deploy-command'
 import { ProjectCommand, ProjectDefinition } from './project-command'
 
 const DEFAULT_BOT_PORT = 8075
 const DEFAULT_INTEGRATION_PORT = 8076
 const TUNNEL_HELLO_INTERVAL = 5000
 const FILEWATCHER_DEBOUNCE_MS = 500
+const ADK_DEV_DEPENDENCY_ENV = 'dev' as const
+const CANONICAL_PLUGIN_ALIAS_RE = /^[a-z][a-z0-9_-]{1,99}$/
+const INTEGRATION_INSTANCE_ALIAS_RE = /^(?:[a-z][a-z0-9_-]*\/)?[a-z][a-z0-9_-]*$/
+
+type AgentDependencySnapshotReport =
+  | { status: 'found'; env: typeof ADK_DEV_DEPENDENCY_ENV; path: string }
+  | {
+      status: 'missing'
+      env: typeof ADK_DEV_DEPENDENCY_ENV
+      path: string
+      warning: string
+    }
+
+type AgentDependencyReport = {
+  snapshot: AgentDependencySnapshotReport
+  statuses: DependencyStatus[]
+  issues: DependencyReadinessIssue[]
+  revisions: { snapshotBotUpdatedAt?: string; cloudBotUpdatedAt?: string }
+  ok: boolean
+}
+
+type RequestedReadinessIntegration = {
+  id?: string
+  name?: string
+  version?: string
+}
+
+function readinessContractError(detail: string): errors.BotpressCLIError {
+  return new errors.BotpressCLIError(
+    `dev readiness response violates the required bot.devReadiness.schemaVersion=1 contract: ${detail}`
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isSafeBindingAlias(alias: string): boolean {
+  return (
+    alias.length > 0 &&
+    alias.trim() === alias &&
+    !['__proto__', 'prototype', 'constructor'].includes(alias) &&
+    !/[\u0000-\u001f\u007f]/.test(alias)
+  )
+}
+
+function isIntegrationInstanceAlias(alias: string): boolean {
+  return alias.length >= 2 && alias.length <= 100 && INTEGRATION_INSTANCE_ALIAS_RE.test(alias)
+}
+
+function parseReadinessItems(
+  value: unknown,
+  path: string,
+  type: 'integration' | 'plugin'
+): Record<string, CloudReadinessDependency> {
+  if (!isRecord(value)) throw readinessContractError(`${path} must be an object`)
+  const items: Record<string, CloudReadinessDependency> = {}
+  const stringFields = [
+    'id',
+    'installationId',
+    'name',
+    'version',
+    'configurationType',
+    'configurationRevision',
+    'status',
+    'statusReason',
+  ] as const
+  for (const alias of Object.keys(value).sort()) {
+    if (
+      (type === 'plugin' &&
+        (!CANONICAL_PLUGIN_ALIAS_RE.test(alias) || ['prototype', 'constructor'].includes(alias))) ||
+      (type === 'integration' && !isSafeBindingAlias(alias))
+    ) {
+      throw readinessContractError(`${path} contains an invalid alias`)
+    }
+    const raw = value[alias]
+    if (!isRecord(raw)) throw readinessContractError(`${path}.${alias} must be an object`)
+    for (const field of stringFields) {
+      if (raw[field] !== undefined && typeof raw[field] !== 'string') {
+        throw readinessContractError(`${path}.${alias}.${field} must be a string`)
+      }
+    }
+    if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
+      throw readinessContractError(`${path}.${alias}.enabled must be a boolean`)
+    }
+    if (type === 'integration') {
+      for (const field of [
+        'id',
+        'installationId',
+        'name',
+        'version',
+        'configurationType',
+        'configurationRevision',
+        'status',
+      ] as const) {
+        if (typeof raw[field] !== 'string' || raw[field] === '') {
+          throw readinessContractError(`${path}.${alias}.${field} must be a non-empty string`)
+        }
+      }
+      if (typeof raw.enabled !== 'boolean') {
+        throw readinessContractError(`${path}.${alias}.enabled must be a boolean`)
+      }
+      if (typeof raw.statusReason !== 'string') {
+        throw readinessContractError(`${path}.${alias}.statusReason must be a string`)
+      }
+      if (raw.configurationType !== 'manual') {
+        throw readinessContractError(`${path}.${alias}.configurationType must be manual`)
+      }
+      if (!['pending', 'registered', 'failed'].includes(String(raw.status))) {
+        throw readinessContractError(`${path}.${alias}.status must be pending, registered, or failed`)
+      }
+    }
+    if (type === 'plugin') {
+      const fields = Object.keys(raw).sort()
+      const canonicalFields = ['configuration', 'enabled', 'id', 'integrations', 'interfaces', 'name', 'version']
+      if (!isEqual(fields, canonicalFields)) {
+        throw readinessContractError(
+          `${path}.${alias} must contain exactly ${canonicalFields.join(', ')}; received ${fields.join(', ')}`
+        )
+      }
+      for (const field of ['id', 'name', 'version'] as const) {
+        if (typeof raw[field] !== 'string' || raw[field] === '') {
+          throw readinessContractError(`${path}.${alias}.${field} must be a non-empty string`)
+        }
+      }
+      if (typeof raw.enabled !== 'boolean') {
+        throw readinessContractError(`${path}.${alias}.enabled must be a boolean`)
+      }
+      if (!isRecord(raw.configuration)) {
+        throw readinessContractError(`${path}.${alias}.configuration must be an object`)
+      }
+      if (!isRecord(raw.interfaces)) {
+        throw readinessContractError(`${path}.${alias}.interfaces must be an object`)
+      }
+      if (!isRecord(raw.integrations)) {
+        throw readinessContractError(`${path}.${alias}.integrations must be an object`)
+      }
+      if (!/^[1-9][0-9]*$/.test(raw.id as string)) {
+        throw readinessContractError(`${path}.${alias}.id must be a canonical positive integer string`)
+      }
+      const dependencyAliases = new Set<string>()
+      for (const [interfaceAlias, mapping] of Object.entries(raw.interfaces)) {
+        if (!isSafeBindingAlias(interfaceAlias)) {
+          throw readinessContractError(`${path}.${alias}.interfaces contains an invalid alias`)
+        }
+        if (!isRecord(mapping)) {
+          throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias} must be an object`)
+        }
+        if (!isEqual(Object.keys(mapping).sort(), ['integrationAlias', 'integrationId', 'integrationInterfaceAlias'])) {
+          throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias} is noncanonical`)
+        }
+        if (typeof mapping.integrationAlias !== 'string' || !isIntegrationInstanceAlias(mapping.integrationAlias)) {
+          throw readinessContractError(
+            `${path}.${alias}.interfaces.${interfaceAlias}.integrationAlias is invalid`
+          )
+        }
+        for (const field of ['integrationId', 'integrationInterfaceAlias'] as const) {
+          if (typeof mapping[field] !== 'string' || mapping[field] === '') {
+            throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias}.${field} must be a non-empty string`)
+          }
+        }
+        if (!isSafeBindingAlias(mapping.integrationInterfaceAlias as string)) {
+          throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias}.integrationInterfaceAlias is invalid`)
+        }
+        dependencyAliases.add(interfaceAlias)
+      }
+      for (const [integrationAlias, mapping] of Object.entries(raw.integrations)) {
+        if (!isSafeBindingAlias(integrationAlias)) {
+          throw readinessContractError(`${path}.${alias}.integrations contains an invalid alias`)
+        }
+        if (dependencyAliases.has(integrationAlias)) {
+          throw readinessContractError(
+            `${path}.${alias}.${integrationAlias} is duplicated across interfaces and integrations`
+          )
+        }
+        if (!isRecord(mapping)) {
+          throw readinessContractError(`${path}.${alias}.integrations.${integrationAlias} must be an object`)
+        }
+        if (!isEqual(Object.keys(mapping).sort(), ['integrationAlias', 'integrationId'])) {
+          throw readinessContractError(`${path}.${alias}.integrations.${integrationAlias} is noncanonical`)
+        }
+        if (
+          typeof mapping.integrationId !== 'string' || mapping.integrationId === '' ||
+          typeof mapping.integrationAlias !== 'string' || !isIntegrationInstanceAlias(mapping.integrationAlias)
+        ) {
+          throw readinessContractError(`${path}.${alias}.integrations.${integrationAlias} is invalid`)
+        }
+      }
+    }
+    if (
+      typeof raw.configurationRevision === 'string' &&
+      !/^sha256:[0-9a-f]{64}$/.test(raw.configurationRevision)
+    ) {
+      throw readinessContractError(
+        `${path}.${alias}.configurationRevision must be sha256:<64 lowercase hex>`
+      )
+    }
+    items[alias] = raw as CloudReadinessDependency
+  }
+  return items
+}
+
+function parseReadinessProjection(
+  value: unknown,
+  path: string,
+  items: Record<string, CloudReadinessDependency> | undefined
+): CloudReadinessProjection {
+  if (!isRecord(value)) throw readinessContractError(`${path} must be an object`)
+  if (value.authority === 'authoritative') {
+    if (typeof value.source !== 'string' || value.source === '') {
+      throw readinessContractError(`${path}.source must identify the authoritative source`)
+    }
+    if (path.endsWith('.integrations') && value.source !== 'integration_installation') {
+      throw readinessContractError(`${path}.source must be integration_installation`)
+    }
+    if (path.endsWith('.plugins') && value.source !== 'bot_definition_plugins') {
+      throw readinessContractError(`${path}.source must be bot_definition_plugins`)
+    }
+    if (items === undefined) {
+      throw readinessContractError(`${path} is authoritative but the corresponding bot collection is missing`)
+    }
+    return {
+      authority: 'authoritative',
+      source: value.source,
+      items,
+    }
+  }
+  if (value.authority === 'unknown') {
+    if (typeof value.reason !== 'string' || value.reason === '') {
+      throw readinessContractError(`${path}.reason must explain unknown authority`)
+    }
+    return {
+      authority: 'unknown',
+      reason: value.reason,
+    }
+  }
+  throw readinessContractError(`${path}.authority must be authoritative or unknown`)
+}
+
+function parseCloudDependencyReadiness(bot: DevBotReadinessBot): CloudDependencyReadiness {
+  if (!isRecord(bot.devReadiness) || bot.devReadiness.schemaVersion !== 1) {
+    throw readinessContractError('schemaVersion must equal 1')
+  }
+  if (bot.updatedAt !== undefined && typeof bot.updatedAt !== 'string') {
+    throw readinessContractError('bot.updatedAt must be a string when present')
+  }
+  const last = bot.devReadiness.lastDevDeployment
+  if (!isRecord(last)) throw readinessContractError('bot.devReadiness.lastDevDeployment must be an object')
+  const lastDevDeployment = (() => {
+    if (last.authority === 'unknown') {
+      if (typeof last.reason !== 'string' || last.reason === '') {
+        throw readinessContractError('bot.devReadiness.lastDevDeployment.reason must explain unknown authority')
+      }
+      return { authority: 'unknown' as const, reason: last.reason }
+    }
+    if (last.authority === 'authoritative') {
+      if (typeof last.revision !== 'string' || last.revision === '') {
+        throw readinessContractError('bot.devReadiness.lastDevDeployment.revision must be a non-empty string')
+      }
+      return { authority: 'authoritative' as const, revision: last.revision }
+    }
+    throw readinessContractError(
+      'bot.devReadiness.lastDevDeployment.authority must be authoritative or unknown'
+    )
+  })()
+  const integrationItems = parseReadinessItems(bot.integrations, 'bot.integrations', 'integration')
+  const pluginMetadata = bot.devReadiness.plugins
+  const pluginItems =
+    isRecord(pluginMetadata) && pluginMetadata.authority === 'authoritative'
+      ? parseReadinessItems(bot.plugins, 'bot.plugins', 'plugin')
+      : undefined
+  return {
+    ...(bot.updatedAt ? { botUpdatedAt: bot.updatedAt } : {}),
+    integrations: parseReadinessProjection(
+      bot.devReadiness.integrations,
+      'bot.devReadiness.integrations',
+      integrationItems
+    ),
+    plugins: parseReadinessProjection(bot.devReadiness.plugins, 'bot.devReadiness.plugins', pluginItems),
+    lastDevDeployment,
+  }
+}
 
 export type DevCommandDefinition = typeof commandDefinitions.dev
 export class DevCommand extends ProjectCommand<DevCommandDefinition> {
@@ -33,44 +331,51 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private _deployedIntegrationName: string | undefined = undefined
   private _cacheDevRequestBody: apiUtils.UpdateBotRequestBody | apiUtils.UpdateIntegrationRequestBody | undefined
   private _buildContext: utils.esbuild.BuildCodeContext
+  private _afterInitialDevBotDeploy: (() => Promise<void>) | undefined
 
   public constructor(...args: ConstructorParameters<typeof ProjectCommand<DevCommandDefinition>>) {
     super(...args)
     this._buildContext = new utils.esbuild.BuildCodeContext()
   }
 
+  protected override async bootstrap(): Promise<void> {
+    this._rejectLegacyAdkDeployLoop()
+    // `--check` is a deterministic read-only probe. GlobalCommand.bootstrap
+    // performs an unrelated latest-version network lookup, so skip it here;
+    // readiness must contact only the authoritative dev target.
+    if (this.argv.check) return
+    await super.bootstrap()
+  }
+
+  private _rejectLegacyAdkDeployLoop(): void {
+    if (this.argv.adk) {
+      throw new errors.BotpressCLIError(
+        '`brt dev --adk` no longer deploys cloud bots; use `brt deploy --adk --watch` for the explicit cloud redeploy loop.'
+      )
+    }
+  }
+
   public async run(): Promise<void> {
+    // Keep direct programmatic callers as safe as the normal handler/bootstrap path.
+    this._rejectLegacyAdkDeployLoop()
+
     this.logger.warn('This command is experimental and subject to breaking changes without notice.')
 
-    // An agent.config.ts project (no root *.definition.ts) branches to one of
-    // TWO agent dev surfaces BEFORE readProjectDefinitionFromFS below (which
-    // throws on an agent project — see project-command.ts _readProjectType):
-    //
-    //   - `brt dev` (default, auto-detected): _runAgentTunnelDev() — generates
-    //     the synthetic classic bot at .adk/bot (the same in-process generator
-    //     `brt deploy --adk` uses) and runs the CLASSIC tunnel/worker dev
-    //     server below against it, in-process, via a nested DevCommand. This is
-    //     "local-like-Botpress" dev: cloudapi's dev-bot/tunnel surface
-    //     (createBot({dev:true,url}) under the workspace-PAT; the server
-    //     derives the bot id from the tunnel URL and sets type:adk itself).
-    //   - `brt dev --adk` (explicit): _runAdkDev() — the bespoke-cloudapi-wire
-    //     deploy-loop (watch -> force rebuild -> `brt deploy --adk` -> the
-    //     runtime-host supervisor hot-swaps on its next poll). Kept as the
-    //     explicit opt-in cloud deploy-loop workflow; see _runAdkDev below.
-    //
-    // --adk always wins when both would apply. Neither branch touches the
-    // Botpress-shaped ensureLoginAndCreateClient up here: _runAdkDev never
-    // needs it (bespoke cloudapi profile/link instead), and
-    // _runAgentTunnelDev's nested classic DevCommand calls it for itself.
-    if (this.argv.adk) {
-      return this._runAdkDev()
+    if (this.argv.check) {
+      return this._runDevCheck()
     }
+
+    // An agent project has exactly one dev semantic: generate its synthetic bot
+    // and run that bot through the dev-bot/tunnel path. Cloud deployment lives
+    // exclusively under the explicitly named `brt deploy --adk` command.
     if (adkBundle.isAgentProject(this.projectPaths.abs.workDir)) {
       return this._runAgentTunnelDev()
     }
 
     const watchEnabled = this.argv.watch !== false
-    let api = await this.ensureLoginAndCreateClient(this.argv)
+    let api = this.argv.local
+      ? await this._resolveClassicLocalClient(this.projectPaths.abs.workDir)
+      : await this.ensureLoginAndCreateClient(this.argv)
 
     const { projectType, resolveProjectDefinition } = this.readProjectDefinitionFromFS()
     if (projectType === 'interface') {
@@ -88,10 +393,11 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       this._deployedIntegrationName = handleResult.definition.name
     }
 
-    let env: Record<string, string> = {
-      ...process.env,
-      BP_API_URL: api.url,
-      BP_TOKEN: api.token,
+    let env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    )
+    if (this._initialDef.type === 'integration') {
+      env = { ...env, BP_API_URL: api.url, BP_TOKEN: api.token }
     }
 
     const defaultPort = this._initialDef.type === 'integration' ? DEFAULT_INTEGRATION_PORT : DEFAULT_BOT_PORT
@@ -101,7 +407,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         knownSecrets: Object.keys(knownSecrets),
         formatEnv: true,
       })
-      secretEnvVariables = { ...this._applyPrefixToSecrets(knownSecrets), ...secretEnvVariables }
+      secretEnvVariables = {
+        ...this._applyPrefixToSecrets(knownSecrets),
+        ...secretEnvVariables,
+      }
       const nonNullSecretEnvVariables = utils.records.filterValues(secretEnvVariables, utils.guards.is.notNull)
 
       if (!this.argv.noSecretCaching) {
@@ -136,7 +445,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const { url: parsedTunnelUrl } = urlParseResult
     const isSecured = parsedTunnelUrl.protocol === 'https' || parsedTunnelUrl.protocol === 'wss'
 
-    const wsTunnelUrl: string = utils.url.format({ ...parsedTunnelUrl, protocol: isSecured ? 'wss' : 'ws' })
+    const wsTunnelUrl: string = utils.url.format({
+      ...parsedTunnelUrl,
+      protocol: isSecured ? 'wss' : 'ws',
+    })
     const httpTunnelUrl: string = utils.url.format({
       ...parsedTunnelUrl,
       protocol: isSecured ? 'https' : 'http',
@@ -160,7 +472,11 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       tunnel.events.on('request', (req) => {
         if (!worker) {
           this.logger.debug('Worker not ready yet, ignoring request')
-          tunnel.send({ requestId: req.id, status: 503, body: 'Worker not ready yet' })
+          tunnel.send({
+            requestId: req.id,
+            status: 503,
+            body: 'Worker not ready yet',
+          })
           return
         }
 
@@ -189,7 +505,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     })
 
     await this._runBuild(watchEnabled)
-    worker = await this._spawnWorker(env, port)
+    worker = await this._spawnWorkerForResolvedDevTarget(api, httpTunnelUrl, env, port)
 
     // Order matters: register the dev bot (createBot({dev:true,url})) BEFORE
     // connecting the tunnel. cloudapi only forwards /run/<tunnelId> to the tunnel
@@ -263,138 +579,9 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
   }
 
-  // ---------------------------------------------------------------------
-  // brt dev --adk — the EXPLICIT agent cloud deploy-loop. This is the OTHER
-  // agent dev surface (see _runAgentTunnelDev below for the default one, which
-  // runs the classic tunnel/worker dev server against a generated bot). This
-  // path never spawns a local dev worker for the agent itself: hot-reload is
-  // version-driven instead — `brt deploy --adk` PUTs the bundle (bumping the
-  // bot's versionId), and the runtime-host supervisor polls
-  // /internal/host/bots (~15s) and hot-swaps the running child when it sees a
-  // new versionId. So the entire loop is: watch source -> force a fresh build
-  // -> `brt deploy --adk` -> let the supervisor pick it up.
-  // ---------------------------------------------------------------------
-  private async _runAdkDev(): Promise<void> {
-    const dir = this.projectPaths.abs.workDir
-    const watchEnabled = this.argv.watch !== false
-
-    let deploying = false
-    let dirty = false
-
-    // Builds a `brt deploy --adk` argv from this dev command's own argv. Only
-    // literal keys that exist on deploySchema may be listed here (TS excess-
-    // property-checks fresh object literals): deploySchema has several
-    // required-with-default fields (visibility/public/allowDeprecated/noBuild/
-    // dryRun/local/bypassBreakingChangeDetection) that devSchema does not
-    // declare, so they are filled in explicitly with deploy's own defaults.
-    // workDir/apiUrl/workspaceId/token/secrets/sourceMap/minify are shared by
-    // both schemas and simply flow through the `...this.argv` spread.
-    const deployArgv = (): CommandArgv<DeployCommandDefinition> => ({
-      ...this.argv,
-      adk: true,
-      // Honor --local so `brt dev --adk --local` deploys against the
-      // bot.local.json link (local runtime-host + cloudapi stack) exactly like
-      // `brt deploy --adk --local`; devSchema now declares `local` too, so it
-      // flows through the spread — restated here only for the excess-property
-      // check's benefit (deploySchema/devSchema are distinct literal types).
-      local: this.argv.local,
-      noBuild: false,
-      dryRun: false,
-      visibility: 'private',
-      public: false,
-      allowDeprecated: false,
-      bypassBreakingChangeDetection: false,
-    })
-
-    // Each iteration deploys via DeployCommand, whose _deployAdkBundle now
-    // always rebuilds the bundle from current sources (adkBundle.ensureBundle
-    // no longer reuses a cached .brt/dist/index.cjs) — so a source change always
-    // produces a freshly built bundle, no manual cache drop needed here.
-    const deployOnce = async (): Promise<void> => {
-      await new DeployCommand(this.api, this.prompt, this.logger, deployArgv())
-        .setProjectContext(this.projectContext)
-        .run()
-    }
-
-    // Overlap guard: a file-change firing while a deploy is already in flight
-    // does not launch a second, concurrent deploy (which could race the bundle
-    // file / the provision-once path) — it only marks `dirty`, and the
-    // in-flight deploy's own loop below picks up exactly one more pass once it
-    // finishes, never launching more than one queued deploy at a time.
-    const redeploy = async (): Promise<void> => {
-      if (deploying) {
-        dirty = true
-        return
-      }
-      deploying = true
-      try {
-        do {
-          dirty = false
-          await deployOnce()
-        } while (dirty)
-      } finally {
-        deploying = false
-      }
-    }
-
-    cloudInfo(`adk dev: building + deploying ${dir} ...`)
-    // Initial deploy fails loudly (never a silent no-op): a broken agent
-    // project should stop `brt dev --adk` outright instead of starting a watch
-    // loop over a bot that never successfully deployed.
-    await redeploy().catch((thrown) => {
-      throw errors.BotpressCLIError.wrap(thrown, 'adk dev: initial build/deploy failed')
-    })
-    cloudInfo(
-      'adk dev: live. The runtime-host supervisor polls /internal/host/bots (~15s) and hot-swaps the running child shortly after each deploy above.'
-    )
-
-    if (!watchEnabled) {
-      return
-    }
-
-    const watcher = await utils.filewatcher.FileWatcher.watch(
-      dir,
-      async (events) => {
-        if (!events.some((e) => this._isAgentSourceChange(dir, e.path))) return
-        this.logger.log('Changes detected, rebuilding + redeploying')
-        try {
-          await redeploy()
-        } catch (thrown) {
-          // Loud, never silent: a transient build/deploy error (e.g. a syntax
-          // error mid-edit) must not kill the dev session, but it must be
-          // impossible to miss either.
-          const err = errors.BotpressCLIError.wrap(thrown, 'adk dev: redeploy failed')
-          this.logger.error(err.message)
-          this.logger.debug(errors.BotpressCLIError.fullStack(err))
-        }
-      },
-      { debounceMs: FILEWATCHER_DEBOUNCE_MS }
-    )
-
-    try {
-      await watcher.wait()
-    } finally {
-      await watcher.close()
-    }
-  }
-
-  // Filters file-change events down to agent SOURCE changes: .ts files and
-  // agent.config.ts under `dir`, excluding anything under the generated/build
-  // dirs (.adk/, .brt/) or node_modules — those changes are OUTPUT of a
-  // generate/deploy step, not input to one, and would otherwise retrigger the
-  // watch loop forever. Shared by _runAdkDev (the deploy-loop's watch) and
-  // _runAgentTunnelDev (the tunnel dev's outer regen-watch) below.
-  private _isAgentSourceChange(dir: string, changedPath: string): boolean {
-    const rel = pathlib.relative(dir, changedPath)
-    if (rel.startsWith('..')) return false
-    const segments = rel.split(pathlib.sep)
-    if (segments[0] === '.adk' || segments[0] === '.brt' || segments[0] === 'node_modules') return false
-    return pathlib.extname(changedPath) === '.ts' || pathlib.basename(changedPath) === adkBundle.AGENT_CONFIG_FILE
-  }
-
   // In-process dependency installer for the agent bot generator: drives brt's
   // OWN native AddCommand as a plain function call instead of spawning a
-  // provisioned brt binary to `bp add` each integration/plugin/interface into
+  // provisioned brt binary to add each integration/plugin/interface into
   // the generated bot's bp_modules. Mirrors deploy-command.ts's own
   // _buildAdkBundle installer construction exactly (see the comment there for
   // the full rationale); replicated here rather than shared because the two
@@ -418,6 +605,130 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       }
       await new AddCommand(this.api, this.prompt, this.logger, addArgv).run()
     }
+  }
+
+  private async _resolveAgentDevConnection(
+    dir: string
+  ): Promise<{ token: string; apiUrl: string; workspaceId: string }> {
+    const agentLocalInfo = agentLink.readAgentLocalInfo(dir)
+    const { name: profileName, profile } = await cloudProfileResolve.resolveProfile({
+      argvProfile: this.argv.profile,
+      getActiveProfile: () => this.globalCache.get('activeProfile'),
+      readProfile: (name) => this.readProfileFromFS(name),
+    })
+    const selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
+    cloudProfileResolve.assertProfileAuthority('command target override', {
+      apiUrl: selectedApiUrl,
+      workspaceId: this.argv.workspaceId,
+    }, profile)
+    if (this.argv.local && !agentLocalInfo.apiUrl) {
+      throw new errors.BotpressCLIError(
+        'agent.local.json has no apiUrl — brt dev --local cannot use profile stack coordinates'
+      )
+    }
+    if (this.argv.local && !agentLocalInfo.workspaceId) {
+      throw new errors.BotpressCLIError(
+        'agent.local.json has no workspaceId — brt dev --local cannot use profile stack coordinates'
+      )
+    }
+    if (this.argv.local) {
+      cloudProfileResolve.assertProfileAuthority('agent.local.json', agentLocalInfo, profile, {
+        requireCoordinates: true,
+      })
+    }
+    const apiUrl = this.argv.local
+      ? agentLocalInfo.apiUrl!.replace(/\/+$/, '')
+      : selectedApiUrl
+    const workspaceId = this.argv.local
+      ? agentLocalInfo.workspaceId
+      : (this.argv.workspaceId ?? profile.workspaceId)
+    if (!workspaceId) {
+      throw new errors.BotpressCLIError(
+        `profile "${profileName}" has no workspaceId — re-run \`brt login\` before \`brt dev\``
+      )
+    }
+    return { token: this.argv.local ? profile.token : (this.argv.token ?? profile.token), apiUrl, workspaceId }
+  }
+
+  private async _resolveClassicLocalClient(dir: string): Promise<apiUtils.ApiClient> {
+    const local = cloudLink.loadLinkIfPresent(dir, 'local')
+    const { profile } = await cloudProfileResolve.resolveProfile({
+      argvProfile: this.argv.profile,
+      getActiveProfile: () => this.globalCache.get('activeProfile'),
+      readProfile: (name) => this.readProfileFromFS(name),
+    })
+    const selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
+    cloudProfileResolve.assertProfileAuthority('command target override', {
+      apiUrl: selectedApiUrl,
+      workspaceId: this.argv.workspaceId,
+    }, profile)
+    cloudProfileResolve.assertProfileAuthority('bot.local.json', local ?? {}, profile, {
+      requireCoordinates: true,
+    })
+    return this.api.newClient(
+      {
+        apiUrl: local!.apiUrl!.replace(/\/+$/, ''),
+        workspaceId: String(local!.workspaceId),
+        token: profile.token,
+      },
+      this.logger
+    )
+  }
+
+  private _isNotFoundError(thrown: unknown): boolean {
+    return (
+      (client.isApiError(thrown) && thrown.code === 404) ||
+      (thrown instanceof errors.HTTPError && thrown.status === 404)
+    )
+  }
+
+  private async _ensureAgentDevTarget(
+    dir: string,
+    credentials: { token: string; apiUrl: string; workspaceId: string }
+  ): Promise<DevBotTarget> {
+    const local = agentLink.readAgentLocalInfo(dir)
+    const cached = agentLink.resolveAgentDevTargetForStack(local, credentials)
+    const legacyRuntimeHint = cached ? undefined : agentLink.getLegacyAgentDevRuntimeHint(local)
+    const explicitRuntimeBotId = this.argv.tunnelId
+    const runtimeBotId = explicitRuntimeBotId ?? cached?.runtimeBotId ?? legacyRuntimeHint ?? uuid.v4()
+    const cachedTarget = cached && runtimeBotId === cached.runtimeBotId ? cached.targetBotId : undefined
+    const api = this.api.newClient(credentials, this.logger)
+    let bot: client.Bot | undefined
+
+    if (
+      runtimeBotId === cached?.runtimeBotId ||
+      runtimeBotId === legacyRuntimeHint ||
+      (explicitRuntimeBotId !== undefined && explicitRuntimeBotId === local.devId)
+    ) {
+      try {
+        bot = (await api.client.getBot({ id: runtimeBotId })).bot
+      } catch (thrown) {
+        if (!this._isNotFoundError(thrown)) {
+          throw errors.BotpressCLIError.wrap(thrown, `Could not resolve dev bot "${runtimeBotId}"`)
+        }
+      }
+    }
+
+    let target: DevBotTarget
+    if (bot) {
+      target = resolveDevBotTarget(bot, runtimeBotId, cachedTarget)
+    } else {
+      const response = await api.client
+        .createBot({ dev: true, url: this._devTunnelHttpUrl(runtimeBotId) })
+        .catch((thrown) => {
+          throw errors.BotpressCLIError.wrap(thrown, 'Could not provision agent dev bot')
+        })
+      target = resolveDevBotTarget(response.bot, runtimeBotId)
+    }
+
+    agentLink.writeAgentLocalDevTarget(
+      dir,
+      target.runtimeBotId,
+      target.targetBotId,
+      credentials.apiUrl,
+      credentials.workspaceId
+    )
+    return target
   }
 
   // ---------------------------------------------------------------------
@@ -447,15 +758,50 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const dir = this.projectPaths.abs.workDir
     const watchEnabled = this.argv.watch !== false
     const installer = this._buildAdkDependencyInstaller()
+    const credentials = await this._resolveAgentDevConnection(dir)
+    const devTarget = await this._ensureAgentDevTarget(dir, credentials)
+    const migrationTarget = {
+      env: ADK_DEV_DEPENDENCY_ENV,
+      apiUrl: credentials.apiUrl,
+      workspaceId: credentials.workspaceId,
+      botId: devTarget.targetBotId,
+    }
+    const { migrateFromConfig } = await adkBundle.loadAdkMigrationTools()
+    const migrationApi = this.api.newClient(credentials, this.logger)
+    await migrateFromConfig({
+      projectPath: dir,
+      client: migrationApi.client as unknown as Parameters<typeof migrateFromConfig>[0]['client'],
+      target: migrationTarget,
+      runtimeBotId: devTarget.runtimeBotId,
+      authority: this.argv.local
+        ? { source: 'agentLocalDev', coordinates: { source: 'link' } }
+        : {
+            source: 'agentLocalDev',
+            coordinates: {
+              source: 'attested',
+              apiUrl: credentials.apiUrl,
+              workspaceId: credentials.workspaceId,
+            },
+          },
+    })
+    const generationOptions = (): adkBundle.AgentBotGenerationOptions => ({
+      adkCommand: 'adk-dev',
+      configTarget: {
+        environment: 'dev',
+        botId: devTarget.targetBotId,
+        runtimeBotId: devTarget.runtimeBotId,
+        credentials,
+      },
+    })
 
     cloudInfo(`agent dev: generating tunnel bot for ${dir} ...`)
     // Initial generation fails loudly (never a silent no-op): a broken agent
     // project should stop `brt dev` outright instead of starting a tunnel dev
     // session against a bot that was never successfully generated.
-    const botPath = await adkBundle.generateAgentBot(dir, installer).catch((thrown) => {
+    const botPath = await adkBundle.generateAgentBot(dir, installer, generationOptions()).catch((thrown) => {
       throw errors.BotpressCLIError.wrap(thrown, 'agent dev: initial bot generation failed')
     })
-    // Repair the tunnelId the ADK generator's own DevIdManager.restoreDevId()
+    // Repair the tunnelId the agent generator's own DevIdManager.restoreDevId()
     // just dropped from the nested project cache (see adk-dev-id.ts) BEFORE the
     // nested classic DevCommand below reads its tunnelId — so a previously
     // persisted dev bot's tunnel is reused instead of a fresh uuid being minted.
@@ -463,10 +809,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     let regenerating = false
     let regenDirty = false
-    // Overlap guard, same shape as _runAdkDev's redeploy(): a file-change
-    // firing while a regen is already in flight does not launch a second,
-    // concurrent regen — it only marks `regenDirty`, and the in-flight
-    // regen's own loop below picks up exactly one more pass once it finishes.
+    // A file change during regeneration queues exactly one additional pass,
+    // preventing concurrent writes to the generated bot.
     const regenerate = async (): Promise<void> => {
       if (regenerating) {
         regenDirty = true
@@ -476,9 +820,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       try {
         do {
           regenDirty = false
-          await adkBundle.generateAgentBot(dir, installer)
+          // A newly provisioned nested dev bot is persisted before choosing
+          // the next config target; agent.local.json remains the sole source.
+          adkDevId.preserveDevId(dir, botPath, this.logger)
+          await adkBundle.generateAgentBot(dir, installer, generationOptions())
           // Same repair as the initial generation above: every regeneration
-          // re-runs the ADK generator's restoreDevId(), which drops tunnelId
+          // re-runs the agent generator's restoreDevId(), which drops tunnelId
           // again whenever agent.local.json already has a devId.
           adkDevId.restoreDevTunnelId(botPath, this.logger)
         } while (regenDirty)
@@ -492,7 +839,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       watcher = await utils.filewatcher.FileWatcher.watch(
         dir,
         async (events) => {
-          if (!events.some((e) => this._isAgentSourceChange(dir, e.path))) return
+          if (!events.some((e) => adkBundle.isAgentSourceChange(dir, e.path, { dependencyEnv: 'dev' }))) return
           this.logger.log('Agent source changed, regenerating tunnel bot')
           try {
             await regenerate()
@@ -509,22 +856,30 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       )
     }
 
-    // devSchema/adk:false narrows nothing here (nestedArgv shares the exact
-    // same schema as `this.argv`, only workDir/adk are overridden), so the
-    // nested DevCommand inherits every shared flag (--watch, --port,
-    // --tunnelUrl, credentials, secrets, ...) unchanged. It resolves its own
-    // fresh ProjectPaths/ProjectDefinitionContext/projectCache off workDir and
-    // self-disposes them in its own run(); no explicit teardown is needed here
-    // beyond closing the outer watcher.
+    // Resolve the stack exactly once in the outer agent command. The nested
+    // classic command must not re-read a profile or global cache and silently
+    // choose a different host/workspace for the same dev target.
     const nestedArgv: CommandArgv<DevCommandDefinition> = {
       ...this.argv,
       workDir: botPath,
       adk: false,
+      local: false,
+      profile: undefined,
+      apiUrl: credentials.apiUrl,
+      workspaceId: credentials.workspaceId,
+      token: credentials.token,
+      tunnelId: devTarget.runtimeBotId,
     }
 
     cloudInfo(`agent dev: starting classic tunnel dev on ${botPath} ...`)
+    const nestedCommand = new DevCommand(this.api, this.prompt, this.logger, nestedArgv)
+    let parentSnapshotRefresh: Promise<void> | undefined
+    nestedCommand._afterInitialDevBotDeploy = async () => {
+      parentSnapshotRefresh ??= this._refreshAgentDevSnapshot(dir, credentials, devTarget)
+      await parentSnapshotRefresh
+    }
     try {
-      await new DevCommand(this.api, this.prompt, this.logger, nestedArgv).run()
+      await nestedCommand.run()
     } finally {
       await watcher?.close()
       // Persist the (possibly newly-minted) dev bot id to agent.local.json for
@@ -532,6 +887,27 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       // mask whatever the nested dev's own run() threw/returned above.
       adkDevId.preserveDevId(dir, botPath, this.logger)
     }
+  }
+
+  private async _refreshAgentDevSnapshot(
+    dir: string,
+    credentials: { token: string; apiUrl: string; workspaceId: string },
+    target: DevBotTarget
+  ): Promise<void> {
+    const { refreshCompletedDependencySnapshot } = await adkBundle.loadAdkDependencyRefreshTools()
+    const dependencyTarget = {
+      env: ADK_DEV_DEPENDENCY_ENV,
+      apiUrl: credentials.apiUrl,
+      workspaceId: credentials.workspaceId,
+      botId: target.targetBotId,
+    }
+    const api = this.api.newClient(credentials, this.logger)
+    await refreshCompletedDependencySnapshot({
+      projectPath: dir,
+      client: api.client as any,
+      target: dependencyTarget,
+      runtimeBotId: target.runtimeBotId,
+    })
   }
 
   private _restart = async (api: apiUtils.ApiClient, worker: Worker, tunnelUrl: string) => {
@@ -548,6 +924,407 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     await this._deploy(api, tunnelUrl)
   }
 
+  private async _runDevCheck(): Promise<void> {
+    const dir = this.projectPaths.abs.workDir
+    const isAgent = adkBundle.isAgentProject(dir)
+    const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
+    const legacyLink = cloudLink.loadLinkIfPresent(dir, linkEnv)
+    const agentLocalInfo = agentLink.readAgentLocalInfo(dir)
+
+    let strictLocal: { apiUrl: string; workspaceId: string } | undefined
+    if (this.argv.local) {
+      const localStack = isAgent
+        ? {
+            fileName: 'agent.local.json',
+            apiUrl: agentLocalInfo.apiUrl,
+            workspaceId: agentLocalInfo.workspaceId,
+          }
+        : {
+            fileName: 'bot.local.json',
+            apiUrl: legacyLink?.apiUrl,
+            workspaceId: legacyLink?.workspaceId === undefined ? undefined : String(legacyLink.workspaceId),
+          }
+      if (!localStack.apiUrl) {
+        throw new errors.BotpressCLIError(
+          `${localStack.fileName} has no apiUrl — brt dev --check --local cannot use profile stack coordinates`
+        )
+      }
+      if (!localStack.workspaceId) {
+        throw new errors.BotpressCLIError(
+          `${localStack.fileName} has no workspaceId — brt dev --check --local cannot use profile stack coordinates`
+        )
+      }
+      strictLocal = { apiUrl: localStack.apiUrl.replace(/\/+$/, ''), workspaceId: localStack.workspaceId }
+    }
+
+    const { name: profileName, profile } = await cloudProfileResolve.resolveProfile({
+      argvProfile: this.argv.profile,
+      getActiveProfile: () => this.globalCache.peek('activeProfile'),
+      readProfile: (name) => this.readProfileFromFS(name),
+    })
+    const selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
+    cloudProfileResolve.assertProfileAuthority('command target override', {
+      apiUrl: selectedApiUrl,
+      workspaceId: this.argv.workspaceId,
+    }, profile)
+    if (this.argv.local) {
+      cloudProfileResolve.assertProfileAuthority(
+        isAgent ? 'agent.local.json' : 'bot.local.json',
+        strictLocal ?? {},
+        profile,
+        { requireCoordinates: true }
+      )
+    }
+    const workspaceId = strictLocal?.workspaceId ?? this.argv.workspaceId ?? profile.workspaceId
+    if (!workspaceId) {
+      throw new errors.BotpressCLIError(
+        `profile "${profileName}" and project metadata have no workspaceId — re-run \`brt login\` (dev readiness is workspace-scoped)`
+      )
+    }
+
+    const apiUrl =
+      strictLocal?.apiUrl ??
+      selectedApiUrl
+    const cached = await this._readCachedDevCheckTarget(
+      isAgent,
+      dir,
+      { apiUrl, workspaceId }
+    )
+    const devId = cached.runtimeBotId
+    const tunnelId = cached.tunnelId
+    const url = this._devTunnelHttpUrl(tunnelId)
+
+    const client = new CloudapiClient(apiUrl, this.argv.local ? profile.token : (this.argv.token ?? profile.token))
+    const report = await client
+      .getDevBotTarget(devId, workspaceId)
+      .catch((thrown) => {
+        if (thrown instanceof errors.HTTPError && thrown.status === 404) {
+          throw new errors.BotpressCLIError(
+            `dev readiness is unavailable for dev bot "${devId}" at ${apiUrl}. ` +
+              `Required server contract: GET /v1/admin/bots/{devId} must return authoritative readiness state.`
+          )
+        }
+        throw errors.BotpressCLIError.wrap(thrown, 'dev readiness check failed')
+      })
+    const verifiedTarget = resolveDevBotTarget(report.bot, devId, cached.targetBotId)
+    const cloudReadiness = parseCloudDependencyReadiness(report.bot)
+
+    const dependencies = isAgent
+      ? await this._readAgentDependencyReport(dir, verifiedTarget.targetBotId, apiUrl, workspaceId, cloudReadiness)
+      : undefined
+    const integrations = isAgent ? {} : await this._readDevCheckRequestedIntegrations()
+    const readinessIntegrations = (() => {
+      if (cloudReadiness.integrations?.authority === 'authoritative') {
+        return cloudReadiness.integrations.items
+      }
+      if (isAgent) return {}
+      throw new errors.BotpressCLIError(
+        `Cloud integration state is not authoritative: ${cloudReadiness.integrations?.reason ?? 'missing authority metadata'}`
+      )
+    })()
+    if (!isAgent) {
+      const missingReadinessAliases = Object.keys(integrations).filter((alias) => !readinessIntegrations[alias])
+      if (missingReadinessAliases.length > 0) {
+        throw new errors.BotpressCLIError(
+          `dev readiness response did not include integration statuses for: ${missingReadinessAliases.join(', ')}. ` +
+            'Required server contract: GET /v1/admin/bots/{devId} must return bot.integrations entries with ' +
+            'authoritative bot.devReadiness.integrations metadata.'
+        )
+      }
+    }
+
+    const failed = isAgent ? [] : this._failedReadinessIntegrations(readinessIntegrations, integrations)
+    const output = {
+      ok: failed.length === 0 && (!dependencies || dependencies.ok),
+      bot: {
+        id: report.bot.id,
+        dev: report.bot.dev,
+        url: report.bot.url ?? url,
+      },
+      integrations: readinessIntegrations,
+      ...(dependencies ? { dependencies } : {}),
+    }
+
+    if (this.argv.json) {
+      this.logger.json(output)
+    } else {
+      this.logger.log(`Dev bot: ${output.bot.id}`)
+      this.logger.log(`URL: ${output.bot.url}`)
+      const entries = Object.entries(output.integrations)
+      if (entries.length === 0) {
+        this.logger.log('Integrations: none')
+      } else {
+        this.logger.log('Integrations:')
+        for (const [alias, integration] of entries) {
+          const status = integration.status ?? 'unknown'
+          const reason = integration.statusReason ? ` — ${integration.statusReason}` : ''
+          this.logger.log(`  ${alias}: ${status}${reason}`)
+        }
+      }
+      if (dependencies) {
+        this._printAgentDependencyReport(dependencies)
+      }
+    }
+
+    if (dependencies?.snapshot.status === 'missing') {
+      throw new errors.BotpressCLIError(dependencies.snapshot.warning)
+    }
+
+    if (failed.length > 0) {
+      throw new errors.BotpressCLIError(
+        `Dev bot is not ready:\n${failed
+          .map(
+            ({ alias, integration, reason }) =>
+              `• ${alias}: ${reason}${integration.statusReason ? ` — ${integration.statusReason}` : ''}`
+          )
+          .join('\n')}`
+      )
+    }
+
+    if (dependencies && !dependencies.ok) {
+      const issueLines = dependencies.issues.map((issue) => `• ${this._formatDependencyIssue(issue)}`)
+      const statusLines = this._blockingDependencyStatuses(dependencies.statuses).map(
+        (dependency) => `• ${this._formatDependencyStatus(dependency)}`
+      )
+      throw new errors.BotpressCLIError(
+        `Agent dependencies are not ready:\n${(issueLines.length > 0 ? issueLines : statusLines).join('\n')}`
+      )
+    }
+  }
+
+  private async _readAgentDependencyReport(
+    dir: string,
+    targetBotId: string,
+    apiUrl: string,
+    workspaceId: string,
+    cloud: CloudDependencyReadiness
+  ): Promise<AgentDependencyReport> {
+    const { DependencySnapshotStore, reconcileDependencyReadiness } = await adkBundle.loadAdkDependencyTools()
+    const snapshotStore = new DependencySnapshotStore({ projectPath: dir })
+    const snapshotPath = snapshotStore.getSnapshotPath(ADK_DEV_DEPENDENCY_ENV)
+    const expectedTarget = {
+      env: ADK_DEV_DEPENDENCY_ENV,
+      apiUrl,
+      workspaceId,
+      botId: targetBotId,
+    }
+    const snapshot = await snapshotStore.read(expectedTarget).catch((thrown) => {
+      throw errors.BotpressCLIError.wrap(
+        thrown,
+        `could not read the agent dependency snapshot at ${snapshotPath}; run \`brt dev\` or refresh dependencies, then retry \`brt dev --check\``
+      )
+    })
+    if (!snapshot) {
+      return {
+        snapshot: {
+          status: 'missing',
+          env: ADK_DEV_DEPENDENCY_ENV,
+          path: snapshotPath,
+          warning:
+            `Agent dependency snapshot is missing at ${snapshotPath}. ` +
+            'Run `brt dev` or refresh/sync dependencies so .adk/dependencies/dev.json exists, then retry `brt dev --check`.',
+        },
+        statuses: [],
+        issues: [],
+        revisions: {
+          ...(cloud.botUpdatedAt ? { cloudBotUpdatedAt: cloud.botUpdatedAt } : {}),
+        },
+        ok: false,
+      }
+    }
+    const reconciliation = await reconcileDependencyReadiness({
+      snapshot,
+      expectedTarget,
+      bpModulesDir: pathlib.join(dir, adkBundle.AGENT_BOT_REL_PATH, 'bp_modules'),
+      cloud,
+    })
+    const statuses = [...reconciliation.statuses].sort((a, b) =>
+      `${a.type}:${a.alias}`.localeCompare(`${b.type}:${b.alias}`)
+    )
+    const issues = [...reconciliation.issues].sort((a, b) =>
+      `${a.type ?? ''}:${a.alias ?? ''}:${a.code}:${a.message}`.localeCompare(
+        `${b.type ?? ''}:${b.alias ?? ''}:${b.code}:${b.message}`
+      )
+    )
+    return {
+      snapshot: {
+        status: 'found',
+        env: ADK_DEV_DEPENDENCY_ENV,
+        path: snapshotPath,
+      },
+      statuses,
+      issues,
+      revisions: reconciliation.revisions,
+      ok: reconciliation.ok,
+    }
+  }
+
+  private _printAgentDependencyReport(dependencies: AgentDependencyReport): void {
+    this.logger.log(`Dependency snapshot: ${dependencies.snapshot.status} (${dependencies.snapshot.path})`)
+    if (dependencies.snapshot.status === 'missing') {
+      this.logger.log(`Dependency warning: ${dependencies.snapshot.warning}`)
+    }
+    if (dependencies.statuses.length === 0) {
+      this.logger.log('Dependencies: none')
+    } else {
+      this.logger.log('Dependencies:')
+      for (const dependency of dependencies.statuses) {
+        this.logger.log(`  ${this._formatDependencyStatus(dependency)}`)
+      }
+    }
+    if (dependencies.issues.length > 0) {
+      this.logger.log('Dependency issues:')
+      for (const issue of dependencies.issues) {
+        this.logger.log(`  ${this._formatDependencyIssue(issue)}`)
+      }
+    }
+  }
+
+  private _blockingDependencyStatuses(dependencies: DependencyStatus[]): DependencyStatus[] {
+    return dependencies.filter(
+      (dependency) => dependency.enabled && dependency.state !== 'available' && dependency.state !== 'disabled'
+    )
+  }
+
+  private _formatDependencyStatus(dependency: DependencyStatus): string {
+    const missingFields = dependency.missingFields?.length ? ` missing=${dependency.missingFields.join(',')}` : ''
+    const reason = dependency.reason ? ` — ${dependency.reason}` : ''
+    return `${dependency.type} ${dependency.alias}: ${dependency.state}${missingFields}${reason}`
+  }
+
+  private _formatDependencyIssue(issue: DependencyReadinessIssue): string {
+    const dependency = issue.type && issue.alias ? ` ${issue.type} ${issue.alias}` : ''
+    return `${issue.code}${dependency}: ${issue.message}`
+  }
+
+  private async _readCachedDevCheckTarget(
+    isAgent: boolean,
+    dir: string,
+    selected: { apiUrl: string; workspaceId: string }
+  ): Promise<{ runtimeBotId: string; targetBotId?: string; tunnelId: string }> {
+    const local = isAgent ? agentLink.readAgentLocalInfo(dir) : undefined
+    const agentTarget = local ? agentLink.resolveAgentDevTargetForStack(local, selected) : undefined
+    const legacyRuntimeHint = local && !agentTarget ? agentLink.getLegacyAgentDevRuntimeHint(local) : undefined
+    const runtimeBotId = isAgent
+      ? (agentTarget?.runtimeBotId ?? legacyRuntimeHint)
+      : await this.projectCache.peek('devId')
+    if (!runtimeBotId) {
+      throw new errors.BotpressCLIError(
+        isAgent
+          ? local?.devId
+            ? 'cached agent dev target scope does not match the selected stack — run `brt dev` for this stack before `brt dev --check`'
+            : 'no cached agent dev bot id in agent.local.json — run `brt dev` once before `brt dev --check`'
+          : 'no cached dev bot id in .botpress/project.cache.json — run `brt dev` once before `brt dev --check`'
+      )
+    }
+    const targetBotId = isAgent ? agentTarget?.targetBotId : await this.projectCache.peek('devTargetBotId')
+    if ((!isAgent || agentTarget) && (!targetBotId || !/^[1-9][0-9]*$/.test(targetBotId))) {
+      throw new errors.BotpressCLIError(
+        isAgent
+          ? 'no verified numeric devTargetBotId in agent.local.json — run `brt dev` to resolve the dev target'
+          : 'no verified numeric devTargetBotId in .botpress/project.cache.json — run `brt dev` to resolve the dev target'
+      )
+    }
+    const tunnelId = isAgent ? runtimeBotId : (await this.projectCache.peek('tunnelId')) ?? runtimeBotId
+    return { runtimeBotId, targetBotId, tunnelId }
+  }
+
+  private _devTunnelHttpUrl(tunnelId: string): string {
+    const urlParseResult = utils.url.parse(this.argv.tunnelUrl)
+    if (urlParseResult.status === 'error') {
+      throw new errors.BotpressCLIError(`Invalid tunnel URL: ${urlParseResult.error}`)
+    }
+    const { url: parsedTunnelUrl } = urlParseResult
+    const isSecured = parsedTunnelUrl.protocol === 'https' || parsedTunnelUrl.protocol === 'wss'
+    return utils.url.format({
+      ...parsedTunnelUrl,
+      protocol: isSecured ? 'https' : 'http',
+      path: `/${tunnelId}`,
+    })
+  }
+
+  private async _readDevCheckRequestedIntegrations(): Promise<Record<string, RequestedReadinessIntegration>> {
+    const { projectType, resolveProjectDefinition } = this.readProjectDefinitionFromFS()
+    if (projectType !== 'bot') {
+      throw new errors.BotpressCLIError(
+        'brt dev --check currently reports dev bot readiness only for bot/agent projects'
+      )
+    }
+    const projectDef = await resolveProjectDefinition()
+    return this._devCheckRequestedIntegrations(projectDef.definition)
+  }
+
+  private _devCheckRequestedIntegrations(botDef: sdk.BotDefinition): Record<string, RequestedReadinessIntegration> {
+    const out: Record<string, RequestedReadinessIntegration> = {}
+    for (const [key, raw] of Object.entries(botDef.integrations ?? {})) {
+      const integration = raw as {
+        id?: string
+        name?: string
+        version?: string
+        alias?: string
+        definition?: { name?: string; version?: string }
+      }
+      const alias = integration.alias ?? key
+      out[alias] = {
+        ...(integration.id ? { id: integration.id } : {}),
+        name: integration.name ?? integration.definition?.name ?? key,
+        ...((integration.version ?? integration.definition?.version)
+          ? { version: integration.version ?? integration.definition?.version }
+          : {}),
+      }
+    }
+    return out
+  }
+
+  private _failedReadinessIntegrations(
+    integrations: Record<string, DevBotReadinessIntegration>,
+    requested: Record<string, RequestedReadinessIntegration>
+  ): Array<{
+    alias: string
+    integration: DevBotReadinessIntegration
+    reason: string
+  }> {
+    const readyStatus = new Set(['registered'])
+    const badStatus = new Set(['failed', 'missing', 'registration_failed', 'not_installed', 'unconfigured', 'errored'])
+    return Object.entries(integrations).flatMap(([alias, integration]) => {
+      const expected = requested[alias]
+      if (!expected) {
+        return [{ alias, integration, reason: `unexpected authoritative integration ${alias}` }]
+      }
+      for (const field of ['id', 'name', 'version'] as const) {
+        if (expected[field] !== undefined && integration[field] !== expected[field]) {
+          return [
+            {
+              alias,
+              integration,
+              reason: `authoritative integration ${alias} ${field} is ${String(integration[field])}; expected ${expected[field]}`,
+            },
+          ]
+        }
+      }
+      const status = integration.status?.trim().toLowerCase()
+      if (integration.enabled === false) {
+        return [{ alias, integration, reason: 'integration disabled' }]
+      }
+      if (!status) {
+        return [{ alias, integration, reason: 'missing readiness status' }]
+      }
+      if (readyStatus.has(status)) {
+        return []
+      }
+      if (badStatus.has(status)) {
+        return [{ alias, integration, reason: `readiness status ${status}` }]
+      }
+      return [
+        {
+          alias,
+          integration,
+          reason: `unknown readiness status ${integration.status}`,
+        },
+      ]
+    })
+  }
+
   private _deploy = async (api: apiUtils.ApiClient, tunnelUrl: string) => {
     const { projectType, resolveProjectDefinition } = this.readProjectDefinitionFromFS()
 
@@ -559,7 +1336,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       this._checkSecrets(projectDef.definition)
       if (projectDef.definition.name !== this._initialDef.definition.name) {
         throw new errors.BotpressCLIError(
-          `Integration name changed from "${this._initialDef.definition.name}" to "${projectDef.definition.name}". Renaming integrations during bp dev is not supported. Please restart bp dev.`
+          `Integration name changed from "${this._initialDef.definition.name}" to "${projectDef.definition.name}". Renaming integrations during brt dev is not supported. Please restart brt dev.`
         )
       }
       const integrationDef = new sdk.IntegrationDefinition({
@@ -631,6 +1408,30 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     })
 
     return worker
+  }
+
+  private async _spawnWorkerForResolvedDevTarget(
+    api: apiUtils.ApiClient,
+    httpTunnelUrl: string,
+    inherited: Record<string, string>,
+    port: number
+  ): Promise<Worker> {
+    let env = inherited
+    if (this._initialDef?.type === 'bot') {
+      // Resolve/provision the complete dev identity before the child can see
+      // any runtime credentials. The cloud trace exporter consequently gets
+      // the opaque runtime bot in x-bot-id while storage/admin clients get the
+      // distinct numeric target id from BP_/ADK_TARGET_BOT_ID.
+      const { target } = await this._ensureDevBotTarget(api, httpTunnelUrl)
+      env = buildDevWorkerEnvironment({
+        inherited,
+        apiUrl: api.url,
+        token: api.token,
+        workspaceId: api.workspaceId,
+        target,
+      })
+    }
+    return this._spawnWorker(env, port)
   }
 
   private _runBuild(watchEnabled = true) {
@@ -710,26 +1511,87 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   }
 
   private async _deployDevBot(api: apiUtils.ApiClient, externalUrl: string, botDef: sdk.BotDefinition): Promise<void> {
-    const devId = await this.projectCache.get('devId')
+    const { bot, target } = await this._ensureDevBotTarget(api, externalUrl)
 
-    let bot: client.Bot | undefined = undefined
+    const updateBotBody = apiUtils.prepareUpdateBotBody(
+      {
+        ...(await apiUtils.prepareCreateBotBody(botDef)),
+        ...(await this.prepareBotDependencies(botDef, api)),
+        id: bot.id,
+        url: externalUrl,
+      },
+      bot
+    )
 
-    if (devId) {
-      const resp = await api.client.getBot({ id: devId }).catch(async (thrown) => {
-        const err = errors.BotpressCLIError.wrap(thrown, `Could not find existing dev bot with id "${devId}"`)
-        this.logger.warn(err.message)
-        this.logger.debug(errors.BotpressCLIError.fullStack(err))
-        return { bot: undefined }
+    let deployedBot = bot
+    if (!(await this._didDefinitionChange(updateBotBody))) {
+      this.logger.log('Skipping deployment step. No changes found in bot.definition.ts')
+    } else {
+      const updateLine = this.logger.line()
+      updateLine.started('Deploying dev bot...')
+
+      const response = await api.client.updateBot(updateBotBody).catch((thrown) => {
+        throw errors.BotpressCLIError.wrap(thrown, 'Could not deploy dev bot')
+      })
+      resolveDevBotTarget(response.bot, target.runtimeBotId, target.targetBotId)
+      deployedBot = response.bot
+
+      this.validateIntegrationRegistration(deployedBot, (failedIntegrations) => {
+        throw new errors.BotpressCLIError(
+          `Some integrations failed to register:\n${Object.entries(failedIntegrations)
+            .map(([key, int]) => `• ${key}: ${int.statusReason}`)
+            .join('\n')}`
+        )
       })
 
-      if (resp.bot?.dev) {
-        bot = resp.bot
-      } else {
-        await this.projectCache.rm('devId')
+      updateLine.success(`Dev Bot deployed with id "${deployedBot.id}" at "${externalUrl}"`)
+      updateLine.commit()
+      await this._afterInitialDevBotDeploy?.()
+    }
+
+    const tablesPublisher = new tables.TablesPublisher({
+      api,
+      logger: this.logger,
+      prompt: this.prompt,
+    })
+    await tablesPublisher.deployTables({
+      botId: target.targetBotId,
+      botDefinition: botDef,
+    })
+
+    await this.displayIntegrationUrls({ api, bot: deployedBot })
+  }
+
+  private async _ensureDevBotTarget(
+    api: apiUtils.ApiClient,
+    externalUrl: string
+  ): Promise<{ bot: client.Bot; target: DevBotTarget }> {
+    const expectedRuntimeBotId = this._runtimeBotIdFromDevUrl(externalUrl)
+    let devId = await this.projectCache.get('devId')
+    let cachedTarget = await this.projectCache.get('devTargetBotId')
+    if (devId && devId !== expectedRuntimeBotId) {
+      await this.projectCache.rm('devId')
+      await this.projectCache.rm('devTargetBotId')
+      devId = undefined
+      cachedTarget = undefined
+    }
+
+    let bot: client.Bot | undefined
+    let target: DevBotTarget | undefined
+    if (devId) {
+      try {
+        bot = (await api.client.getBot({ id: devId })).bot
+        target = resolveDevBotTarget(bot, expectedRuntimeBotId, cachedTarget)
+      } catch (thrown) {
+        if (!this._isNotFoundError(thrown)) {
+          throw errors.BotpressCLIError.wrap(thrown, `Could not resolve existing dev bot "${devId}"`)
+        }
+        bot = undefined
+        target = undefined
       }
     }
 
-    if (!bot) {
+    if (!bot || !target) {
       const createLine = this.logger.line()
       createLine.started('Creating dev bot...')
       const resp = await api.client
@@ -742,47 +1604,24 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         })
 
       bot = resp.bot
+      target = resolveDevBotTarget(bot, expectedRuntimeBotId)
       createLine.log('Dev Bot created')
       createLine.commit()
-      await this.projectCache.set('devId', bot.id)
     }
+    await this.projectCache.set('devId', target.runtimeBotId)
+    await this.projectCache.set('devTargetBotId', target.targetBotId)
+    return { bot, target }
+  }
 
-    const updateBotBody = apiUtils.prepareUpdateBotBody(
-      {
-        ...(await apiUtils.prepareCreateBotBody(botDef)),
-        ...(await this.prepareBotDependencies(botDef, api)),
-        id: bot.id,
-        url: externalUrl,
-      },
-      bot
-    )
-
-    if (!(await this._didDefinitionChange(updateBotBody))) {
-      this.logger.log('Skipping deployment step. No changes found in bot.definition.ts')
-      return
+  private _runtimeBotIdFromDevUrl(externalUrl: string): string {
+    try {
+      const segments = new URL(externalUrl).pathname.split('/').filter(Boolean)
+      const runtimeBotId = segments.at(-1)
+      if (runtimeBotId) return runtimeBotId
+    } catch {
+      // Fall through to one actionable error below.
     }
-    const updateLine = this.logger.line()
-    updateLine.started('Deploying dev bot...')
-
-    const { bot: updatedBot } = await api.client.updateBot(updateBotBody).catch((thrown) => {
-      throw errors.BotpressCLIError.wrap(thrown, 'Could not deploy dev bot')
-    })
-
-    this.validateIntegrationRegistration(updatedBot, (failedIntegrations) => {
-      throw new errors.BotpressCLIError(
-        `Some integrations failed to register:\n${Object.entries(failedIntegrations)
-          .map(([key, int]) => `• ${key}: ${int.statusReason}`)
-          .join('\n')}`
-      )
-    })
-
-    updateLine.success(`Dev Bot deployed with id "${updatedBot.id}" at "${externalUrl}"`)
-    updateLine.commit()
-
-    const tablesPublisher = new tables.TablesPublisher({ api, logger: this.logger, prompt: this.prompt })
-    await tablesPublisher.deployTables({ botId: updatedBot.id, botDefinition: botDef })
-
-    await this.displayIntegrationUrls({ api, bot: updatedBot })
+    throw new errors.BotpressCLIError(`Dev bot URL "${externalUrl}" has no opaque tunnel id.`)
   }
 
   private async _didDefinitionChange(body: apiUtils.UpdateBotRequestBody | apiUtils.UpdateIntegrationRequestBody) {

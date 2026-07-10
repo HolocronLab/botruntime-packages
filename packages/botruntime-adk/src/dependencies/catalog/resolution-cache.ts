@@ -1,6 +1,12 @@
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
+import crypto from 'crypto'
+
+export interface CatalogCacheAuthority {
+  apiUrl: string
+  workspaceId: string
+}
 
 /**
  * A resolved (name@version) → (id, updatedAt) mapping. The on-disk field that
@@ -29,6 +35,10 @@ export interface ResolutionCacheConfig {
    * without mocking `os.homedir()`.
    */
   cacheRoot?: string
+  /** Explicit non-secret server authority. Scoped caches never read legacy data. */
+  authority?: CatalogCacheAuthority
+  /** Disable both reads and writes when no safe cache authority exists. */
+  disabled?: boolean
 }
 
 /** Resolution entries are a short-lived perf hint; definitions are immutable. */
@@ -60,12 +70,17 @@ export class ResolutionCache<TDef> {
   private readonly definitionsDir: string
   private readonly idField: string
   private readonly noCache: boolean
+  private readonly disabled: boolean
 
   constructor(config: ResolutionCacheConfig, noCache: boolean = false) {
     this.idField = config.idField
     this.noCache = noCache
+    this.disabled = config.disabled ?? false
     const cacheRoot = config.cacheRoot ?? path.join(os.homedir(), '.adk', 'cache')
-    this.cacheDir = path.join(cacheRoot, config.cacheType)
+    const authority = normalizeAuthority(config.authority)
+    this.cacheDir = authority
+      ? path.join(cacheRoot, config.cacheType, 'authorities', authorityKey(authority))
+      : path.join(cacheRoot, config.cacheType)
     this.resolutionsDir = path.join(this.cacheDir, 'resolutions')
     this.definitionsDir = path.join(this.cacheDir, 'definitions')
   }
@@ -86,7 +101,7 @@ export class ResolutionCache<TDef> {
     workspace?: string,
     options?: { allowStale?: boolean }
   ): Promise<VersionResolution | null> {
-    if (this.noCache) {
+    if (this.noCache || this.disabled) {
       return null
     }
 
@@ -122,6 +137,7 @@ export class ResolutionCache<TDef> {
     id: string,
     updatedAt: string
   ): Promise<void> {
+    if (this.disabled) return
     await this.ensureCacheDirs()
 
     const key = this.getResolutionKey(name, version, workspace)
@@ -138,7 +154,7 @@ export class ResolutionCache<TDef> {
   }
 
   async getDefinition(id: string, updatedAt: string): Promise<TDef | null> {
-    if (this.noCache) {
+    if (this.noCache || this.disabled) {
       return null
     }
 
@@ -156,6 +172,7 @@ export class ResolutionCache<TDef> {
   }
 
   async setDefinition(id: string, updatedAt: string, definition: TDef): Promise<void> {
+    if (this.disabled) return
     await this.ensureCacheDirs()
 
     const key = this.getDefinitionKey(id, updatedAt)
@@ -219,4 +236,16 @@ export class ResolutionCache<TDef> {
     const key = `${id}_${updatedAt}`
     return key.replace(/[^a-zA-Z0-9_-]/g, '_')
   }
+}
+
+function normalizeAuthority(authority?: CatalogCacheAuthority): CatalogCacheAuthority | undefined {
+  if (!authority) return undefined
+  const apiUrl = authority.apiUrl.replace(/\/+$/, '')
+  const workspaceId = authority.workspaceId.trim()
+  if (!apiUrl || !workspaceId) return undefined
+  return { apiUrl, workspaceId }
+}
+
+function authorityKey(authority: CatalogCacheAuthority): string {
+  return crypto.createHash('sha256').update(JSON.stringify(authority)).digest('hex').slice(0, 32)
 }

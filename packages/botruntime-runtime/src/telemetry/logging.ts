@@ -46,7 +46,7 @@ if (Environment.isDevelopment()) {
 
 // Bound after setGlobalLoggerProvider so it resolves to our provider; a no-op logger
 // when no provider was configured.
-const otelLogger = logs.getLogger('adk', '1.0.0')
+const otelLogger = logs.getLogger('brt', '1.0.0')
 
 function toSeverity(type: LogType): { number: SeverityNumber; text: string } {
   switch (type) {

@@ -1,6 +1,6 @@
 /**
  * @module @holocronlab/botruntime-runtime/internal
- * @description This module provides internal functionalities for the Botpress runtime environment. It is intended for use only within the Botpress ADK monorepo, including the UI, ADK, and CLI components.
+ * @description Internal botruntime functionality used by generated code and the brt toolchain.
  * @note This module is not meant for public consumption and should only be used by Botpress developers.
  * @usage
  * import * as internals from "@holocronlab/botruntime-runtime/internal"

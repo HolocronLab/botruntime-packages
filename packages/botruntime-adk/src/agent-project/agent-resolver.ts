@@ -23,7 +23,7 @@ export interface ResolveAgentOptions {
 /**
  * Try to read and parse agent.local.json, returning the validated data or null.
  */
-async function readLocalInfo(agentPath: string): Promise<AgentLocalInfo | null> {
+export async function readAgentLocalInfo(agentPath: string): Promise<AgentLocalInfo | null> {
   const localPath = path.join(agentPath, 'agent.local.json')
   try {
     const localContent = await fs.readFile(localPath, 'utf-8')
@@ -49,6 +49,49 @@ async function readLocalInfo(agentPath: string): Promise<AgentLocalInfo | null> 
 }
 
 /**
+ * Read only the shared production link. Local overrides are deliberately not
+ * consulted so command boundaries can derive a prod identity without mixing
+ * environments before they establish their credential authority.
+ */
+export async function readAgentInfo(agentPath: string): Promise<AgentInfo | null> {
+  const agentJsonPath = path.join(agentPath, 'agent.json')
+  try {
+    const agentJsonContent = await fs.readFile(agentJsonPath, 'utf-8')
+
+    let agentData: unknown
+    try {
+      agentData = JSON.parse(agentJsonContent)
+    } catch (parseError) {
+      throw ValidationErrors.invalidConfigSyntax('agent.json', (parseError as Error).message)
+    }
+
+    const validationResult = agentInfoSchema.safeParse(agentData)
+    if (!validationResult.success) {
+      const zodError = validationResult.error.errors[0]
+      throw ValidationErrors.invalidConfigSchema(
+        'agent.json',
+        zodError?.path.join('.') || 'unknown',
+        zodError?.message || 'Invalid schema'
+      )
+    }
+
+    return {
+      botId: validationResult.data.botId,
+      workspaceId: validationResult.data.workspaceId,
+      apiUrl: validationResult.data.apiUrl ?? DEFAULT_API_URL,
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    if (ValidationErrors.isValidationError(error)) {
+      throw error
+    }
+    throw ValidationErrors.warning(`Failed to read agent.json: ${(error as Error).message}`, 'agent.json')
+  }
+}
+
+/**
  * Apply agent.local.json overrides onto an AgentInfo object.
  * Local values take precedence over agent.json values.
  */
@@ -65,6 +108,15 @@ function applyLocalOverrides(agentInfo: AgentInfo, localInfo: AgentLocalInfo): v
   if (localInfo.devId) {
     agentInfo.devId = localInfo.devId
   }
+  if (localInfo.devTargetBotId) {
+    agentInfo.devTargetBotId = localInfo.devTargetBotId
+  }
+  if (localInfo.devApiUrl) {
+    agentInfo.devApiUrl = localInfo.devApiUrl
+  }
+  if (localInfo.devWorkspaceId) {
+    agentInfo.devWorkspaceId = localInfo.devWorkspaceId
+  }
 }
 
 /**
@@ -75,50 +127,8 @@ function applyLocalOverrides(agentInfo: AgentInfo, localInfo: AgentLocalInfo): v
 export async function resolveAgent(agentPath: string, options: ResolveAgentOptions = {}): Promise<AgentInfo | null> {
   const { required = false, requireWorkspace = false, requireBot = false } = options
 
-  const agentJsonPath = path.join(agentPath, 'agent.json')
-  const localInfo = await readLocalInfo(agentPath)
-
-  let agentInfo: AgentInfo | null = null
-
-  try {
-    // Read agent.json
-    const agentJsonContent = await fs.readFile(agentJsonPath, 'utf-8')
-
-    // Parse JSON
-    let agentData: unknown
-    try {
-      agentData = JSON.parse(agentJsonContent)
-    } catch (parseError) {
-      throw ValidationErrors.invalidConfigSyntax('agent.json', (parseError as Error).message)
-    }
-
-    // Validate structure
-    const validationResult = agentInfoSchema.safeParse(agentData)
-    if (!validationResult.success) {
-      const zodError = validationResult.error.errors[0]
-      throw ValidationErrors.invalidConfigSchema(
-        'agent.json',
-        zodError?.path.join('.') || 'unknown',
-        zodError?.message || 'Invalid schema'
-      )
-    }
-
-    const parsed = validationResult.data
-    agentInfo = {
-      botId: parsed.botId,
-      workspaceId: parsed.workspaceId,
-      apiUrl: parsed.apiUrl,
-    }
-  } catch (error) {
-    // Handle file not found — agent.local.json may still provide the info
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      // Fall through to check agent.local.json below
-    } else if (ValidationErrors.isValidationError(error)) {
-      throw error
-    } else {
-      throw ValidationErrors.warning(`Failed to read agent.json: ${(error as Error).message}`, 'agent.json')
-    }
-  }
+  const localInfo = await readAgentLocalInfo(agentPath)
+  let agentInfo = await readAgentInfo(agentPath)
 
   // If agent.json wasn't found, try to construct AgentInfo from agent.local.json alone
   if (!agentInfo) {
@@ -128,6 +138,9 @@ export async function resolveAgent(agentPath: string, options: ResolveAgentOptio
         workspaceId: localInfo.workspaceId,
         apiUrl: localInfo.apiUrl,
         devId: localInfo.devId,
+        devTargetBotId: localInfo.devTargetBotId,
+        devApiUrl: localInfo.devApiUrl,
+        devWorkspaceId: localInfo.devWorkspaceId,
       }
     } else if (required || requireWorkspace || requireBot) {
       throw ValidationErrors.requiredFileMissing('agent.json or agent.local.json')

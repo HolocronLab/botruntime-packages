@@ -21,6 +21,41 @@ describe('CloudIntegrationPublishCommand', () => {
     fs.rmSync(botpressHome, { recursive: true, force: true })
     fs.rmSync(workDir, { recursive: true, force: true })
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+  })
+
+  it.each([
+    ['--api-url', 'argv'],
+    ['BP_API_URL', 'env'],
+  ])('rejects a foreign %s authority before sending the selected profile PAT or reading project inputs', async (_label, source) => {
+    fs.writeFileSync(
+      path.join(botpressHome, 'profiles.json'),
+      JSON.stringify({
+        default: {
+          apiUrl: 'https://cloud.example',
+          workspaceId: 'ws_123',
+          token: 'brt_pat_xxx',
+        },
+      })
+    )
+    if (source === 'env') vi.stubEnv('BP_API_URL', 'https://foreign.example')
+    const listSpy = vi.spyOn(CloudapiClient.prototype, 'listIntegrationDefinitions')
+    const cmd = new CloudIntegrationPublishCommand({} as any, {} as any, new Logger(), {
+      botpressHome,
+      workDir,
+      profile: undefined,
+      apiUrl: source === 'argv' ? 'https://foreign.example' : undefined,
+      name: 'telegram',
+      versionNumber: '1.0.0',
+      configSchemaFile: path.join(workDir, 'must-not-be-read.json'),
+      noBundle: true,
+      noBuild: true,
+    } as any)
+
+    await expect(cmd.run()).rejects.toThrow(/command target override.*selected profile/i)
+
+    expect(listSpy).not.toHaveBeenCalled()
+    expect(fs.existsSync(path.join(workDir, 'must-not-be-read.json'))).toBe(false)
   })
 
   it('passes workspaceId from the resolved profile into integration publish calls', async () => {

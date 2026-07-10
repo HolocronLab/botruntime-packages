@@ -316,8 +316,8 @@ async function _step<T>(
     // Capture once so the async callback below keeps the narrowed type — the
     // surrounding `if` doesn't propagate through the async closure.
     const cachedStep = steps[name]!
-    // Emit a span for the cache-hit short-circuit so consumers (adk traces,
-    // Dev Console, OTEL collectors) can distinguish "step served from cache"
+    // Emit a span for the cache-hit short-circuit so trace consumers
+    // (Dev Console, OTEL collectors) can distinguish "step served from cache"
     // from "step ran fresh." See ADK-626 for the originating debugging scenario.
     return await span(
       'handler.workflow.step',

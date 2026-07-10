@@ -19,6 +19,7 @@ export type {
   ResolveProjectCredentialsOptions,
   WorkspaceCredentials,
   BotCredentials,
+  ServerConnectionCredentials,
   GetProjectClientOptions,
 } from './auth/index.js'
 
@@ -162,11 +163,13 @@ export { BotGenerator, generateBotProject, DevIdManager, IntegrationSync } from 
 
 export type {
   BotGeneratorOptions,
+  BotGenerationMode,
   DependencyInstaller,
   ProjectCache,
   IntegrationInfo,
   SyncResult,
 } from './bot-generator/index.js'
+export type { ServerConfigTarget } from './integrations/config-utils.js'
 
 // Table Management API
 export { TableManager } from './tables/index.js'

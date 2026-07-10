@@ -32,7 +32,7 @@ export const setup = (bot: BotImplementation) => {
         if (!handler) {
           // Machine-readable signal that no handler matched this channel, for trace-based tooling.
           handlerSpan.setAttribute('handler.matched', false)
-          logger.warn(`Skipping message, no ADK Conversation defined for "${handlerName}"`)
+          logger.warn(`Skipping message, no agent conversation defined for "${handlerName}"`)
           return
         }
 

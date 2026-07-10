@@ -4,7 +4,15 @@
 
 // Key ordering arrays for different file types
 export const agentInfoKeyOrder = ['botId', 'workspaceId', 'apiUrl'] as const
-export const agentLocalInfoKeyOrder = ['botId', 'workspaceId', 'apiUrl', 'devId'] as const
+export const agentLocalInfoKeyOrder = [
+  'botId',
+  'workspaceId',
+  'apiUrl',
+  'devId',
+  'devTargetBotId',
+  'devApiUrl',
+  'devWorkspaceId',
+] as const
 export const dependenciesKeyOrder = ['integrations'] as const
 export const integrationKeyOrder = ['version', 'enabled', 'configurationType', 'config'] as const
 

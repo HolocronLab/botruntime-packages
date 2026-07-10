@@ -9,7 +9,7 @@ import { generateTagTypes } from './tag-types.js'
 import { generateActionTypes } from './action-types.js'
 
 // Type files derived purely from agent source (no integration resolution); safe offline.
-// Shared by `adk build` and `adk check` so the two cannot drift.
+// Shared by local generation and readiness validation so their type output cannot drift.
 export async function generateLocalTypes(project: AgentProject): Promise<void> {
   await generateTableTypes(project)
   await generateStateTypes(project)

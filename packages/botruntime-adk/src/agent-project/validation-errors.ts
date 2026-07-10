@@ -45,7 +45,6 @@ export class ValidationErrors {
       message: `Required file '${file}' not found`,
       file,
       hint: `Create a ${file} file in your project root`,
-      documentation: 'https://docs.botpress.com/adk/project-structure',
     }
   }
 
@@ -94,7 +93,6 @@ export class ValidationErrors {
       message: `Missing required field '${field}' in ${file}`,
       file,
       hint: `Add the '${field}' field to your configuration`,
-      documentation: 'https://docs.botpress.com/adk/configuration',
     }
   }
 
@@ -375,7 +373,7 @@ export class ValidationErrors {
       severity: ValidationSeverity.ERROR,
       message: 'Agent is not linked to a workspace',
       file: 'agent.json',
-      hint: 'Please run "adk link" to link your agent to a workspace',
+      hint: 'Run "brt login" if needed, then "brt link --bot-id <id> --key-stdin".',
     }
   }
 
@@ -386,7 +384,7 @@ export class ValidationErrors {
       severity: ValidationSeverity.ERROR,
       message: 'No workspaceId found in agent.json',
       file: 'agent.json',
-      hint: 'Please run "adk link" to link your agent to a workspace',
+      hint: 'Run "brt login" if needed, then "brt link --bot-id <id> --key-stdin".',
     }
   }
 
@@ -397,7 +395,7 @@ export class ValidationErrors {
       severity: ValidationSeverity.ERROR,
       message: 'No botId found in agent.json',
       file: 'agent.json',
-      hint: 'Please run "adk link" to link your agent to a bot',
+      hint: 'Run "brt login" if needed, then "brt link --bot-id <id> --key-stdin".',
     }
   }
 

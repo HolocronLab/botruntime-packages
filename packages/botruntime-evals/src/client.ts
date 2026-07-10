@@ -1,13 +1,18 @@
 /**
  * Chat client for eval conversations.
- * Drives conversations against a running ADK bot via @holocronlab/botruntime-chat.
+ * Drives conversations against a running brt bot via @holocronlab/botruntime-chat.
  *
- * This is a send-only client. Observation (bot responses, tool calls, state)
- * is handled by the SSECollector via trace spans — not via WebSocket listeners.
+ * Bot responses are observed through the authenticated conversation listener;
+ * traces remain the source of completion, timing, workflow, and safe tool names.
  */
 
 import { Client as BpClient } from '@holocronlab/botruntime-client'
-import type { AuthenticatedClient as AuthedChatClient } from '@holocronlab/botruntime-chat'
+import type {
+  AuthenticatedClient as AuthedChatClient,
+  Message,
+  SignalListener,
+  Signals,
+} from '@holocronlab/botruntime-chat'
 import type { ChatClient, EvalLogger } from './types'
 import { defaultLogger } from './types'
 import { EvalRunnerError } from './errors'
@@ -15,12 +20,65 @@ import { EvalRunnerError } from './errors'
 const TRACE_STREAM_PREFLIGHT_TIMEOUT_MS = 10_000
 
 /**
- * A send-only chat session that maintains a single client connection across turns.
- * Messages and events are fire-and-forget; the SSECollector observes results via traces.
+ * A chat session that keeps a response listener attached before each turn is
+ * emitted. The span source is still responsible for completion and timing.
  */
+type ChatPayload = Message['payload']
+
+function cardToText(payload: Extract<ChatPayload, { type: 'card' }>): string {
+  return [payload.title, payload.subtitle, ...payload.actions.map((action) => action.label)]
+    .filter((value): value is string => Boolean(value))
+    .join('\n')
+}
+
+export function chatPayloadToText(payload: ChatPayload): string {
+  switch (payload.type) {
+    case 'audio':
+      return payload.audioUrl
+    case 'card':
+      return cardToText(payload)
+    case 'carousel':
+      return payload.items.map(cardToText).join('\n\n')
+    case 'choice':
+    case 'dropdown':
+      return [payload.text, ...payload.options.map((option) => `${option.label} (${option.value})`)].join('\n')
+    case 'file':
+      return payload.title || payload.fileUrl
+    case 'image':
+      return payload.imageUrl
+    case 'location':
+      return [payload.title, payload.address, `${payload.latitude},${payload.longitude}`]
+        .filter((value): value is string => Boolean(value))
+        .join('\n')
+    case 'text':
+      return payload.text
+    case 'video':
+      return payload.videoUrl
+    case 'markdown':
+      return payload.markdown
+    case 'bloc':
+      return payload.items.map((item) => chatPayloadToText(item)).join('\n')
+  }
+}
+
 export class ChatSession {
   private client: AuthedChatClient | null = null
   private conversationId: string | null = null
+  private listener: SignalListener | null = null
+  private listenerErrorHandler: ((error: Error) => void) | null = null
+  private listenerError: EvalRunnerError | null = null
+  private listenerErrorRejectors = new Set<(error: EvalRunnerError) => void>()
+  private seenMessageIds = new Set<string>()
+  private responses: string[] = []
+  private turnResponseStart = 0
+
+  private readonly handleMessageCreated = (message: Signals['message_created']): void => {
+    if (!message.isBot || message.conversationId !== this.conversationId) return
+    const key = `${message.conversationId}:${message.id}`
+    if (this.seenMessageIds.has(key)) return
+    this.seenMessageIds.add(key)
+    this.responses.push(chatPayloadToText(message.payload))
+  }
 
   constructor(
     private bpClient: BpClient,
@@ -70,7 +128,7 @@ export class ChatSession {
 
     if (!this.conversationId) {
       const conv = await client.createConversation({})
-      this.conversationId = conv.conversation.id
+      await this.setConversation(conv.conversation.id)
       return conv.conversation.id
     }
 
@@ -84,12 +142,49 @@ export class ChatSession {
   async newConversation(): Promise<string> {
     const client = this.assertConnected()
     const conv = await client.createConversation({})
-    this.conversationId = conv.conversation.id
+    await this.setConversation(conv.conversation.id)
     return conv.conversation.id
   }
 
+  startTurn(): void {
+    this.assertConnected()
+    this.assertListenerHealthy()
+    this.turnResponseStart = this.responses.length
+  }
+
+  getTurnResponses(): string[] {
+    this.assertListenerHealthy()
+    return this.responses.slice(this.turnResponseStart)
+  }
+
+  async raceWithListenerError<T>(operation: Promise<T>): Promise<T> {
+    this.assertListenerHealthy()
+    let rejectListener!: (error: EvalRunnerError) => void
+    const listenerFailure = new Promise<never>((_resolve, reject) => {
+      rejectListener = reject
+      this.listenerErrorRejectors.add(rejectListener)
+    })
+    try {
+      return await Promise.race([operation, listenerFailure])
+    } finally {
+      this.listenerErrorRejectors.delete(rejectListener)
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    const listener = this.listener
+    const errorHandler = this.listenerErrorHandler
+    this.listener = null
+    this.listenerErrorHandler = null
+    this.conversationId = null
+    this.client = null
+    if (!listener) return
+    await this.closeListener(listener, errorHandler)
+  }
+
   /**
-   * Send a user message. Fire-and-forget — observation is via SSECollector.
+   * Send a user message. The already-attached conversation listener observes
+   * bot responses; the span source independently observes completion/timing.
    */
   async sendMessage(message: string): Promise<void> {
     const client = this.assertConnected()
@@ -101,6 +196,49 @@ export class ChatSession {
     const client = this.assertConnected()
     const conversationId = await this.ensureConversation()
     await client.createEvent({ payload, conversationId })
+  }
+
+  private async setConversation(conversationId: string): Promise<void> {
+    const client = this.assertConnected()
+    this.assertListenerHealthy()
+    const nextListener = await client.listenConversation({ id: conversationId })
+    const previousListener = this.listener
+    const previousErrorHandler = this.listenerErrorHandler
+    const nextErrorHandler = (error: Error) => {
+      if (this.listener !== nextListener) return
+      this.listenerError = new EvalRunnerError({
+        code: 'CHAT_LISTENER_FAILED',
+        message: `Chat response listener failed: ${error.message}`,
+        expected: true,
+        cause: error,
+      })
+      for (const reject of this.listenerErrorRejectors) reject(this.listenerError)
+      this.listenerErrorRejectors.clear()
+    }
+
+    this.conversationId = conversationId
+    this.listener = nextListener
+    this.listenerErrorHandler = nextErrorHandler
+    nextListener.on('message_created', this.handleMessageCreated)
+    nextListener.on('error', nextErrorHandler)
+
+    if (previousListener) {
+      await this.closeListener(previousListener, previousErrorHandler)
+    }
+  }
+
+  private assertListenerHealthy(): void {
+    if (this.listenerError) throw this.listenerError
+  }
+
+  private async closeListener(
+    listener: SignalListener,
+    errorHandler: ((error: Error) => void) | null
+  ): Promise<void> {
+    listener.off('message_created', this.handleMessageCreated)
+    if (errorHandler) listener.off('error', errorHandler)
+    listener.cleanup?.()
+    await listener.disconnect()
   }
 }
 
@@ -124,8 +262,8 @@ export async function discoverWebhookId(client: BpClient, botId: string): Promis
         'The `chat` integration is not installed on this bot — evals require it.',
         '',
         'To fix:',
-        '  1. Install it:    adk integrations add chat',
-        '  2. Redeploy:      adk dev   (or: adk deploy)',
+        '  1. Install and register `chat` on the linked target with `brt integrations install` and `brt integrations register`.',
+        '  2. Restart `brt dev`, or redeploy the agent with `brt deploy --adk`.',
       ].join('\n'),
       expected: true,
     })
@@ -223,7 +361,7 @@ function traceStreamPreflightError(message: string): EvalRunnerError {
     code: 'SSE_CONNECT_FAILED',
     message,
     expected: true,
-    suggestion: 'Make sure the dev server is running (`adk dev`) and trace streaming is available.',
+    suggestion: 'Make sure the dev server is running (`brt dev`) and trace streaming is available.',
   })
 }
 
@@ -283,7 +421,7 @@ export async function assertChatChannelBound(
       "  channel: '*',                      // wildcard — matches every channel",
       "  channel: ['chat.channel', ...],    // array form",
       '',
-      'The `chat` integration is how evals and `adk chat --single` send messages programmatically.',
+      '`brt chat` and evals both require the `chat` integration; the CLI command is interactive, while evals drive it programmatically.',
     ].join('\n'),
     expected: true,
   })

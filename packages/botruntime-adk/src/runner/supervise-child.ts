@@ -30,9 +30,9 @@ export interface SuperviseChildOptions {
  * Forward SIGINT/SIGTERM from this process to `child`, escalating to SIGKILL on a
  * repeat signal or after a timeout, and resolve with the child's mapped exit code.
  *
- * Without this, killing the parent `adk run` process by PID (e.g. a headless harness
- * or `pkill -f "adk run"`, which matches the parent argv but not the child's
- * `bun … script-runner.ts`) leaves the spawned child orphaned (reparented to PID 1)
+ * Without this, killing only the parent process by PID (for example from a headless
+ * harness or a broad process-name match that misses `bun … script-runner.ts`) leaves
+ * the spawned child orphaned (reparented to PID 1)
  * and still running. While supervising, this temporarily owns SIGINT/SIGTERM so
  * global cleanup handlers cannot convert an interrupted run into exit code 0.
  */

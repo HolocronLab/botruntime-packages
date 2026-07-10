@@ -49,6 +49,14 @@ export class FSKeyValueCache<T extends Object> {
     return data[key]
   }
 
+  /** Read without initializing the cache on disk. Read-only commands use this so
+   * observing an absent cache never creates a directory or `{}` file. */
+  public async peek<K extends keyof T>(key: K): Promise<T[K] | undefined> {
+    if (!fs.existsSync(this._filepath)) return undefined
+    const data: T = await this._readJSON(this._filepath)
+    return data[key]
+  }
+
   public async set<K extends keyof T>(key: K, value: T[K]): Promise<void> {
     await this.init()
     const data: T = await this._readJSON(this._filepath)

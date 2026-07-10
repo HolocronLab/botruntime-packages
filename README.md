@@ -47,8 +47,38 @@ byte-exact TS client and the OpenAPI spec that drives the Go cloudapi. See
 - **Go side** (in the `botforge` repo): `packages/botruntime-api/oapi-codegen.yaml` +
   [`docs/handoff/go-cloudapi-serverinterface.md`](docs/handoff/go-cloudapi-serverinterface.md).
 
-Bundles are built with `brt build` (the native Botpress pipeline) and published to the botruntime
-cloud catalog via `brt integrations publish`; the runtime-host pulls them by ref.
+Classic integration bundles are built with `brt build` and published to the
+botruntime catalog via `brt integrations publish`; the runtime-host pulls them
+by ref. Agent projects use `brt dev` for the tunnel loop and
+`brt deploy --adk` for production — standalone `brt build` is not their entry
+point.
+
+## Documentation contract
+
+Every public `brt` command, flag, target/auth semantic, or remediation change
+requires a linked change to Fumadocs in the public botruntime platform repo
+(`docs-site/content/docs/cli/` and any affected quickstart). The code and docs
+changes must both merge, and `task docs-build` must pass in the platform repo,
+before publishing the `brt` release.
+
+`packages/brt/brt-docs-contract.json` is the machine-readable inventory of the
+live command tree plus curated public workflows, critical options and semantic
+requirement IDs. Regenerate and verify it with:
+
+```bash
+cd packages/brt
+bun run docs:contract:generate
+bun run docs:contract:check
+bun run docs:contract:test
+```
+
+CI also checks the contract against Fumadocs from public `HolocronLab/botforge`
+`main`. For additions and semantic changes, merge backward-compatible docs
+first and then the CLI/contract change. For removals, retain the old docs contract ID
+or command path until the CLI/contract removal reaches this repository's
+`main`, then remove the stale docs in a follow-up. The platform repository
+documents the three-step bootstrap needed when enabling the gate for the first
+time; after that bootstrap, cross-repo drift fails closed in both directions.
 
 ## License
 

@@ -1,10 +1,9 @@
 /**
  * Eval runner — orchestrates eval execution.
  *
- * Observation is trace-driven: SSECollector streams spans in real-time,
- * transformSpans() projects them into grader-friendly TurnData, and graders
- * are pure functions over that output. The only network calls are emitter
- * actions (sending messages, triggering workflows, seeding state, LLM judge).
+ * Bot response content comes from authenticated `message_created` signals.
+ * Spans provide completion, timing, workflow transitions, safe tool names,
+ * and richer local-only observations when the selected source supports them.
  */
 
 import { Client as BpClientCtor, type Client as BpClient } from '@holocronlab/botruntime-client'
@@ -19,6 +18,7 @@ import type {
   TurnReport,
   BotConnection,
   EvalSetup,
+  SpanSourceCapabilities,
 } from './types'
 import { defaultLogger } from './types'
 import { ChatSession, assertChatChannelBound, assertTraceStreamReadable } from './client'
@@ -43,6 +43,25 @@ import { randomUUID } from 'crypto'
 const DEFAULT_IDLE_TIMEOUT = 30_000
 const DEFAULT_DEV_SERVER_URL = 'http://localhost:3001'
 const WORKFLOW_TRIGGER_TIMEOUT_MS = 5 * 60 * 1000
+
+class EvalProgressSinkError extends Error {
+  constructor(readonly sinkCause: unknown) {
+    super('Eval progress sink failed')
+    this.name = 'EvalProgressSinkError'
+  }
+}
+
+async function emitEvalProgress(
+  sink: EvalRunnerConfig['onProgress'],
+  event: EvalProgressEvent
+): Promise<void> {
+  if (!sink) return
+  try {
+    await sink(event)
+  } catch (error) {
+    throw new EvalProgressSinkError(error)
+  }
+}
 /**
  * Grace window for an event turn's handler span to appear. A subscribed handler starts its span in
  * milliseconds, so no span after this window means nothing is subscribed and the turn can never
@@ -55,6 +74,56 @@ const BUILT_IN_STATES = {
   user: 'userState',
   bot: 'botState',
 } as const
+
+function unsupportedObservation(evalDef: EvalDefinition, location: string, capability: string): never {
+  throw new EvalRunnerError({
+    code: 'EVAL_OBSERVATION_UNSUPPORTED',
+    message: `Eval "${evalDef.name}" ${location} uses ${capability}, but the selected trace source cannot observe it safely.`,
+    expected: true,
+  })
+}
+
+/** Fail before writes when an eval asks the selected trace source for data it cannot expose. */
+export function validateEvalCapabilities(
+  evals: EvalDefinition[],
+  capabilities: SpanSourceCapabilities
+): void {
+  for (const evalDef of evals) {
+    for (let turnIndex = 0; turnIndex < evalDef.conversation.length; turnIndex++) {
+      const assertions = evalDef.conversation[turnIndex]?.assert
+      for (const assertion of assertions?.tools ?? []) {
+        const raw = assertion as unknown as Record<string, unknown>
+        if (raw.input !== undefined || raw.output !== undefined) {
+          unsupportedObservation(evalDef, `turn ${turnIndex + 1}`, 'unsupported tool input/output assertions')
+        }
+        if (!capabilities.toolParameters && raw.params !== undefined) {
+          unsupportedObservation(evalDef, `turn ${turnIndex + 1}`, 'tool parameter assertions')
+        }
+      }
+      if (!capabilities.stateMutations && (assertions?.state?.length ?? 0) > 0) {
+        unsupportedObservation(evalDef, `turn ${turnIndex + 1}`, 'state assertions')
+      }
+    }
+    if (!capabilities.stateMutations && (evalDef.outcome?.state?.length ?? 0) > 0) {
+      unsupportedObservation(evalDef, 'outcome', 'state assertions')
+    }
+  }
+}
+
+/** Reader auth/scope preflight. The fallback uses a bounded dummy correlation. */
+export async function assertSpanSourceReadable(source: SpanSource): Promise<void> {
+  if (source.assertReadable) {
+    await source.assertReadable()
+    return
+  }
+
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  try {
+    await source.connect({ conversationId: `eval-preflight-${suffix}` })
+  } finally {
+    source.disconnect()
+  }
+}
 
 function buildStatePayload(value: Record<string, unknown>) {
   // `location` is required by the Botpress setState API schema.
@@ -150,6 +219,7 @@ export async function runEval(
   options: {
     devServerUrl?: string
     idleTimeout?: number
+    /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
     judgePassThreshold?: number
     /**
      * Configure the LLM judge inside the runner's OWN graders module. A bundled embedder can hold a
@@ -171,6 +241,8 @@ export async function runEval(
     spanSource?: SpanSource
     chatWebhookId?: string
     chatBaseUrl?: string
+    /** @internal The suite already authenticated this source kind before starting evals. */
+    sourcePreflighted?: boolean
   } = {}
 ): Promise<EvalReport> {
   const devServerUrl = options.devServerUrl || DEFAULT_DEV_SERVER_URL
@@ -178,6 +250,17 @@ export async function runEval(
   const logger = options.logger ?? defaultLogger
   const idleTimeout = evalDef.options?.idleTimeout ?? options.idleTimeout ?? DEFAULT_IDLE_TIMEOUT
   const judgePassThreshold = evalDef.options?.judgePassThreshold ?? options.judgePassThreshold
+  const collector: SpanSource = options.spanSource ?? new LocalSpanSource(devServerUrl, devServerHeaders)
+
+  validateEvalCapabilities([evalDef], collector.capabilities)
+  if (!options.sourcePreflighted) {
+    if (options.spanSource) {
+      await assertSpanSourceReadable(collector)
+    } else {
+      await assertTraceStreamReadable(devServerUrl, devServerHeaders)
+    }
+  }
+
   if (options.judge) {
     const judgeClient = new BpClientCtor(options.judge.credentials)
     await initLLMJudge(judgeClient, {
@@ -189,11 +272,10 @@ export async function runEval(
   const start = Date.now()
   const turns: TurnReport[] = []
   let outcomeAssertions: GraderResult[] = []
-
-  const collector: SpanSource = options.spanSource ?? new LocalSpanSource(devServerUrl, devServerHeaders)
+  let session: ChatSession | undefined
 
   try {
-    const session = new ChatSession(
+    session = new ChatSession(
       connection.client,
       connection.botId,
       options.chatWebhookId,
@@ -267,7 +349,7 @@ export async function runEval(
       }
 
       const turnLabel = turn.event ? '[event]' : turn.user!
-      await options.onProgress?.({
+      await emitEvalProgress(options.onProgress, {
         type: 'turn_start',
         evalName: evalDef.name,
         evalIndex: options.evalIndex ?? 0,
@@ -284,6 +366,7 @@ export async function runEval(
 
       // Mark turn boundary, emit message, wait for handler completion via traces
       collector.startTurn()
+      session.startTurn()
 
       if (turn.event) {
         await session.sendEvent(turn.event.payload)
@@ -295,18 +378,20 @@ export async function runEval(
         // A user-message turn completes via handler.conversation; an event turn
         // via handler.event. Scoping the wait keeps async noise (e.g. a workflow
         // callback's silent handler.event) from releasing the turn early.
-        await collector.waitForTurnComplete({
-          timeout: idleTimeout,
-          acceptSpanNames: turn.event ? new Set(['handler.event']) : new Set(['handler.conversation']),
-          // Long quiet window: a tool-started workflow and its callback only run
-          // AFTER the handler closes; sending the next message into that window
-          // can get it absorbed by their transcript saves and silently skipped.
-          settleQuietMs: 1_500,
-          settleMaxMs: 15_000,
-          // Event turns fail fast when nothing is subscribed (see the constant).
-          ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
-          ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
-        })
+        await session.raceWithListenerError(
+          collector.waitForTurnComplete({
+            timeout: idleTimeout,
+            acceptSpanNames: turn.event ? new Set(['handler.event']) : new Set(['handler.conversation']),
+            // Long quiet window: a tool-started workflow and its callback only run
+            // AFTER the handler closes; sending the next message into that window
+            // can get it absorbed by their transcript saves and silently skipped.
+            settleQuietMs: 1_500,
+            settleMaxMs: 15_000,
+            // Event turns fail fast when nothing is subscribed (see the constant).
+            ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
+            ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+          })
+        )
       } catch (err) {
         // If the wait was aborted, exit the turn loop cleanly rather than
         // surfacing an error on the eval — Stop is a user action, not a
@@ -324,13 +409,16 @@ export async function runEval(
           const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
           if (!expectsPositive) continue
           const wfSignal = wfAssert.completed ? 'completed' : 'entered'
-          await collector
-            .waitForWorkflow(wfAssert.name, {
-              signal: wfSignal,
-              timeout: idleTimeout,
-              ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
-            })
-            .catch(() => {
+          await session
+            .raceWithListenerError(
+              collector.waitForWorkflow(wfAssert.name, {
+                signal: wfSignal,
+                timeout: idleTimeout,
+                ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+              })
+            )
+            .catch((error) => {
+              if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
               // Timeout is OK — the grader will report the failure
             })
         }
@@ -338,21 +426,23 @@ export async function runEval(
 
       // Transform turn spans into grader-friendly data
       let turnData = transformSpans(collector.getTurnSpans())
+      let responseMessages = session.getTurnResponses()
 
-      // Re-poll for a proactive-send span that lands just after the settle window (event turns only).
-      if (turn.event && !turn.expectSilence && turnData.messages.length === 0 && turnData.handlerDuration > 0) {
-        for (let waited = 0; waited < 600 && turnData.messages.length === 0; waited += 150) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 150))
-          turnData = transformSpans(collector.getTurnSpans())
+      // The chat signal can land just after the trace completion snapshot.
+      if (!turn.expectSilence && responseMessages.length === 0 && turnData.handlerDuration > 0) {
+        for (let waited = 0; waited < 600 && responseMessages.length === 0; waited += 150) {
+          await session.raceWithListenerError(new Promise<void>((resolve) => setTimeout(resolve, 150)))
+          responseMessages = session.getTurnResponses()
+          if (turn.event) turnData = transformSpans(collector.getTurnSpans())
         }
       }
 
-      const botResponse = turnData.messages.join('\n')
+      const botResponse = responseMessages.join('\n')
       const botDuration = turnData.handlerDuration
 
       const evalStart = Date.now()
       let assertions: GraderResult[] = []
-      const noResponse = !turn.expectSilence && turnData.messages.length === 0
+      const noResponse = !turn.expectSilence && responseMessages.length === 0
 
       if (noResponse) {
         // A missing response is a graded outcome, not an exceptional state —
@@ -368,7 +458,7 @@ export async function runEval(
       }
 
       if (turn.expectSilence) {
-        const wasSilent = turnData.messages.length === 0
+        const wasSilent = responseMessages.length === 0
         assertions.push({
           assertion: 'no_response',
           pass: wasSilent,
@@ -435,7 +525,7 @@ export async function runEval(
       }
       turns.push(turnReport)
 
-      await options.onProgress?.({
+      await emitEvalProgress(options.onProgress, {
         type: 'turn_complete',
         evalName: evalDef.name,
         evalIndex: options.evalIndex ?? 0,
@@ -453,13 +543,16 @@ export async function runEval(
           const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
           if (!expectsPositive) continue
           const wfSignal = wfAssert.completed ? 'completed' : 'entered'
-          await collector
-            .waitForWorkflow(wfAssert.name, {
-              signal: wfSignal,
-              timeout: idleTimeout,
-              ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
-            })
-            .catch(() => {
+          await session
+            .raceWithListenerError(
+              collector.waitForWorkflow(wfAssert.name, {
+                signal: wfSignal,
+                timeout: idleTimeout,
+                ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+              })
+            )
+            .catch((error) => {
+              if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
               // Timeout is OK — the grader will report the failure
             })
         }
@@ -490,9 +583,14 @@ export async function runEval(
       outcomeAssertions,
       pass: !aborted && turnsPass && outcomePass,
       duration: Date.now() - start,
-      ...(aborted ? { error: 'Eval aborted' } : {}),
+      ...(aborted ? { error: 'Eval aborted', errorCode: 'EVAL_ABORTED' as const } : {}),
     }
   } catch (err) {
+    // Progress sinks are host persistence, not eval verdicts. Folding their
+    // failure into EvalReport could finalize an entry before the missing write
+    // is reconciled, making the replay terminally impossible.
+    if (err instanceof EvalProgressSinkError) throw err.sinkCause
+
     // Preserve the stable code/expected flag on the report instead of
     // flattening everything to a message string. Unexpected (internal-bug)
     // failures are logged AND reported to the injected exception hook —
@@ -500,6 +598,7 @@ export async function runEval(
     // the CLI's command boundary and would otherwise be invisible to
     // PostHog error tracking.
     const adkErr = isAdkError(err) ? err : undefined
+    const evalErr = err instanceof EvalRunnerError ? err : undefined
     if (!adkErr || !adkErr.expected) {
       const errMsg = (err as Error).message ?? String(err)
       const errStack = (err as Error).stack ?? ''
@@ -519,10 +618,13 @@ export async function runEval(
       pass: false,
       duration: Date.now() - start,
       error: (err as Error).message,
-      ...(adkErr ? { errorCode: adkErr.code } : {}),
+      ...(evalErr ? { errorCode: evalErr.code } : {}),
     }
   } finally {
     collector.disconnect()
+    await session?.disconnect().catch((error) => {
+      logger.warn(`Chat response listener cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 }
 
@@ -557,6 +659,22 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
     }
   }
 
+  if (config.createSpanSource) {
+    const preflightSource = config.createSpanSource()
+    try {
+      validateEvalCapabilities(evals, preflightSource.capabilities)
+      if (!config.sourcePreflighted) {
+        await assertSpanSourceReadable(preflightSource)
+      }
+    } finally {
+      preflightSource.disconnect()
+    }
+  } else {
+    validateEvalCapabilities(evals, LocalSpanSource.capabilities)
+    await assertChatChannelBound(config.devServerUrl || DEFAULT_DEV_SERVER_URL, config.devServerHeaders ?? {}, config.logger)
+    await assertTraceStreamReadable(config.devServerUrl || DEFAULT_DEV_SERVER_URL, config.devServerHeaders ?? {})
+  }
+
   // Initialize the LLM judge with the client
   await initLLMJudge(config.client, {
     ...(config.evalOptions?.judgeModel !== undefined ? { model: config.evalOptions.judgeModel } : {}),
@@ -570,12 +688,6 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
 
   const devServerUrl = config.devServerUrl || DEFAULT_DEV_SERVER_URL
   const devServerHeaders = config.devServerHeaders ?? {}
-
-  // Fast-fail if no Conversation listens on chat.channel — otherwise evals time out silently.
-  if (!config.createSpanSource) {
-    await assertChatChannelBound(devServerUrl, devServerHeaders, config.logger)
-    await assertTraceStreamReadable(devServerUrl, devServerHeaders)
-  }
 
   const reports: EvalReport[] = []
 
@@ -612,6 +724,7 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
       ...(config.createSpanSource !== undefined ? { spanSource: config.createSpanSource() } : {}),
       ...(config.chatWebhookId !== undefined ? { chatWebhookId: config.chatWebhookId } : {}),
       ...(config.chatBaseUrl !== undefined ? { chatBaseUrl: config.chatBaseUrl } : {}),
+      sourcePreflighted: true,
     })
     reports.push(report)
 
@@ -629,11 +742,23 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
     ...(filter !== undefined ? { filter } : {}),
   }
 
-  if (config.signal?.aborted) {
+  if (isPartialEvalSuiteAbort(config.signal, reports, evals.length)) {
     runReport.aborted = true
   }
 
   await config.onProgress?.({ type: 'suite_complete', report: runReport })
 
   return runReport
+}
+
+/** @internal Exported for the abort-boundary contract test. */
+export function isPartialEvalSuiteAbort(
+  signal: AbortSignal | undefined,
+  reports: ReadonlyArray<Pick<EvalReport, 'errorCode'>>,
+  selectedCount: number
+): boolean {
+  return (
+    signal?.aborted === true &&
+    (reports.length < selectedCount || reports.some((report) => report.errorCode === 'EVAL_ABORTED'))
+  )
 }

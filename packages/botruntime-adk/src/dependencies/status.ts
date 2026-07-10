@@ -8,7 +8,7 @@ import type { DependencyState, StatusVerdict } from '@holocronlab/botruntime-run
  * Everything here is a pure function over already-resolved inputs — no
  * filesystem, network, auth, or cloud I/O. The callers gather the inputs:
  *
- * - `adk integrations status` / `adk check` (offline-first): snapshot entry + catalog
+ * - offline readiness resolution: snapshot entry + catalog
  *   spec (if reachable) + `existsSync(bp_modules/...)`.
  * - codegen (online): the same plus cloud `enabledStates` / merged config from
  *   `fetchServerIntegrationConfigs`.
@@ -298,7 +298,7 @@ export interface AuthorizationGateInput {
  * Whether an integration must be left inert (emitted `enabled: false`, but still declared)
  * because it gates on an authorization the user hasn't completed yet. The classic case: a
  * managed-OAuth integration (`gmail`) toggled on but never connected — Cloud's `register`
- * hook hard-fails ("No refresh token found …") and aborts the WHOLE `adk dev` / `adk deploy`
+ * hook hard-fails ("No refresh token found …") and aborts the whole `brt dev` / `brt deploy --adk`
  * boot if the integration is declared `enabled: true`.
  *
  * The fix is to demote it to `enabled: false`, NOT to omit it from the definition: `bp`
@@ -475,8 +475,8 @@ export interface ComputeSnapshotOnlyStatusInput {
 
 /**
  * Capability verdict from the **snapshot alone** — no catalog spec. This is the
- * offline reader's path (`adk integrations status`, `adk check`, the `adk dev`
- * boot summary) when a spec wasn't (or couldn't be) fetched.
+ * offline readiness path and the `brt dev` boot summary when a spec wasn't
+ * (or couldn't be) fetched.
  *
  * It trusts the snapshot because the snapshot reflects Cloud's validated state: Cloud only
  * keeps an integration `enabled` once its required config is satisfied, so

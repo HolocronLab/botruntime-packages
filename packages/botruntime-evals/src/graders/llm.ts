@@ -67,7 +67,7 @@ export async function initLLMJudge(
   if (_availableModels.length === 0) {
     log.warn('No available Cognitive models: cannot validate judge model.')
   } else if (!_isModelValid(_judgeModel)) {
-    log.warn(`Configured LLM judge model "${_judgeModel}" is invalid. Run "adk models" to list available models.`)
+    log.warn(`Configured LLM judge model "${_judgeModel}" is invalid. Choose a model exposed by the Cognitive API.`)
   }
 
   _zai = new Zai({ client: cognitive, modelId: _judgeModel as ConstructorParameters<typeof Zai>[0]['modelId'] })

@@ -90,7 +90,7 @@ export class BaseKnowledge implements Definitions.Primitive {
     const kbs = await client.list.knowledgeBases({}).collect()
     const remoteKb = kbs.find((k) => k.name === this.name)
     if (!remoteKb) {
-      throw new Error(`KB '${this.name}' not found in Botpress - run 'adk deploy' or approve KB sync in 'adk dev'`)
+      throw new Error(`KB '${this.name}' not found in botruntime - run 'brt deploy --adk' or approve KB sync in 'brt dev'`)
     }
     return remoteKb.id
   }

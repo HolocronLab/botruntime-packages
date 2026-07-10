@@ -6,7 +6,7 @@
  * `@holocronlab/botruntime-runtime/_types/<name>` and fall back to it (see the
  * `X extends never ? never : X` pattern in every such file). That module
  * specifier is never meant to resolve to a real file — it's a placeholder that
- * bot-project code generation (the ADK CLI's `.adk/*.d.ts` output) augments
+ * bot-project code generation (`brt`'s `.adk/*.d.ts` compatibility output) augments
  * with the bot's actual, concrete types via its own `declare module` block for
  * the exact same literal specifier, which TypeScript then prefers over this
  * default.

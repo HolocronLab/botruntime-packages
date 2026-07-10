@@ -1,8 +1,13 @@
-import type { SpanSource, TurnWaitOptions, WaitOptions, WorkflowWaitOptions } from './span-source'
+import type { SpanSource, SpanSourceCapabilities, TurnWaitOptions, WorkflowWaitOptions } from './span-source'
 import type { Span } from './trace'
 import { SSECollector } from './sse-collector'
 
 export class LocalSpanSource implements SpanSource {
+  static readonly capabilities: SpanSourceCapabilities = {
+    toolParameters: true,
+    stateMutations: true,
+  }
+  readonly capabilities = LocalSpanSource.capabilities
   private collector: SSECollector
 
   constructor(devServerUrl: string, headers: Record<string, string> = {}) {

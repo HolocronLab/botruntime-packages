@@ -1,7 +1,7 @@
 /**
  * Virtual module for integration type definitions
  *
- * This module is populated by code generation from the ADK.
+ * This module is populated by brt code generation.
  * The actual types are declared in `.adk/integrations.d.ts` via module augmentation.
  */
 import type { Integrations as I } from '@holocronlab/botruntime-runtime/_types/integrations'

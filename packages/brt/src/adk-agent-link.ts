@@ -25,13 +25,31 @@ export interface AgentLocalInfo {
   workspaceId?: string
   apiUrl?: string
   devId?: string
+  devTargetBotId?: string
+  devApiUrl?: string
+  devWorkspaceId?: string
+}
+
+export interface AgentDevTarget {
+  runtimeBotId: string
+  targetBotId: string
+  apiUrl: string
+  workspaceId: string
 }
 
 const AGENT_INFO_FILE = 'agent.json'
 const AGENT_LOCAL_INFO_FILE = 'agent.local.json'
 
 const AGENT_INFO_KEY_ORDER = ['botId', 'workspaceId', 'apiUrl'] as const
-const AGENT_LOCAL_INFO_KEY_ORDER = ['botId', 'workspaceId', 'apiUrl', 'devId'] as const
+const AGENT_LOCAL_INFO_KEY_ORDER = [
+  'botId',
+  'workspaceId',
+  'apiUrl',
+  'devId',
+  'devTargetBotId',
+  'devApiUrl',
+  'devWorkspaceId',
+] as const
 
 // Orders known keys first (per keyOrder), then any remaining keys alphabetically.
 // Mirrors @holocronlab/botruntime-adk's utils/json-ordering.ts orderKeys().
@@ -65,7 +83,10 @@ export function agentLocalInfoFilePath(dir: string): string {
 // fs.writeFileSync, no trailing newline — matches writeAgentLocalDevId's
 // byte-shape (mirrors @holocronlab/botruntime-adk's own writer).
 export function writeAgentInfo(dir: string, info: AgentInfo): void {
-  const toWrite: Record<string, unknown> = { botId: info.botId, workspaceId: info.workspaceId }
+  const toWrite: Record<string, unknown> = {
+    botId: info.botId,
+    workspaceId: info.workspaceId,
+  }
   if (info.apiUrl !== undefined) toWrite['apiUrl'] = info.apiUrl
   fs.writeFileSync(agentInfoFilePath(dir), stringifyWithOrder(toWrite, AGENT_INFO_KEY_ORDER))
 }
@@ -73,21 +94,53 @@ export function writeAgentInfo(dir: string, info: AgentInfo): void {
 export function readAgentInfoIfPresent(dir: string): AgentInfo | undefined {
   const filePath = agentInfoFilePath(dir)
   if (!fs.existsSync(filePath)) return undefined
+  let parsed: unknown
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as AgentInfo
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
   } catch (thrown) {
     throw errors.BotpressCLIError.wrap(thrown, `${AGENT_INFO_FILE} is not valid JSON`)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new errors.BotpressCLIError(`${AGENT_INFO_FILE} must contain an object`)
+  }
+  const value = parsed as Record<string, unknown>
+  for (const field of ['botId', 'workspaceId'] as const) {
+    if (typeof value[field] !== 'string' || value[field].length === 0) {
+      throw new errors.BotpressCLIError(`${AGENT_INFO_FILE} ${field} must be a non-empty string`)
+    }
+  }
+  if (value['apiUrl'] !== undefined && (typeof value['apiUrl'] !== 'string' || value['apiUrl'].length === 0)) {
+    throw new errors.BotpressCLIError(`${AGENT_INFO_FILE} apiUrl must be a non-empty string when present`)
+  }
+  return {
+    botId: value['botId'] as string,
+    workspaceId: value['workspaceId'] as string,
+    ...(value['apiUrl'] !== undefined ? { apiUrl: value['apiUrl'] as string } : {}),
   }
 }
 
 export function readAgentLocalInfo(dir: string): AgentLocalInfo {
   const filePath = agentLocalInfoFilePath(dir)
   if (!fs.existsSync(filePath)) return {}
+  let parsed: unknown
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as AgentLocalInfo
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
   } catch (thrown) {
     throw errors.BotpressCLIError.wrap(thrown, `${AGENT_LOCAL_INFO_FILE} is not valid JSON`)
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new errors.BotpressCLIError(`${AGENT_LOCAL_INFO_FILE} must contain an object`)
+  }
+  const value = parsed as Record<string, unknown>
+  const result: AgentLocalInfo = {}
+  for (const field of AGENT_LOCAL_INFO_KEY_ORDER) {
+    if (value[field] === undefined) continue
+    if (typeof value[field] !== 'string' || value[field].length === 0) {
+      throw new errors.BotpressCLIError(`${AGENT_LOCAL_INFO_FILE} ${field} must be a non-empty string`)
+    }
+    result[field] = value[field] as string
+  }
+  return result
 }
 
 // Convenience accessor for the persisted dev bot id (the ONE value that also
@@ -96,15 +149,56 @@ export function getAgentDevId(dir: string): string | undefined {
   return readAgentLocalInfo(dir).devId
 }
 
-// Merges `devId` into agent.local.json, preserving any existing keys
-// (botId/workspaceId/apiUrl overrides a developer may have set). Passing
-// `undefined` clears the field. If the merged object ends up empty, the file
-// is removed entirely — mirrors AgentProject.updateAgentLocalInfo's
-// unlink-if-empty behavior, so agent.local.json never lingers as an empty `{}`.
-export function writeAgentLocalDevId(dir: string, devId: string | undefined): void {
+export function getAgentDevTargetBotId(dir: string): string | undefined {
+  return readAgentLocalInfo(dir).devTargetBotId
+}
+
+function normalizeApiUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
+export function resolveAgentDevTargetForStack(
+  info: AgentLocalInfo,
+  selected: { apiUrl: string; workspaceId: string }
+): AgentDevTarget | undefined {
+  if (
+    !info.devId ||
+    !info.devTargetBotId ||
+    !/^[1-9][0-9]*$/.test(info.devTargetBotId)
+  ) {
+    return undefined
+  }
+
+  const apiUrl = normalizeApiUrl(selected.apiUrl)
+  if (info.devApiUrl !== undefined || info.devWorkspaceId !== undefined) {
+    if (!info.devApiUrl || !info.devWorkspaceId) return undefined
+    if (normalizeApiUrl(info.devApiUrl) !== apiUrl || info.devWorkspaceId !== selected.workspaceId) {
+      return undefined
+    }
+    return {
+      runtimeBotId: info.devId,
+      targetBotId: info.devTargetBotId,
+      apiUrl,
+      workspaceId: selected.workspaceId,
+    }
+  }
+  return undefined
+}
+
+export function getLegacyAgentDevRuntimeHint(info: AgentLocalInfo): string | undefined {
+  if (!info.devId) return undefined
+  if (info.devApiUrl !== undefined || info.devWorkspaceId !== undefined) return undefined
+  return info.devId
+}
+
+// Applies a partial update to agent.local.json while preserving every field
+// not named by the patch. Undefined explicitly clears a field. This is shared
+// by `brt link --local` and the dev-target cache so either writer can update
+// its own coordinates without losing the other's state.
+export function writeAgentLocalInfo(dir: string, patch: Partial<AgentLocalInfo>): void {
   const filePath = agentLocalInfoFilePath(dir)
   const existing = readAgentLocalInfo(dir)
-  const merged: AgentLocalInfo = { ...existing, devId }
+  const merged: AgentLocalInfo = { ...existing, ...patch }
   for (const key of Object.keys(merged) as (keyof AgentLocalInfo)[]) {
     if (merged[key] === undefined) delete merged[key]
   }
@@ -114,7 +208,52 @@ export function writeAgentLocalDevId(dir: string, devId: string | undefined): vo
     return
   }
 
-  fs.writeFileSync(filePath, stringifyWithOrder(merged as unknown as Record<string, unknown>, AGENT_LOCAL_INFO_KEY_ORDER))
+  fs.writeFileSync(
+    filePath,
+    stringifyWithOrder(merged as unknown as Record<string, unknown>, AGENT_LOCAL_INFO_KEY_ORDER)
+  )
+}
+
+// Merges `devId` into agent.local.json, preserving any existing keys
+// (botId/workspaceId/apiUrl overrides a developer may have set). Passing
+// `undefined` clears the field. If the merged object ends up empty, the file
+// is removed entirely — mirrors AgentProject.updateAgentLocalInfo's
+// unlink-if-empty behavior, so agent.local.json never lingers as an empty `{}`.
+export function writeAgentLocalDevTarget(
+  dir: string,
+  devId: string | undefined,
+  devTargetBotId: string | undefined,
+  devApiUrl: string | undefined,
+  devWorkspaceId: string | undefined
+): void {
+  const values = [devId, devTargetBotId, devApiUrl, devWorkspaceId]
+  const isComplete = values.every((value) => value !== undefined)
+  const isClear = values.every((value) => value === undefined)
+  if (!isComplete && !isClear) {
+    throw new errors.BotpressCLIError('The agent dev target quartet must contain all four scoped fields or clear all four.')
+  }
+  if (isComplete) {
+    if (!/^[1-9][0-9]*$/.test(devTargetBotId!)) {
+      throw new errors.BotpressCLIError('agent.local.json devTargetBotId must be a positive decimal string')
+    }
+    const canonicalApiUrl = normalizeApiUrl(devApiUrl!)
+    if (!canonicalApiUrl || !devId!.trim() || !devWorkspaceId!.trim()) {
+      throw new errors.BotpressCLIError('The agent dev target quartet must contain non-empty exact values.')
+    }
+    writeAgentLocalInfo(dir, {
+      devId,
+      devTargetBotId,
+      devApiUrl: canonicalApiUrl,
+      devWorkspaceId,
+    })
+    return
+  }
+  writeAgentLocalInfo(dir, {
+    devId: undefined,
+    devTargetBotId: undefined,
+    devApiUrl: undefined,
+    devWorkspaceId: undefined,
+  })
 }
 
 // ---- Stage 2b: agent.json as the canonical prod link ----------------------

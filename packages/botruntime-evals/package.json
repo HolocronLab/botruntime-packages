@@ -1,8 +1,8 @@
 {
   "name": "@holocronlab/botruntime-evals",
   "version": "2.0.2",
-  "description": "Evaluation definitions and runner for ADK-based botruntime agents",
-  "keywords": ["adk", "agent", "ai", "evals", "evaluation"],
+  "description": "Evaluation definitions and runner for brt-based botruntime agents",
+  "keywords": ["brt", "agent", "ai", "evals", "evaluation"],
   "license": "MIT",
   "author": "HolocronLab",
   "repository": {
@@ -101,6 +101,7 @@
     "build:js": "bun build.ts",
     "build:type": "tsc -p tsconfig.build.json",
     "build": "bun run build:js && bun run build:type",
+    "test": "vitest --run",
     "clean": "rm -rf dist",
     "prepublishOnly": "bun run clean && bun run build"
   },
@@ -113,7 +114,8 @@
   "devDependencies": {
     "@types/node": "^22.16.4",
     "bun-types": "1.3.14",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
   },
   "peerDependencies": {
     "typescript": ">=4.5.0"

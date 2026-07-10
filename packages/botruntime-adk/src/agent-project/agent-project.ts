@@ -7,7 +7,13 @@ import { createRequire } from 'module'
 import fs from 'fs/promises'
 import path from 'path'
 
-import { AssetsManager, AssetSyncOptions, AssetSyncPlan, AssetSyncResult } from '../assets/index.js'
+import {
+  AssetsManager,
+  AssetSyncOptions,
+  AssetSyncPlan,
+  AssetSyncResult,
+  type AssetManagerOptions,
+} from '../assets/index.js'
 import { IntegrationManager } from '../integrations/index.js'
 import { ParsedIntegration } from '../integrations/types.js'
 import { InterfaceManager } from '../interfaces/index.js'
@@ -17,7 +23,7 @@ import { agentInfoKeyOrder, agentLocalInfoKeyOrder, stringifyWithOrder } from '.
 import { expandExports } from './expand-exports.js'
 import { resolveComponentSources } from './component-source-resolver.js'
 import { COMPONENTS_DIR } from './component-files.js'
-import { resolveAgent } from './agent-resolver.js'
+import { readAgentInfo, readAgentLocalInfo, resolveAgent } from './agent-resolver.js'
 import {
   AgentConfig,
   AgentInfo,
@@ -39,12 +45,17 @@ import { ValidationErrors } from './validation-errors.js'
 import { findTableColumnViolations } from '../bot-generator/table-validation.js'
 import { MAX_TABLE_COLUMNS } from '../constants.js'
 import { DependencySnapshotStore } from '../dependencies/snapshot-store.js'
+import { DependencyError } from '../dependencies/errors.js'
+import type { DependencySnapshotTarget, Environment } from '../dependencies/types.js'
 import { dependencyStateToDependencies } from './dependency-state-to-dependencies.js'
+import type { ServerConfigTarget } from '../integrations/config-utils.js'
+import type { CatalogClientOptions } from '../dependencies/catalog/client-factory.js'
 
 export interface AgentProjectOptions {
   noCache?: boolean
   adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
   offline?: boolean
+  configTarget?: ServerConfigTarget
 }
 
 export type AgentProjectLoader = (projectPath: string) => Promise<AgentProject>
@@ -132,18 +143,20 @@ export class AgentProject {
     this._interfaceManager = new InterfaceManager({
       noCache: options.noCache,
     })
-    this._assetsManager = new AssetsManager({
-      projectPath: this._path,
-    })
+    this._assetsManager = new AssetsManager(this.getAssetManagerOptions())
   }
 
   // Static factory methods
   static async load(projectPath: string, options: AgentProjectOptions = {}): Promise<AgentProject> {
     const resolvedPath = path.resolve(projectPath)
     const cacheKey = AgentProject._getCacheKey(resolvedPath, options)
+    // A credentialed target owns managers with memoized clients. Keeping that
+    // instance in the process-wide cache would either retain a rotated PAT or
+    // require secret-derived cache identity. Command-scoped callers memoize
+    // their own load when needed; the static cache remains for ambient/offline.
+    const cacheable = !options.noCache && !options.configTarget?.credentials
 
-    // Check cache unless explicitly disabled
-    if (!options.noCache) {
+    if (cacheable) {
       const cached = AgentProject._projectCache.get(cacheKey)
       if (cached) {
         return cached
@@ -154,8 +167,7 @@ export class AgentProject {
     const project = new AgentProject(resolvedPath, options)
     await project.reload()
 
-    // Cache the project unless caching is disabled
-    if (!options.noCache) {
+    if (cacheable) {
       AgentProject._projectCache.set(cacheKey, project)
     }
 
@@ -165,7 +177,17 @@ export class AgentProject {
   private static _getCacheKey(resolvedPath: string, options: AgentProjectOptions): string {
     const adkCommand = options.adkCommand ?? 'default'
     const offline = options.offline ? 'offline' : 'online'
-    return `${resolvedPath}\0${adkCommand}\0${offline}`
+    const target = options.configTarget
+    const targetKey = target
+      ? JSON.stringify({
+          environment: target.environment,
+          botId: target.botId,
+          runtimeBotId: target.environment === 'dev' ? target.runtimeBotId : undefined,
+          apiUrl: target.credentials?.apiUrl,
+          workspaceId: target.credentials?.workspaceId,
+        })
+      : 'ambient'
+    return `${resolvedPath}\0${adkCommand}\0${offline}\0${targetKey}`
   }
 
   // Static method to clear the cache
@@ -260,6 +282,14 @@ export class AgentProject {
     this._state = ProjectState.Loading
 
     try {
+      if (this._options.configTarget && !this._options.configTarget.credentials && !this._options.offline) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: 'An explicit online project target requires token, apiUrl, and workspaceId credentials.',
+          expected: true,
+        })
+      }
+
       // Clear previous state
       this._conversations = []
       this._knowledge = []
@@ -291,21 +321,22 @@ export class AgentProject {
       // Load agent info FIRST so we have the workspaceId
       await this.loadAgentInfo()
 
-      // Create managers with the correct workspaceId from agent.json
+      const catalogClientOptions = this.getCatalogClientOptions()
+
+      // A command-selected target is the sole authority for online catalog
+      // resolution. Project metadata remains the legacy fallback only for
+      // callers that did not provide an explicit environment target.
       this._integrationManager = new IntegrationManager({
         noCache: this._options.noCache,
-        project: this,
+        ...catalogClientOptions,
       })
 
       this._interfaceManager = new InterfaceManager({
         noCache: this._options.noCache,
-        project: this,
+        ...catalogClientOptions,
       })
 
-      this._assetsManager = new AssetsManager({
-        projectPath: this._path,
-        botId: this._agentInfo?.botId,
-      })
+      this._assetsManager = new AssetsManager(this.getAssetManagerOptions(this._agentInfo?.botId))
 
       // Load configuration (which will use the managers with correct workspaceId)
       await this.loadConfig()
@@ -496,6 +527,9 @@ export class AgentProject {
       workspaceId: updates.workspaceId ?? this._agentInfo.workspaceId,
       apiUrl: 'apiUrl' in updates ? updates.apiUrl : this._agentInfo.apiUrl,
       ...(this._agentInfo.devId ? { devId: this._agentInfo.devId } : {}),
+      ...(this._agentInfo.devTargetBotId ? { devTargetBotId: this._agentInfo.devTargetBotId } : {}),
+      ...(this._agentInfo.devApiUrl ? { devApiUrl: this._agentInfo.devApiUrl } : {}),
+      ...(this._agentInfo.devWorkspaceId ? { devWorkspaceId: this._agentInfo.devWorkspaceId } : {}),
     }
     const agentJsonData: AgentLink = {
       botId: updatedInfo.botId,
@@ -517,7 +551,11 @@ export class AgentProject {
     } catch {
       // File doesn't exist yet
     }
-    const merged = { ...existing, ...info }
+    const normalizedInfo = {
+      ...info,
+      ...(info.devApiUrl ? { devApiUrl: info.devApiUrl.replace(/\/+$/, '') } : {}),
+    }
+    const merged = { ...existing, ...normalizedInfo }
     const content = stringifyWithOrder(merged, agentLocalInfoKeyOrder)
     await fs.writeFile(localPath, content)
     // Update in-memory merged view
@@ -526,12 +564,18 @@ export class AgentProject {
       if (merged.workspaceId) this._agentInfo.workspaceId = merged.workspaceId
       if (merged.apiUrl) this._agentInfo.apiUrl = merged.apiUrl
       if (merged.devId) this._agentInfo.devId = merged.devId
+      if (merged.devTargetBotId) this._agentInfo.devTargetBotId = merged.devTargetBotId
+      if (merged.devApiUrl) this._agentInfo.devApiUrl = merged.devApiUrl
+      if (merged.devWorkspaceId) this._agentInfo.devWorkspaceId = merged.devWorkspaceId
     } else if (merged.botId && merged.workspaceId) {
       this._agentInfo = {
         botId: merged.botId,
         workspaceId: merged.workspaceId,
         apiUrl: merged.apiUrl,
         devId: merged.devId,
+        devTargetBotId: merged.devTargetBotId,
+        devApiUrl: merged.devApiUrl,
+        devWorkspaceId: merged.devWorkspaceId,
       }
     }
   }
@@ -545,7 +589,11 @@ export class AgentProject {
     } catch {
       // File doesn't exist yet
     }
-    const updated: Record<string, unknown> = { ...existing, ...updates }
+    const normalizedUpdates = {
+      ...updates,
+      ...(updates.devApiUrl ? { devApiUrl: updates.devApiUrl.replace(/\/+$/, '') } : {}),
+    }
+    const updated: Record<string, unknown> = { ...existing, ...normalizedUpdates }
     // Remove undefined keys
     for (const key of Object.keys(updated)) {
       if (updated[key] === undefined) {
@@ -554,7 +602,7 @@ export class AgentProject {
     }
 
     if (Object.keys(updated).length === 0) {
-      // No local overrides remain — delete the file so adk dev starts fresh
+      // No local overrides remain — delete the file so the next `brt dev` starts from Cloud state.
       try {
         await fs.unlink(localPath)
       } catch {
@@ -592,6 +640,9 @@ export class AgentProject {
         workspaceId: local.workspaceId ?? base.workspaceId,
         apiUrl: local.apiUrl ?? base.apiUrl,
         devId: local.devId,
+        devTargetBotId: local.devTargetBotId,
+        devApiUrl: local.devApiUrl,
+        devWorkspaceId: local.devWorkspaceId,
       }
     }
   }
@@ -609,10 +660,49 @@ export class AgentProject {
     }
   }
 
+  private getCatalogClientOptions(): CatalogClientOptions {
+    const target = this._options.configTarget
+    if (!target) {
+      return { project: this }
+    }
+
+    const credentials = target.credentials
+    if (!credentials) {
+      return {}
+    }
+
+    return {
+      credentials,
+      apiUrl: credentials.apiUrl,
+      workspaceId: credentials.workspaceId,
+    }
+  }
+
+  private getAssetManagerOptions(ambientBotId?: string): AssetManagerOptions {
+    const target = this._options.configTarget
+    if (!target) {
+      return { projectPath: this._path, botId: ambientBotId }
+    }
+
+    return {
+      projectPath: this._path,
+      botId: target.botId,
+      credentials: target.credentials,
+      cacheScope: {
+        environment: target.environment,
+        ...(target.botId ? { botId: target.botId } : {}),
+        ...(target.credentials
+          ? { apiUrl: target.credentials.apiUrl, workspaceId: target.credentials.workspaceId }
+          : {}),
+      },
+      failOnRemoteFetchError: target.environment === 'prod',
+    }
+  }
+
   // Private helper methods
   private async loadConfig(): Promise<void> {
     // Default to empty collections so any early-return or thrown-error path below
-    // still leaves the project in a state readable by `adk status` and the other
+    // still leaves the project in a state readable by diagnostics and the other
     // consumers of the integrations/interfaces getters. Successful paths overwrite.
     this._dependencies = { integrations: {} }
     this._integrations = []
@@ -682,26 +772,29 @@ export class AgentProject {
 
       this._config = configModule.default as AgentConfig
 
-      const dependencyEnv = this._options.adkCommand === 'adk-deploy' ? 'prod' : 'dev'
+      const dependencyEnv =
+        this._options.configTarget?.environment ??
+        (this._options.adkCommand === 'adk-build' || this._options.adkCommand === 'adk-deploy' ? 'prod' : 'dev')
       const snapshotStore = new DependencySnapshotStore({ projectPath: this._path })
       let snapshotBasedDependencies: Dependencies | undefined
-      let dependencySnapshotReadFailed = false
-      try {
-        const snapshot = await snapshotStore.read(dependencyEnv)
-        const state = snapshot ?? { version: 1 as const, env: dependencyEnv, integrations: {}, plugins: {} }
-        const hasDependencies = Object.keys(state.integrations).length > 0 || Object.keys(state.plugins).length > 0
-        if (hasDependencies) {
-          snapshotBasedDependencies = dependencyStateToDependencies(state)
+      const dependencyTarget = await this.resolveDependencySnapshotTarget(dependencyEnv)
+      if (!dependencyTarget) {
+        try {
+          await fs.access(snapshotStore.getSnapshotPath(dependencyEnv))
+          throw new DependencyError({
+            code: 'INVALID_CONFIG',
+            message:
+              `Cannot read .adk/dependencies/${dependencyEnv}.json without exact apiUrl, workspaceId, and botId authority. ` +
+              'Select an explicit target or repair the environment-specific link.',
+          })
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         }
-      } catch (err) {
-        this._warnings.push({
-          $type: 'ValidationError',
-          code: ValidationErrorCode.INVALID_DEPENDENCIES_SCHEMA,
-          severity: ValidationSeverity.WARNING,
-          message: `Could not read .adk/dependencies/${dependencyEnv}.json: ${(err as Error).message}. Refresh dependencies from Cloud; agent.config.ts dependencies is not used when a snapshot exists but is invalid.`,
-          file: `.adk/dependencies/${dependencyEnv}.json`,
-        })
-        dependencySnapshotReadFailed = true
+      } else {
+        const snapshot = await snapshotStore.read(dependencyTarget)
+        if (snapshot && (Object.keys(snapshot.integrations).length > 0 || Object.keys(snapshot.plugins).length > 0)) {
+          snapshotBasedDependencies = dependencyStateToDependencies(snapshot)
+        }
       }
 
       if (snapshotBasedDependencies) {
@@ -731,6 +824,7 @@ export class AgentProject {
         this._interfaces = []
       }
     } catch (error) {
+      if (error instanceof DependencyError) throw error
       const err = error as Error
       debug('loadConfig error: %O', err)
 
@@ -761,8 +855,59 @@ export class AgentProject {
     }
   }
 
+  private async resolveDependencySnapshotTarget(env: Environment): Promise<DependencySnapshotTarget | undefined> {
+    const explicit = this._options.configTarget
+    if (explicit) {
+      const credentials = explicit.credentials
+      if (explicit.environment !== env || !explicit.botId || !credentials) return undefined
+      return {
+        env,
+        apiUrl: credentials.apiUrl,
+        workspaceId: credentials.workspaceId,
+        botId: explicit.botId,
+      }
+    }
+
+    if (env === 'prod') {
+      const info = await readAgentInfo(this._path)
+      if (!info?.apiUrl || !info.workspaceId || !info.botId) return undefined
+      return { env, apiUrl: info.apiUrl, workspaceId: info.workspaceId, botId: info.botId }
+    }
+
+    const info = await readAgentLocalInfo(this._path)
+    if (!info?.devApiUrl || !info.devWorkspaceId || !info.devTargetBotId) return undefined
+    return {
+      env,
+      apiUrl: info.devApiUrl,
+      workspaceId: info.devWorkspaceId,
+      botId: info.devTargetBotId,
+    }
+  }
+
   private async loadAgentInfo(): Promise<void> {
     try {
+      const target = this._options.configTarget
+      if (target) {
+        if (target.credentials && target.botId) {
+          this._agentInfo = {
+            botId: target.botId,
+            workspaceId: target.credentials.workspaceId,
+            apiUrl: target.credentials.apiUrl,
+            ...(target.environment === 'dev'
+              ? {
+                  devId: target.runtimeBotId,
+                  devTargetBotId: target.botId,
+                  devApiUrl: target.credentials.apiUrl.replace(/\/+$/, ''),
+                  devWorkspaceId: target.credentials.workspaceId,
+                }
+              : {}),
+          }
+        } else {
+          this._agentInfo = undefined
+        }
+        return
+      }
+
       // Use the agent resolver to load agent.json (not required for basic project loading)
       const agentInfo = await resolveAgent(this._path, { required: false })
       this._agentInfo = agentInfo ?? undefined
@@ -902,7 +1047,7 @@ export class AgentProject {
   }
 
   private async loadAgentPrimitives(): Promise<void> {
-    // Set the ADK command in the runtime environment
+    // Set the internal generation mode in the runtime environment.
     if (this._options.adkCommand) {
       setAdkCommand(this._options.adkCommand)
     }

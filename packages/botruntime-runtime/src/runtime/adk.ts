@@ -24,13 +24,13 @@ function getStandaloneCognitive(): Cognitive {
     const token = process.env.BP_TOKEN || process.env.ADK_TOKEN
     if (!token) {
       throw new Error(
-        'No token found. Set BP_TOKEN or ADK_TOKEN environment variable, or run this script using "adk run".'
+        'No token found. Set BP_TOKEN or ADK_TOKEN, or run the agent with `brt dev`.'
       )
     }
 
     const botId = process.env.ADK_BOT_ID
     if (!botId) {
-      throw new Error('No bot ID found. Set ADK_BOT_ID environment variable, or run this script using "adk run".')
+      throw new Error('No bot ID found. Set BP_BOT_ID or ADK_BOT_ID, or run the agent with `brt dev`.')
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
@@ -76,7 +76,7 @@ interface IntegrationArray extends Array<Integration> {
 }
 
 /**
- * ADK Project API - provides typed access to all agent primitives
+ * Agent project API - provides typed access to all agent primitives
  */
 export interface Project {
   /** Agent configuration */
@@ -101,7 +101,7 @@ export interface Project {
 }
 
 /**
- * ADK API - runtime interface for agent development
+ * Agent runtime interface for agent development
  */
 export interface ADK {
   environment: typeof Environment
@@ -118,7 +118,7 @@ export interface ADK {
 }
 
 /**
- * ADK state stored in globalThis
+ * Agent runtime state stored in globalThis
  * @internal
  */
 interface ADKState {
@@ -138,7 +138,7 @@ interface ADKState {
 }
 
 /**
- * Get the ADK state singleton
+ * Get the agent runtime state singleton
  * @internal
  */
 const getState = () =>
@@ -159,13 +159,13 @@ const getState = () =>
   })
 
 /**
- * Initialize the ADK API
+ * Initialize the agent runtime API
  * @internal - Only called by generated runtime code
  */
 export function initialize(options: { config: Project['config'] }): void {
   const state = getState()
   if (state.initialized) {
-    throw new Error('ADK API already initialized')
+    throw new Error('Agent runtime API already initialized')
   }
 
   state.projectConfig = options.config
@@ -176,13 +176,13 @@ export function initialize(options: { config: Project['config'] }): void {
 }
 
 /**
- * Register a primitive with the ADK API
+ * Register a primitive with the agent runtime API
  * @internal - Only called by generated runtime code
  */
 export function register(...primitives: Definitions.Primitive[]): void {
   const state = getState()
   if (!state.initialized) {
-    throw new Error('ADK API not initialized. Call initialize() first.')
+    throw new Error('Agent runtime API not initialized. Call initialize() first.')
   }
 
   for (const primitive of primitives) {
@@ -217,13 +217,13 @@ export function register(...primitives: Definitions.Primitive[]): void {
 }
 
 /**
- * Register an integration with the ADK API
+ * Register an integration with the agent runtime API
  * @internal - Only called by generated runtime code
  */
 export function registerIntegration(props: { alias: string; definition: IntegrationPackage['definition'] }): void {
   const state = getState()
   if (!state.initialized) {
-    throw new Error('ADK API not initialized. Call initialize() first.')
+    throw new Error('Agent runtime API not initialized. Call initialize() first.')
   }
 
   state.primitives.integrations.push({
@@ -236,7 +236,7 @@ export function registerIntegration(props: { alias: string; definition: Integrat
 }
 
 /**
- * ADK API - provides typed access to project primitives and utilities
+ * Agent runtime API - provides typed access to project primitives and utilities
  */
 export const adk: ADK = {
   get environment() {
@@ -279,7 +279,7 @@ export const adk: ADK = {
   get project(): Project {
     const state = getState()
     if (!state.initialized || !state.projectConfig) {
-      throw new Error('ADK API not initialized')
+      throw new Error('Agent runtime API not initialized')
     }
 
     return {

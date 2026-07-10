@@ -8,7 +8,9 @@ import type { Dependencies } from './types.js'
  * The persisted snapshot is keyed by alias with `{ name, version, enabled, config }`.
  * The legacy `Dependencies` shape is keyed by alias with `{ version: "name@version", enabled, config }`.
  */
-export function dependencyStateToDependencies(state: DependencyStateData): Dependencies {
+export function dependencyStateToDependencies(
+  state: Pick<DependencyStateData, 'integrations' | 'plugins'>
+): Dependencies {
   const integrations: Dependencies['integrations'] = {}
   for (const [alias, entry] of Object.entries(state.integrations)) {
     integrations[alias] = {

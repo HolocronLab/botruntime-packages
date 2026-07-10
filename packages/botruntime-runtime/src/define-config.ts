@@ -114,6 +114,7 @@ const configSchema = z
     evals: z
       .object({
         idleTimeout: z.number().positive().optional(),
+        /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
         judgePassThreshold: z.number().int().min(1).max(5).optional(),
         /** Model to use for llm_judge assertions (e.g. 'openai:gpt-4o'). Defaults to 'fast'. */
         judgeModel: z.string().optional(),

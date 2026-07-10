@@ -13,7 +13,7 @@ const getEnvConfigCache = () =>
 
 /**
  * Try to get configuration from ADK_CONFIGURATION environment variable
- * This is set by `adk dev` and `adk run` commands
+ * This is set by the `brt` development/build process.
  */
 function getEnvConfig(): ConfigurationType | null {
   const cache = getEnvConfigCache()
@@ -33,7 +33,7 @@ function getEnvConfig(): ConfigurationType | null {
     cache.parsed = JSON.parse(envConfig) as ConfigurationType
     return cache.parsed
   } catch {
-    console.warn('[ADK] Failed to parse ADK_CONFIGURATION environment variable')
+    console.warn('[brt] Failed to parse ADK_CONFIGURATION environment variable')
     return null
   }
 }
@@ -48,14 +48,14 @@ function getConfig(): ConfigurationType | null {
     return contextConfig
   }
 
-  // Fall back to env variable (adk dev / adk run)
+  // Fall back to the compatibility env variable populated by brt.
   return getEnvConfig()
 }
 
 /**
  * Access the bot's configuration
  * Configuration is available both during request handling (from context)
- * and at module load time (from ADK_CONFIGURATION env var set by adk dev/run)
+ * and at module load time (from the ADK_CONFIGURATION compatibility env var set by brt)
  * Types are auto-generated from agent.config.ts configuration schema
  *
  * Note: Returns undefined for properties when configuration is not available

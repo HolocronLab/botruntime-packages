@@ -34,7 +34,7 @@ export const integrationDependencyEntrySchema = z.object({
    * (WS5/#7): set on every cloud refresh when the spec gates on an identifier
    * the cloud bot doesn't have yet; cleared the moment the identifier appears
    * (the user completed the connect flow). Lets the offline surfaces
-   * (`adk integrations status`, `adk check`, the deploy gate) report the same
+   * (offline readiness and the deploy gate) report the same
    * `unconfigured` verdict the codegen carrier bakes into the runtime, instead
    * of mapping enabled ⟹ available. Additive-optional like the fields above.
    */
@@ -68,6 +68,7 @@ export const integrationSnapshotEntrySchema = integrationDependencyEntrySchema.e
   cloudAlias: z.string().optional(),
   cloudId: z.string().optional(),
   updatedAt: z.string().optional(),
+  configurationRevision: z.string().optional(),
 })
 export type IntegrationSnapshotEntry = z.infer<typeof integrationSnapshotEntrySchema>
 
@@ -87,11 +88,36 @@ export const dependencyStateSchema = z.object({
 })
 export type DependencyStateData = z.infer<typeof dependencyStateSchema>
 
+export const dependencyTargetScopeSchema = z
+  .object({
+  apiUrl: z
+    .string()
+    .min(1)
+    .refine((value) => value === value.trim() && !value.endsWith('/'), {
+      message: 'apiUrl must be canonical (non-empty, trimmed, without trailing slash)',
+    }),
+  workspaceId: z
+    .string()
+    .min(1)
+    .refine((value) => value === value.trim(), { message: 'workspaceId must be a non-empty exact string' }),
+    botId: z
+      .string()
+      .min(1)
+      .refine((value) => value === value.trim(), { message: 'botId must be a non-empty exact string' }),
+  })
+  .strict()
+export type DependencyTargetScope = z.infer<typeof dependencyTargetScopeSchema>
+
+export const dependencySnapshotTargetSchema = dependencyTargetScopeSchema
+  .extend({ env: z.enum(['dev', 'prod']) })
+  .strict()
+export type DependencySnapshotTarget = z.infer<typeof dependencySnapshotTargetSchema>
+
 export const dependencySnapshotSchema = z.object({
   $schema: z.string().optional(),
-  version: z.literal(1),
+  version: z.literal(2),
   env: z.enum(['dev', 'prod']),
-  botId: z.string(),
+  target: dependencyTargetScopeSchema,
   fetchedAt: z.string(),
   botUpdatedAt: z.string().optional(),
   stale: z.boolean().optional(),
@@ -100,16 +126,125 @@ export const dependencySnapshotSchema = z.object({
 })
 export type DependencySnapshotData = z.infer<typeof dependencySnapshotSchema>
 
-export const dependencyMigrationMarkerSchema = z.object({
-  version: z.literal(1),
-  migratedAt: z.string(),
-  sources: z.array(z.enum(['lock', 'agentConfig', 'cloud'])),
-})
+const dependencyMigrationDigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/)
+const dependencyMigrationAliasListSchema = z
+  .array(z.string().min(1))
+  .refine((aliases) => aliases.every((alias, index) => index === 0 || aliases[index - 1]! < alias), {
+    message: 'migration aliases must be unique and sorted',
+  })
+
+export const dependencyMigrationProgressSchema = z
+  .object({
+    integrations: dependencyMigrationAliasListSchema,
+    plugins: dependencyMigrationAliasListSchema,
+  })
+  .strict()
+export type DependencyMigrationProgress = z.infer<typeof dependencyMigrationProgressSchema>
+
+export const dependencyMigrationSourceSchema = z
+  .object({
+    kind: z.enum(['agentConfig', 'lock']),
+    digest: dependencyMigrationDigestSchema,
+  })
+  .strict()
+export type DependencyMigrationSource = z.infer<typeof dependencyMigrationSourceSchema>
+
+const dependencyMigrationSourcesSchema = z
+  .array(dependencyMigrationSourceSchema)
+  .min(1)
+  .refine(
+    (sources) => sources.every((source, index) => index === 0 || sources[index - 1]!.kind < source.kind),
+    { message: 'migration sources must be unique and sorted by kind' }
+  )
+
+export const dependencyMigrationPlanSchema = z
+  .object({
+    digest: dependencyMigrationDigestSchema,
+    integrations: dependencyMigrationAliasListSchema,
+    plugins: dependencyMigrationAliasListSchema,
+  })
+  .strict()
+export type DependencyMigrationPlan = z.infer<typeof dependencyMigrationPlanSchema>
+
+export const dependencyMigrationPendingSchema = z
+  .object({
+    version: z.literal(2),
+    target: dependencySnapshotTargetSchema,
+    sources: dependencyMigrationSourcesSchema,
+    plan: dependencyMigrationPlanSchema,
+    completed: dependencyMigrationProgressSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict()
+  .refine(
+    (pending) =>
+      pending.completed.integrations.every((alias) => pending.plan.integrations.includes(alias)) &&
+      pending.completed.plugins.every((alias) => pending.plan.plugins.includes(alias)),
+    { message: 'completed migration aliases must be a subset of the immutable plan' }
+  )
+export type DependencyMigrationPending = z.infer<typeof dependencyMigrationPendingSchema>
+
+const dependencyMigrationProvenanceSchema = z.union([
+  z.object({ kind: z.literal('cloud') }).strict(),
+  z
+    .object({
+      kind: z.literal('legacy'),
+      sources: dependencyMigrationSourcesSchema,
+      planDigest: dependencyMigrationDigestSchema,
+    })
+    .strict(),
+])
+
+export const dependencyMigrationCompletionRecordSchema = z
+  .object({
+    target: dependencySnapshotTargetSchema,
+    runtimeBotId: z
+      .string()
+      .min(1)
+      .refine((value) => value === value.trim(), { message: 'runtimeBotId must be a non-empty exact string' })
+      .optional(),
+    provenance: dependencyMigrationProvenanceSchema,
+    plan: dependencyMigrationProgressSchema,
+    completed: dependencyMigrationProgressSchema,
+    completedAt: z.string().datetime(),
+  })
+  .strict()
+  .refine(
+    (record) =>
+      record.completed.integrations.length === record.plan.integrations.length &&
+      record.completed.plugins.length === record.plan.plugins.length &&
+      record.completed.integrations.every((alias, index) => alias === record.plan.integrations[index]) &&
+      record.completed.plugins.every((alias, index) => alias === record.plan.plugins[index]),
+    { message: 'a migration completion record must complete its entire plan' }
+  )
+  .refine((record) => record.runtimeBotId === undefined || record.target.env === 'dev', {
+    message: 'runtimeBotId evidence is valid only for a dev migration completion',
+  })
+export type DependencyMigrationCompletionRecord = z.infer<typeof dependencyMigrationCompletionRecordSchema>
+
+export const dependencyMigrationMarkerSchema = z
+  .object({
+    version: z.literal(2),
+    records: z
+      .object({
+        dev: dependencyMigrationCompletionRecordSchema.optional(),
+        prod: dependencyMigrationCompletionRecordSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .refine(
+    (marker) =>
+      (!marker.records.dev || marker.records.dev.target.env === 'dev') &&
+      (!marker.records.prod || marker.records.prod.target.env === 'prod'),
+    { message: 'migration record key must match target.env' }
+  )
 export type DependencyMigrationMarker = z.infer<typeof dependencyMigrationMarkerSchema>
 
 /**
  * A dependency's capability state plus its identity — the flat record surfaced
- * by `adk integrations status --format=json`, the deploy plan, and `adk check`.
+ * by offline readiness resolution, the deploy plan, and runtime generation.
  * Embeds the same {@link StatusVerdict} the runtime carrier uses so the build,
  * CLI, and runtime surfaces cannot disagree. Field names are a public contract.
  */

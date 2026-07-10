@@ -29,7 +29,7 @@ export class HttpLogExporter {
 
   export(entry: StructuredLogEntry): void {
     try {
-      postJsonToCli(this.cliUrl, '/v1/logs', JSON.stringify(entry))
+      void postJsonToCli(this.cliUrl, '/v1/logs', JSON.stringify(entry))
     } catch {
       // Silent — never let logging break the bot.
     }

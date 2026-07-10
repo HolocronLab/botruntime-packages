@@ -71,7 +71,7 @@ export const setup = (bot: BotImplementation) => {
 
       if (!handler) {
         logger.debug(
-          `Skipping event "${event.type}", no ADK Conversation listening to this event for channel "${handlerName}"`
+          `Skipping event "${event.type}", no agent conversation listens to this event for channel "${handlerName}"`
         )
         return
       }

@@ -3,15 +3,29 @@ import fs from 'fs/promises'
 import createDebug from 'debug'
 import type { Client } from '@holocronlab/botruntime-client'
 import { getProjectClient } from '../auth/index.js'
+import type { ServerConnectionCredentials } from '../auth/index.js'
 import { AgentProject, AgentProjectLoader } from '../agent-project/agent-project.js'
 import { ValidationError } from '../agent-project/types.js'
 import { ValidationErrors as RealValidationErrors } from '../agent-project/validation-errors.js'
+import { readAgentLocalInfo } from '../agent-project/agent-resolver.js'
+import { assertDevBotMatchesTarget, resolveDevBotTargetIdentity } from '../integrations/config-utils.js'
+import { AdkError } from '@holocronlab/botruntime-analytics'
 
 const debug = createDebug('adk:dev-id-manager')
 
 export interface ProjectCache {
   devId?: string
+  devTargetBotId?: string
+  devApiUrl?: string
+  devWorkspaceId?: string
   botId?: string
+}
+
+export interface ResolvedDevProjectCache {
+  devId: string
+  devTargetBotId: string
+  devApiUrl: string
+  devWorkspaceId: string
 }
 
 export interface ValidationErrorsLike {
@@ -21,6 +35,7 @@ export interface ValidationErrorsLike {
 export interface DevIdManagerOptions {
   loadAgentProject?: AgentProjectLoader
   validationErrors?: ValidationErrorsLike
+  credentials?: ServerConnectionCredentials
 }
 
 export class DevIdManager {
@@ -30,21 +45,31 @@ export class DevIdManager {
   private client?: Client
   private loadAgentProject: AgentProjectLoader
   private validationErrors: ValidationErrorsLike
+  private credentials?: ServerConnectionCredentials
 
   constructor(projectPath: string, botProjectPath: string, options: DevIdManagerOptions = {}) {
     this.projectPath = projectPath
     this.botProjectPath = botProjectPath
     this.projectCachePath = path.join(botProjectPath, '.botpress', 'project.cache.json')
-    this.loadAgentProject = options.loadAgentProject ?? ((p) => AgentProject.load(p))
+    this.loadAgentProject = options.loadAgentProject ?? ((p) => AgentProject.load(p, { offline: true }))
     this.validationErrors = options.validationErrors ?? RealValidationErrors
+    this.credentials = options.credentials
   }
 
   private async getClient(): Promise<Client> {
     if (!this.client) {
-      const project = await this.getProject()
+      if (!this.credentials) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: 'Checking a dev bot requires explicit token, apiUrl, and workspaceId credentials.',
+          expected: true,
+        })
+      }
 
       this.client = await getProjectClient({
-        project,
+        credentials: this.credentials,
+        apiUrl: this.credentials.apiUrl,
+        workspaceId: this.credentials.workspaceId,
         headers: {
           'x-multiple-integrations': 'true',
         },
@@ -96,13 +121,14 @@ export class DevIdManager {
   }
 
   async saveProjectCache(cache: ProjectCache): Promise<void> {
+    await fs.mkdir(path.dirname(this.projectCachePath), { recursive: true })
+    const temporaryPath = `${this.projectCachePath}.tmp-${process.pid}-${Date.now()}`
     try {
-      // Ensure directory exists
-      await fs.mkdir(path.dirname(this.projectCachePath), { recursive: true })
-
-      await fs.writeFile(this.projectCachePath, JSON.stringify(cache, null, 2))
+      await fs.writeFile(temporaryPath, JSON.stringify(cache, null, 2))
+      await fs.rename(temporaryPath, this.projectCachePath)
     } catch (error) {
-      console.error('Error saving project.cache.json:', error)
+      await fs.unlink(temporaryPath).catch(() => undefined)
+      throw error
     }
   }
 
@@ -120,45 +146,59 @@ export class DevIdManager {
 
       // Update agent.local.json with devId (not agent.json — avoids merge conflicts)
       await project.updateAgentLocalInfo({
-        devId: projectCache.devId,
+        ...(projectCache.devTargetBotId && projectCache.devApiUrl && projectCache.devWorkspaceId
+          ? {
+              devId: projectCache.devId,
+              devTargetBotId: projectCache.devTargetBotId,
+              devApiUrl: projectCache.devApiUrl.replace(/\/+$/, ''),
+              devWorkspaceId: projectCache.devWorkspaceId,
+            }
+          : {
+              devId: undefined,
+              devTargetBotId: undefined,
+              devApiUrl: undefined,
+              devWorkspaceId: undefined,
+            }),
       })
     }
   }
 
-  async restoreDevId(): Promise<void> {
-    // Read from agent.json using AgentProject
-    const project = await this.getProject()
-    const agentInfo = project.agentInfo
-
-    if (agentInfo?.devId || agentInfo?.botId) {
-      // Create project cache with the saved IDs
-      const cache: ProjectCache = {}
-
-      if (agentInfo.devId) {
-        cache.devId = agentInfo.devId
-      }
-
-      if (agentInfo.botId) {
-        cache.botId = agentInfo.botId
-      }
-
-      await this.saveProjectCache(cache)
-    }
+  async restoreDevId(target?: ResolvedDevProjectCache): Promise<void> {
+    // Generation already verified this exact pair. Re-reading merged agent metadata
+    // here could reintroduce a stale target, while bootstrap must clear any old pair.
+    await this.saveProjectCache(
+      target
+        ? { ...target, devApiUrl: target.devApiUrl.replace(/\/+$/, '') }
+        : {}
+    )
   }
 
   async checkDevBotExists(): Promise<boolean> {
-    const project = await this.getProject()
-    const agentInfo = project.agentInfo
+    const localInfo = await readAgentLocalInfo(this.projectPath)
 
-    // If we have a devId, check if the bot still exists
-    if (agentInfo?.devId) {
+    if (localInfo?.devId) {
+      const hasAnyScope = localInfo.devApiUrl !== undefined || localInfo.devWorkspaceId !== undefined
+      const scoped = Boolean(
+        localInfo.devApiUrl &&
+          localInfo.devWorkspaceId &&
+          this.credentials &&
+          localInfo.devApiUrl.replace(/\/+$/, '') === this.credentials.apiUrl.replace(/\/+$/, '') &&
+          localInfo.devWorkspaceId === this.credentials.workspaceId
+      )
+      if (hasAnyScope && !scoped) return false
+      const client = await this.getClient()
       try {
-        const client = await this.getClient()
-        await client.getBot({ id: agentInfo.devId })
-        // Bot exists
+        const { bot } = await client.getBot({ id: localInfo.devId })
+        if (scoped && localInfo.devTargetBotId) {
+          assertDevBotMatchesTarget(bot, {
+            botId: localInfo.devTargetBotId,
+            runtimeBotId: localInfo.devId,
+          })
+        } else {
+          resolveDevBotTargetIdentity(bot, localInfo.devId)
+        }
         return true
       } catch {
-        // Bot doesn't exist or error getting it
         return false
       }
     }

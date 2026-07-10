@@ -1,7 +1,7 @@
 /**
  * Virtual module for channel type definitions
  *
- * This module is populated by code generation from the ADK.
+ * This module is populated by brt code generation.
  * The actual types are declared in `.adk/runtime.d.ts` via module augmentation.
  */
 import type { Channels as C, ChannelSpec as CS } from '@holocronlab/botruntime-runtime/_types/channels'

@@ -10,36 +10,37 @@ import type { Logger } from './logger'
 // (<botPath>/.botpress/project.cache.json, see project-command.ts's
 // ProjectCache: { botId, devId, tunnelId, secrets }).
 //
-// CRITICAL BACKEND FACT: in this fork the dev bot's id === the tunnel id (the
-// server derives ext_id from the last path segment of the tunnel URL). So
-// reusing a dev bot across `brt dev` runs requires the CLASSIC dev's
-// `tunnelId` (project-command.ts / dev-command.ts run(), which builds the
-// tunnel URL) to equal the persisted `devId` — otherwise a same devId with a
-// different tunnelId mints a fresh dev bot on the server.
+// CRITICAL IDENTITY FACT: opaque `devId` is the runtime/tunnel id, while
+// `devTargetBotId` is the separate positive numeric control-plane id. The
+// numeric id is valid only beside the exact opaque id the server verified;
+// neither value may be substituted for the other or carried across a change
+// of opaque runtime id.
 //
-// Every call to generateBotProject() (i.e. every adkBundle.generateAgentBot)
-// runs the ADK generator's own DevIdManager.restoreDevId() as a side effect,
-// which — whenever agent.local.json has a devId or botId — OVERWRITES
-// <botPath>/.botpress/project.cache.json with ONLY `{ devId, botId }`,
-// dropping any existing `tunnelId`/`secrets`. restoreDevTunnelId() repairs
-// that immediately after generation: it sets tunnelId = devId in the nested
-// cache so the classic dev's tunnelId read sees a match.
+// Resolved dev generation receives an already server-verified
+// `{ devId, devTargetBotId }` pair. Bootstrap generation writes an empty cache,
+// so an unverified pair cannot survive there. The ADK DevIdManager overwrites
+// <botPath>/.botpress/project.cache.json with that exact state, dropping
+// transient `tunnelId`/`secrets` fields.
+// restoreDevTunnelId() repairs the tunnel field immediately after generation
+// so the classic dev reads the opaque runtime id as its tunnel id.
 //
 // preserveDevId() runs the other direction: after the classic dev's own run()
-// has (re)deployed and cached a (possibly newly-minted) `devId` into the
-// nested project cache, it copies that id back out to the agent project's
-// agent.local.json so the NEXT `brt dev` run's initial generate has a devId
-// to restore in the first place.
+// has cached the runtime identity in the nested project cache, it copies the
+// pair back to agent.local.json. A cache with a new devId but no verified
+// devTargetBotId explicitly clears the previous numeric target, forcing the
+// next server operation to resolve it again instead of creating a split pair.
 //
 // Both helpers are best-effort dev-session PERSISTENCE, not correctness paths
 // for the live tunnel/session: an IO hiccup here must never kill an otherwise
-// working `brt dev` — it only means the next run mints a fresh dev bot, which
-// is exactly today's (pre-Stage-2a) behavior. So every failure is caught and
-// logged at debug level, never thrown.
+// working `brt dev`. Every failure is caught and logged at debug level, never
+// thrown.
 
 interface NestedProjectCache {
   botId?: string
   devId?: string
+  devTargetBotId?: string
+  devApiUrl?: string
+  devWorkspaceId?: string
   tunnelId?: string
   secrets?: Record<string, string>
 }
@@ -76,8 +77,33 @@ export function restoreDevTunnelId(botPath: string, logger?: Pick<Logger, 'debug
   try {
     const cache = readNestedProjectCache(botPath)
     if (!cache.devId) return
-    if (cache.tunnelId === cache.devId) return
-    writeNestedProjectCache(botPath, { ...cache, tunnelId: cache.devId })
+    const agentDir = path.dirname(path.dirname(botPath))
+    const local = agentLink.readAgentLocalInfo(agentDir)
+    const cacheHasScope = Boolean(
+      cache.devTargetBotId && cache.devApiUrl && cache.devWorkspaceId
+    )
+    const localHasMatchingScope = Boolean(
+      local.devId === cache.devId &&
+        local.devTargetBotId &&
+        local.devApiUrl &&
+        local.devWorkspaceId
+    )
+    const source = cacheHasScope ? cache : localHasMatchingScope ? local : undefined
+    const updated: NestedProjectCache = {
+      ...cache,
+      tunnelId: cache.devId,
+    }
+    if (source?.devTargetBotId && source.devApiUrl && source.devWorkspaceId) {
+      updated.devTargetBotId = source.devTargetBotId
+      updated.devApiUrl = source.devApiUrl.replace(/\/+$/, '')
+      updated.devWorkspaceId = source.devWorkspaceId
+    } else {
+      delete updated.devTargetBotId
+      delete updated.devApiUrl
+      delete updated.devWorkspaceId
+    }
+    if (JSON.stringify(updated) === JSON.stringify(cache)) return
+    writeNestedProjectCache(botPath, updated)
   } catch (thrown) {
     const err = errors.BotpressCLIError.wrap(thrown, 'agent dev: restoreDevTunnelId failed (non-fatal)')
     logger?.debug(err.message)
@@ -93,7 +119,17 @@ export function preserveDevId(agentDir: string, botPath: string, logger?: Pick<L
   try {
     const cache = readNestedProjectCache(botPath)
     if (!cache.devId) return
-    agentLink.writeAgentLocalDevId(agentDir, cache.devId)
+    if (cache.devTargetBotId && cache.devApiUrl && cache.devWorkspaceId) {
+      agentLink.writeAgentLocalDevTarget(
+        agentDir,
+        cache.devId,
+        cache.devTargetBotId,
+        cache.devApiUrl,
+        cache.devWorkspaceId
+      )
+    } else {
+      agentLink.writeAgentLocalDevTarget(agentDir, undefined, undefined, undefined, undefined)
+    }
   } catch (thrown) {
     const err = errors.BotpressCLIError.wrap(thrown, 'agent dev: preserveDevId failed (non-fatal)')
     logger?.debug(err.message)

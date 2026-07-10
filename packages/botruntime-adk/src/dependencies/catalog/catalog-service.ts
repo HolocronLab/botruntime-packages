@@ -1,5 +1,9 @@
 import { AdkError } from '@holocronlab/botruntime-analytics'
-import { ResolutionCache, type ResolutionCacheConfig } from './resolution-cache.js'
+import {
+  ResolutionCache,
+  type CatalogCacheAuthority,
+  type ResolutionCacheConfig,
+} from './resolution-cache.js'
 
 /** A catalog ref always carries a name + version, and optionally a workspace scope. */
 export interface CatalogRef {
@@ -45,13 +49,17 @@ export class CatalogService<TDef, TRef extends CatalogRef = CatalogRef> {
 
   constructor(
     private readonly source: CatalogSource<TDef, TRef>,
-    noCache: boolean = false
+    noCache: boolean = false,
+    authority?: CatalogCacheAuthority,
+    private readonly validateAuthority?: () => Promise<void>,
+    cacheDisabled: boolean = false
   ) {
-    this.cache = new ResolutionCache<TDef>(source.cacheConfig, noCache)
+    this.cache = new ResolutionCache<TDef>({ ...source.cacheConfig, authority, disabled: cacheDisabled }, noCache)
   }
 
   /** Fetch a definition by ref, preferring the cache (resolution → definition). */
   async getDefinition(ref: TRef): Promise<TDef> {
+    await this.validateAuthority?.()
     // Level 1: version-resolution cache (name@version → id + updatedAt).
     const cachedResolution = await this.cache.getResolution(ref.name, ref.version, ref.workspace)
     if (cachedResolution) {

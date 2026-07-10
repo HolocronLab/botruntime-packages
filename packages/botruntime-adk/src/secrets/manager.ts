@@ -45,7 +45,7 @@ export class SecretsManager {
         message: `The local secrets store at ${this.storePath} is not valid JSON.`,
         expected: true,
         suggestion:
-          'Fix the JSON by hand, or delete the file and re-enter your secrets with `adk secrets set` (local secret values will be lost).',
+          'Fix the JSON by hand, or delete the legacy local store and recreate it through the embedding API (local secret values will be lost; no supported CLI command rebuilds this file).',
         cause: err,
       })
     }
@@ -60,7 +60,7 @@ export class SecretsManager {
         message: `The local secrets store at ${this.storePath} has an unexpected shape (expected { dev, prod }).`,
         expected: true,
         suggestion:
-          'Fix the JSON by hand, or delete the file and re-enter your secrets with `adk secrets set` (local secret values will be lost).',
+          'Fix the JSON by hand, or delete the legacy local store and recreate it through the embedding API (local secret values will be lost; no supported CLI command rebuilds this file).',
       })
     }
     return parsed as SecretsStore

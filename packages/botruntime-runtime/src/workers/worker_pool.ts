@@ -575,7 +575,7 @@ export class WorkerPool {
 
       case 'ready':
         // The worker has loaded the bot bundle, installed its message handler,
-        // and completed ADK runtime setup. Only now is it safe to dispatch work:
+        // and completed agent runtime setup. Only now is it safe to dispatch work:
         // cold-start latency should count as queue time, not as an ack timeout.
         if (workerInfo.status === 'starting') {
           debugLog(`[WorkerPool] Worker ${workerId} is ready`)
@@ -1163,7 +1163,7 @@ export class WorkerPool {
       `  Peak queue depth: ${memStats.peakQueueDepth}`,
       '',
       'Memory:',
-      `  Process RSS (whole bp dev): ${mb(memStats.mainThread.rss)}`,
+      `  Process RSS (whole brt dev): ${mb(memStats.mainThread.rss)}`,
       `  Main-thread isolate heap: ${mb(memStats.mainThread.heapUsed)} / ${mb(memStats.mainThread.heapTotal)}`,
       `  Per-worker isolate heap (heapTotal): ${
         memStats.workers

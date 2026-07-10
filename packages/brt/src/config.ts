@@ -26,7 +26,7 @@ const noBuild = {
 
 const dryRun = {
   type: 'boolean',
-  description: 'Ask the API not to perform the actual operation',
+  description: 'Ask the API not to perform the actual operation (classic deploy only; --adk rejects this flag)',
   default: false,
 } as const satisfies CommandOption
 
@@ -63,7 +63,7 @@ const botRef = {
 const packageRef = {
   type: 'string',
   description:
-    'The package ID or name with optional version. The package can be either an integration or an interface. Ex: teams, teams@0.2.0, llm@5.1.0',
+    'The package ID or name with optional version for classic-project bpDependencies. It can be an integration, interface, or plugin. Ex: teams@0.2.0, llm@5.1.0',
   positional: true,
   idx: 0,
 } satisfies CommandOption
@@ -110,14 +110,21 @@ const watch = {
   default: true,
 } satisfies CommandOption
 
-// bespoke cloudapi wire (brt config/secret/link) — see src/api/cloudapi-client.ts
-// and src/cloud-project-link.ts. Kept separate from the Botpress-shaped `botRef` /
-// `credentialsSchema` above: this addresses a bot via the bot.json/bot.local.json
-// link file + a per-bot key in bots.json, not via --token/--workspace-id.
+const deployWatch = {
+  type: 'boolean',
+  description: 'Continuously rebuild and deploy an ADK agent when source files change (requires --adk)',
+  default: false,
+} satisfies CommandOption
+
+// Cloud-backed bot commands (brt config/secret/link) — see
+// src/api/cloudapi-client.ts and src/cloud-project-link.ts. Agent projects use
+// agent.json/agent.local.json as canonical coordinates; classic projects use
+// bot.json/bot.local.json. Production mutations authenticate with the per-bot
+// key in bots.json rather than --token/--workspace-id.
 
 const cloudBotIdOverride = {
   type: 'string',
-  description: 'The bot ID to target (overrides the linked bot.json/bot.local.json)',
+  description: 'The bot ID to target (overrides the canonical project link)',
 } satisfies CommandOption
 
 const cloudConfigVarName = {
@@ -134,13 +141,20 @@ const cloudValueFile = {
 
 const cloudLocal = {
   type: 'boolean',
-  description: 'Use bot.local.json instead of bot.json for the bot link',
+  description: 'Use the local project link (agent.local.json for agent projects; bot.local.json for classic)',
   default: false,
 } satisfies CommandOption
 
-// brt logs — GET /v1/admin/bots/{id}/logs (machine-key admin endpoint, NOT the
-// per-bot key). timeStart is required server-side; `since` defaults client-side
-// to now-1h so a bare `brt logs` works with no args (see logs-command.ts).
+const cloudDevTarget = {
+  type: 'boolean',
+  description:
+    'Target the cached dev bot through the workspace PAT (orthogonal to --local, which selects the stack/link)',
+  default: false,
+} satisfies CommandOption
+
+// brt logs — GET /v1/admin/bots/{id}/logs with the selected workspace/profile
+// PAT, not the per-bot key. timeStart is required server-side; `since` defaults
+// client-side to now-1h so a bare `brt logs` works (see logs-command.ts).
 
 const cloudLogsSince = {
   type: 'string',
@@ -181,7 +195,8 @@ const cloudLogsLimit = {
 
 const cloudIntegrationRef = {
   type: 'string',
-  description: 'The integration name with an optional version, e.g. telegram or telegram@0.0.1',
+  description:
+    'Integration reference in name@version form; version is required and must be an exact SemVer (for example telegram@1.1.3)',
   positional: true,
   idx: 0,
   demandOption: true,
@@ -285,23 +300,33 @@ const deploySchema = {
   ...projectSchema,
   ...credentialsSchema,
   ...secretsSchema,
+  token: {
+    ...token,
+    description: 'Personal Access Token for classic deploy; --adk rejects this flag and uses the selected profile',
+  },
+  workspaceId: {
+    ...workspaceId,
+    description: 'Workspace for classic deploy; --adk rejects this flag and uses the selected profile',
+  },
   botId: {
     type: 'string',
     description:
-      'The bot ID to deploy (Botpress-shaped deploy), or an override for the linked bot.json/bot.local.json botId (--adk deploy)',
+      'The bot ID to deploy, or an override for the canonical project link (brt deploy --adk)',
   },
-  // --adk gates the bespoke-cloudapi-wire ADK-bundle deploy path (ported from
-  // the (deleted) thin brt CLI's commands/deploy.ts), added ALONGSIDE the
-  // Botpress-shaped deploy above: it targets a bot.json/bot.local.json-linked
-  // bot via CloudapiClient (PUT /v1/admin/bots/{id}) instead of the
-  // @holocronlab/botruntime-client ApiClient. See deploy-command.ts.
+  // --adk gates the ADK-bundle deploy path alongside classic deploy. Agent
+  // projects resolve agent.json/agent.local.json through CloudapiClient
+  // (PUT /v1/admin/bots/{id}); see deploy-command.ts.
   adk: {
     type: 'boolean',
-    description: 'Deploy via the bespoke cloudapi ADK-bundle wire (bot.json-linked bot) instead of the default deploy',
+    description: 'Generate, bundle, and deploy an agent project to its canonical target',
     default: false,
   },
-  local: cloudLocal,
-  name: { type: 'string', description: 'Bot name (--adk deploy only; defaults to the bot ID)' },
+  watch: deployWatch,
+  local: {
+    ...cloudLocal,
+    description: 'For --adk, use the strict local agent link; classic deploy does not use this flag',
+  },
+  name: { type: 'string', description: 'Bot name (brt deploy --adk only; defaults to the bot ID)' },
   noBuild,
   dryRun,
   createNewBot: {
@@ -371,20 +396,24 @@ const devSchema = {
     default: false,
     alias: 'nsc',
   },
-  // --adk gates the ADK agent dev loop (bespoke cloudapi wire), added ALONGSIDE
-  // the classic tunnel/worker dev server above: watch -> force rebuild -> `brt
-  // deploy --adk` -> the runtime-host supervisor hot-swaps the running child on
-  // its next poll (see dev-command.ts _runAdkDev). Auto-detected when the
-  // project directory contains agent.config.ts, so this flag mostly matters for
-  // scripts that want to be explicit or force the branch.
-  adk: {
+  check: {
     type: 'boolean',
-    description: 'Run the ADK agent dev loop (bespoke cloudapi wire) instead of the classic tunnel/worker dev server',
+    description:
+      'Check a previously migrated dev target and dependency snapshot without starting the dev server',
     default: false,
   },
-  // --local threads through to the underlying `brt deploy --adk` so the dev loop
-  // targets the bot.local.json link (local runtime-host + cloudapi stack) rather
-  // than bot.json. Only meaningful with --adk; ignored by the classic dev path.
+  // One-release compatibility guard only. Dev has exactly one successful
+  // semantic: the dev-bot/tunnel path. The implementation rejects this flag
+  // before build or network work and points callers to deploy --adk --watch.
+  adk: {
+    type: 'boolean',
+    description: 'Deprecated: use brt deploy --adk --watch for the cloud redeploy loop',
+    default: false,
+    hidden: true,
+    deprecated: true,
+  },
+  // Also selects the local link during `brt dev --check`; legacy
+  // `brt dev --adk --local` is still stopped by the --adk migration guard.
   local: cloudLocal,
 } satisfies CommandSchema
 
@@ -617,21 +646,25 @@ const cloudProjectSchema = {
 
 const cloudConfigSetSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   name: { ...cloudConfigVarName, demandOption: true },
   valueFile: cloudValueFile,
 } satisfies CommandSchema
 
 const cloudConfigListSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
 } satisfies CommandSchema
 
 const cloudConfigRmSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   name: { ...cloudConfigVarName, demandOption: true },
 } satisfies CommandSchema
 
 const cloudSecretSetSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   name: { ...cloudConfigVarName, demandOption: true },
   valueFile: cloudValueFile,
 } satisfies CommandSchema
@@ -652,15 +685,16 @@ const cloudLinkSchema = {
     description: 'Read the per-bot API key from stdin',
     default: false,
   },
-  workspaceId,
+  workspaceId: {
+    ...workspaceId,
+    description: 'The workspace ID to store in the canonical project link',
+  },
 } satisfies CommandSchema
 
 // brt logs [--bot-id] [--since] [--until] [--level] [--grep] [--conversation-id]
-// [--follow] [--limit] — GET /v1/admin/bots/{id}/logs on the bespoke cloudapi
-// wire, authenticated with the MACHINE key (profile.token), not the per-bot key
-// (see cloud-command.ts machineCloudapiClient vs botCloudapiClient). Botid
-// resolution mirrors the other cloud-project commands: --bot-id overrides the
-// linked bot.json/bot.local.json.
+// [--follow] [--limit] — GET /v1/admin/bots/{id}/logs, authenticated with the
+// selected workspace/profile PAT rather than the per-bot key. Bot ID resolution
+// mirrors other cloud-project commands: --bot-id overrides the canonical link.
 const logsSchema = {
   ...cloudProjectSchema,
   since: cloudLogsSince,
@@ -681,6 +715,7 @@ const logsSchema = {
 
 const cloudIntegrationInstallSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   ref: cloudIntegrationRef,
   alias: { type: 'string', description: 'Alias for this integration installation (defaults to the integration name)' },
   configFile: cloudConfigFile,
@@ -689,6 +724,7 @@ const cloudIntegrationInstallSchema = {
 
 const cloudIntegrationRegisterSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   webhookId: cloudWebhookId,
 } satisfies CommandSchema
 

@@ -42,22 +42,28 @@ export type Dependencies = z.infer<typeof dependenciesSchema>
 
 // Shared project link schema (agent.json). This is the production target only.
 export const agentInfoSchema = z.object({
-  botId: z.string().describe('The bot ID from Botpress deployment'),
-  workspaceId: z.string().describe('The workspace ID where the bot is deployed'),
-  apiUrl: z.string().optional().describe('The Botpress API URL (e.g., https://api.botpress.cloud)'),
+  botId: z.string().trim().min(1).describe('The bot ID from Botpress deployment'),
+  workspaceId: z.string().trim().min(1).describe('The workspace ID where the bot is deployed'),
+  apiUrl: z.string().trim().min(1).optional().describe('The Botpress API URL (e.g., https://api.botpress.cloud)'),
 })
 
 export type AgentLink = z.infer<typeof agentInfoSchema>
 export type AgentInfo = AgentLink & {
   devId?: string
+  devTargetBotId?: string
+  devApiUrl?: string
+  devWorkspaceId?: string
 }
 
 // Agent local info schema (for agent.local.json — gitignored, per-developer overrides)
 export const agentLocalInfoSchema = z.object({
-  botId: z.string().optional().describe('The bot ID (overrides agent.json for local development)'),
-  workspaceId: z.string().optional().describe('The workspace ID (overrides agent.json for local development)'),
-  apiUrl: z.string().optional().describe('The Botpress API URL (overrides agent.json for local development)'),
-  devId: z.string().optional().describe('The development bot ID used during local development'),
+  botId: z.string().trim().min(1).optional().describe('The bot ID (overrides agent.json for local development)'),
+  workspaceId: z.string().trim().min(1).optional().describe('The workspace ID (overrides agent.json for local development)'),
+  apiUrl: z.string().trim().min(1).optional().describe('The Botpress API URL (overrides agent.json for local development)'),
+  devId: z.string().trim().min(1).optional().describe('The development bot ID used during local development'),
+  devTargetBotId: z.string().trim().min(1).optional().describe('The numeric development control-plane bot ID'),
+  devApiUrl: z.string().trim().min(1).optional().describe('The canonical API URL that scopes the cached dev target'),
+  devWorkspaceId: z.string().trim().min(1).optional().describe('The workspace ID that scopes the cached dev target'),
 })
 export type AgentLocalInfo = z.infer<typeof agentLocalInfoSchema>
 

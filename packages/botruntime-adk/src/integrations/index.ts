@@ -3,6 +3,13 @@ export type { IntegrationManagerOptions } from './manager.js'
 export { IntegrationParser } from '../agent-project/dependencies-parser.js'
 export { IntegrationCache } from './cache.js'
 export type { HubCacheEntry, HubCacheData } from './hub-cache.js'
-export { mergeIntegrationConfig, fetchServerIntegrationConfigs, fetchServerPluginConfigs } from './config-utils.js'
-export type { FetchServerConfigsResult, FetchServerPluginConfigsResult } from './config-utils.js'
+export {
+  assertServerConfigTarget,
+  assertDevBotMatchesTarget,
+  verifyServerConfigTarget,
+  mergeIntegrationConfig,
+  fetchServerIntegrationConfigs,
+  fetchServerPluginConfigs,
+} from './config-utils.js'
+export type { FetchServerConfigsResult, FetchServerPluginConfigsResult, ServerConfigTarget } from './config-utils.js'
 export * from './types.js'

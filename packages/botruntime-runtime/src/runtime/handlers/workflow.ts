@@ -46,7 +46,7 @@ export const setup = (bot: BotImplementation) => {
         const workflowDefinition = adk.project.workflows.find((w) => w.name === workflow.name)
 
         if (!workflowDefinition?._handler) {
-          const reason = `No ADK Workflow handler found for "${workflow.name}"`
+          const reason = `No agent workflow handler found for "${workflow.name}"`
           console.warn(reason)
           s.setAttribute('handler', false)
           s.setAttribute('workflow.status.final', 'failed')

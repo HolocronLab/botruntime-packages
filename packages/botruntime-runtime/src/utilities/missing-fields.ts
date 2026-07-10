@@ -3,7 +3,7 @@
  * Cloud (e.g. `InvalidDataFormatError`) and returns the missing field names.
  * Returns `null` when the error is not a missing-required-fields validation error.
  *
- * This is the single shared matcher used by both the build/CLI side (the ADK
+ * This is the single shared matcher used by both the build/CLI side (the brt
  * `DependencyManager`, which parses the install-time error to record
  * `missingFields`) and the runtime side (the integration/plugin action proxies,
  * which use it as a call-time drift backstop to normalize an opaque SDK config

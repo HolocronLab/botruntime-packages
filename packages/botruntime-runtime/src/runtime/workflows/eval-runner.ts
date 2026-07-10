@@ -1,12 +1,23 @@
 import { BaseWorkflow } from '../../primitives/workflow'
 import { z } from '@holocronlab/botruntime-sdk'
 import { context } from '../context/context'
-import type { EvalDefinition, EvalManifest, EvalRunnerConfig } from '@holocronlab/botruntime-evals'
+import type {
+  EvalDefinition,
+  EvalManifest,
+  EvalRunnerConfig,
+  EvalRunReport,
+} from '@holocronlab/botruntime-evals'
 import { EVAL_MANIFEST_TAGS, EVAL_MANIFEST_SCHEMA_VERSION } from '@holocronlab/botruntime-evals'
-import { runEvalSuite } from '@holocronlab/botruntime-evals/runner'
-import { VortexEvalStore } from '@holocronlab/botruntime-evals/stores/vortex'
+import { runEvalSuite, validateEvalCapabilities } from '@holocronlab/botruntime-evals/runner'
+import { filterEvals } from '@holocronlab/botruntime-evals/loader'
+import {
+  VortexEvalStore,
+  validateHostedEvalDefinitions,
+} from '@holocronlab/botruntime-evals/stores/vortex'
 import { VortexSpanSource } from '@holocronlab/botruntime-evals/spans'
 import type { Client } from '@holocronlab/botruntime-client'
+import { resolveEvalExecutionEnvironment } from './eval-environment'
+import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 
 async function loadEvalManifest(
   client: Client
@@ -48,6 +59,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       .optional(),
     runType: z.enum(['scheduled', 'manual']).optional().default('scheduled'),
     idleTimeout: z.number().optional(),
+    /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
     judgePassThreshold: z.number().optional(),
     judgeModel: z.string().optional(),
   }),
@@ -75,17 +87,13 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       throw new Error('Chat client is required to run evals.')
     }
 
-    const botId = context.get('botId')
-    const apiUrl = process.env.BP_API_URL
-    const token = process.env.BP_TOKEN || process.env.ADK_TOKEN
-    const workspaceId = process.env.BP_WORKSPACE_ID || process.env.ADK_WORKSPACE_ID
-
-    if (!apiUrl) {
-      throw new Error('BP_API_URL is required to run production evals.')
-    }
-
-    const vortexUrl = apiUrl.replace(/\/+$/, '')
-    const chatBaseUrl = apiUrl.replace(/\/+$/, '').replace('://api.', '://chat.')
+    const { apiUrl, token, runtimeBotId, development } = resolveEvalExecutionEnvironment(
+      process.env,
+      context.get('botId')
+    )
+    const botId = runtimeBotId
+    const vortexUrl = apiUrl
+    const chatBaseUrl = apiUrl.replace('://api.', '://chat.')
 
     const {
       evals: definitions,
@@ -107,10 +115,44 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
         }
       : undefined
 
+    const filteredDefinitions = filterEvals(definitions, filter)
+    if (filteredDefinitions.length === 0) {
+      throw new Error('No eval definitions matched the requested filter.')
+    }
+    validateHostedEvalDefinitions(filteredDefinitions)
+
+    const createSpanSource = () =>
+      new VortexSpanSource(
+        development
+          ? {
+              mode: 'bot',
+              url: vortexUrl,
+              token,
+              development: true,
+              runtimeBotId,
+            }
+          : {
+              mode: 'bot',
+              url: vortexUrl,
+              token,
+              development: false,
+            }
+      )
+
+    await step('preflight-eval-reader', async () => {
+      const source = createSpanSource()
+      try {
+        validateEvalCapabilities(filteredDefinitions, source.capabilities)
+        await source.assertReadable()
+      } finally {
+        source.disconnect()
+      }
+    })
+
     const evalStore = new VortexEvalStore({
       url: vortexUrl,
-      ...(workspaceId ? { workspaceId } : {}),
-      ...(token ? { token } : {}),
+      token,
+      development,
       ...(evalManifestId ? { evalManifestId } : {}),
       botId,
     })
@@ -121,78 +163,56 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     // only appeared at the very end, watchRun would report the PREVIOUS run
     // instead — surfacing stale or mismatched results in the runner view.
     const vortexRunId = await step('create-run', () =>
-      evalStore.createRun(input.runType ?? 'scheduled', { workflowId: workflow.id })
+      evalStore.createRun(input.runType ?? 'scheduled', {
+        workflowId: workflow.id,
+        definitions: filteredDefinitions,
+      })
     )
 
-    // Builds each entry up as the suite runs (start → append per turn → finalize)
-    // via the dedicated lifecycle endpoints, so the dev console can stream
-    // turn-by-turn progress. Requires the matching Vortex endpoints.
-    const entryIds = new Map<string, string>() // evalName → server entry id
+    const hostedLifecycle = new HostedEvalLifecycle(evalStore, vortexRunId, filteredDefinitions, signal)
 
     const config: EvalRunnerConfig = {
       client: sdkClient,
       botId,
-      definitions,
+      definitions: filteredDefinitions,
       chatClient,
       ...(chatWebhookId ? { chatWebhookId } : {}),
       chatBaseUrl,
-      createSpanSource: () =>
-        new VortexSpanSource({
-          url: vortexUrl,
-          ...(workspaceId ? { workspaceId } : {}),
-          ...(token ? { token } : {}),
-          botId,
-        }),
+      createSpanSource,
+      sourcePreflighted: true,
       evalOptions: {
         idleTimeout: input.idleTimeout ?? 300_000,
         ...(input.judgePassThreshold !== undefined ? { judgePassThreshold: input.judgePassThreshold } : {}),
         ...(input.judgeModel !== undefined ? { judgeModel: input.judgeModel } : {}),
       },
       // Ingest into Vortex as the suite runs so the dev console can stream live
-      // progress. Best-effort: a transient ingest failure for one event is
-      // logged, not thrown, so it can't abort the whole suite (the entry/turn is
-      // simply absent until the next run).
-      onProgress: async (event) => {
-        try {
-          if (event.type === 'eval_start') {
-            const def = definitions.find((d) => d.name === event.evalName)
-            const entryId = await evalStore.startEntry(vortexRunId, {
-              evalName: event.evalName,
-              ...(def?.type ? { evalType: def.type } : {}),
-              ...(def?.description ? { description: def.description } : {}),
-              ...(def?.tags ? { tags: def.tags } : {}),
-            })
-            entryIds.set(event.evalName, entryId)
-          } else if (event.type === 'turn_complete') {
-            const entryId = entryIds.get(event.evalName)
-            if (entryId) await evalStore.appendTurnResults(vortexRunId, entryId, event.turnReport)
-          } else if (event.type === 'eval_complete') {
-            const entryId = entryIds.get(event.evalName)
-            if (entryId) {
-              await evalStore.appendOutcomeResults(vortexRunId, entryId, event.report.outcomeAssertions)
-              await evalStore.finalizeEntry(vortexRunId, entryId, {
-                passed: event.report.pass,
-                durationMs: event.report.duration,
-                ...(event.report.error !== undefined ? { error: event.report.error } : {}),
-              })
-            }
-          }
-        } catch (err) {
-          console.error('[eval-runner] live ingest failed', {
-            type: event.type,
-            error: err instanceof Error ? err.message : String(err),
-          })
-        }
-      },
+      // progress. Failures are never swallowed: the final reconciliation can
+      // replay identical writes, while the outer lifecycle safely terminalizes
+      // an execution that cannot be reconciled.
+      onProgress: (event) => hostedLifecycle.onProgress(event),
       signal,
     }
 
-    const report = await step('run-evals', () => runEvalSuite(config, filter))
+    let report: EvalRunReport
+    try {
+      report = await step('run-evals', () => runEvalSuite(config))
+    } catch (error) {
+      return hostedLifecycle.terminalizeFailure(error, step)
+    }
 
-    // Entries were started/appended/finalized incrementally via onProgress;
-    // flip the run to its terminal status via the dedicated /complete endpoint.
-    const hasRunError = report.aborted === true || report.evals.some((e) => e.error !== undefined)
-    await step('complete-run', () => evalStore.markRunComplete(vortexRunId, { failed: hasRunError }))
+    try {
+      await hostedLifecycle.reconcileForCompletion(report, step)
+    } catch (error) {
+      return hostedLifecycle.terminalizeFailure(error, step)
+    }
+
+    const completion = hostedLifecycle.completionOf(report)
+    // Keep completion outside the failure-reclassification catch. A network
+    // error here is ambiguous (the server may already be terminal); retrying
+    // with a different terminal verdict could create a divergent 409.
+    await step('complete-run', () =>
+      evalStore.markRunComplete(vortexRunId, completion)
+    )
 
     return {
       runId: vortexRunId,

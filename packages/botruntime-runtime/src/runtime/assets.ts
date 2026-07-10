@@ -95,8 +95,7 @@ export const assets = {
         warnedAssets.add(path)
         console.warn(
           `⚠️  Asset "${path}" has never been synced with Botpress.\n` +
-            `   The asset will not be accessible until you run "adk deploy" to upload it.\n` +
-            `   To sync assets without deploying, run "adk assets sync".`
+            `   The asset will not be accessible until you run "brt deploy --adk" to upload it.`
         )
       } else if (isAssetStale(path)) {
         warnedAssets.add(path)
@@ -104,7 +103,7 @@ export const assets = {
         console.warn(
           `⚠️  Asset "${path}" is out of sync with your local file.\n` +
             `   Local file has changed (hash: ${localHash?.substring(0, 8)}...) but the synced version is being used.\n` +
-            `   Run "adk assets sync" to upload the latest version.`
+            `   Run "brt deploy --adk" to upload the latest version.`
         )
       }
     }
@@ -153,7 +152,7 @@ export const assets = {
   },
 
   /**
-   * Internal method for ADK to update asset URLs after deployment
+   * Internal method for generated runtime code to update asset URLs after deployment
    * @internal
    */
   _updateMetadata(updates: Record<string, Partial<Asset>>) {

@@ -34,17 +34,25 @@ describe('adk-dev-id', () => {
 
   describe('restoreDevTunnelId', () => {
     it('sets tunnelId = devId when the nested cache has a devId but no matching tunnelId', () => {
-      // Mirrors what @holocronlab/botruntime-adk's DevIdManager.restoreDevId()
-      // leaves behind: only { devId, botId }, tunnelId dropped.
+      // Legacy nested caches may contain only the opaque identity. Repairing
+      // the tunnel must not invent a numeric control-plane target.
       writeNestedCache(botPath, { devId: 'dev_abc', botId: 'bot_1' })
 
       adkDevId.restoreDevTunnelId(botPath)
 
-      expect(readNestedCache(botPath)).toEqual({ devId: 'dev_abc', botId: 'bot_1', tunnelId: 'dev_abc' })
+      expect(readNestedCache(botPath)).toEqual({
+        devId: 'dev_abc',
+        botId: 'bot_1',
+        tunnelId: 'dev_abc',
+      })
     })
 
     it('preserves other cache fields (e.g. secrets) while repairing tunnelId', () => {
-      writeNestedCache(botPath, { devId: 'dev_abc', botId: 'bot_1', secrets: { FOO: 'bar' } })
+      writeNestedCache(botPath, {
+        devId: 'dev_abc',
+        botId: 'bot_1',
+        secrets: { FOO: 'bar' },
+      })
 
       adkDevId.restoreDevTunnelId(botPath)
 
@@ -71,7 +79,10 @@ describe('adk-dev-id', () => {
     it('is a no-op when tunnelId already equals devId', () => {
       writeNestedCache(botPath, { devId: 'dev_abc', tunnelId: 'dev_abc' })
       adkDevId.restoreDevTunnelId(botPath)
-      expect(readNestedCache(botPath)).toEqual({ devId: 'dev_abc', tunnelId: 'dev_abc' })
+      expect(readNestedCache(botPath)).toEqual({
+        devId: 'dev_abc',
+        tunnelId: 'dev_abc',
+      })
     })
 
     it('fails soft on invalid JSON in the nested cache instead of throwing', () => {
@@ -79,15 +90,54 @@ describe('adk-dev-id', () => {
       fs.writeFileSync(nestedCachePath(botPath), '{not json')
       expect(() => adkDevId.restoreDevTunnelId(botPath)).not.toThrow()
     })
+
+    it('does not attach a stale numeric target when the nested runtime id changed', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(agentDir),
+        JSON.stringify({ devId: 'runtime-a', devTargetBotId: '42' })
+      )
+      writeNestedCache(botPath, { devId: 'runtime-b' })
+
+      adkDevId.restoreDevTunnelId(botPath)
+
+      expect(readNestedCache(botPath)).toEqual({
+        devId: 'runtime-b',
+        tunnelId: 'runtime-b',
+      })
+    })
+
+    it('restores the complete scoped tuple from agent.local only when the runtime id matches', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(agentDir),
+        JSON.stringify({
+          devId: 'shared-runtime',
+          devTargetBotId: '42',
+          devApiUrl: 'https://cloud.example',
+          devWorkspaceId: 'cloud_ws',
+        })
+      )
+      writeNestedCache(botPath, { devId: 'shared-runtime', botId: 'prod_bot' })
+
+      adkDevId.restoreDevTunnelId(botPath)
+
+      expect(readNestedCache(botPath)).toEqual({
+        devId: 'shared-runtime',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+        botId: 'prod_bot',
+        tunnelId: 'shared-runtime',
+      })
+    })
   })
 
   describe('preserveDevId', () => {
-    it('writes the nested cache devId to agent.local.json', () => {
+    it('does not persist an unscoped nested devId to agent.local.json', () => {
       writeNestedCache(botPath, { devId: 'dev_new', tunnelId: 'dev_new' })
 
       adkDevId.preserveDevId(agentDir, botPath)
 
-      expect(agentLink.getAgentDevId(agentDir)).toBe('dev_new')
+      expect(agentLink.getAgentDevId(agentDir)).toBeUndefined()
     })
 
     it('is a no-op when the nested cache has no devId', () => {
@@ -101,13 +151,81 @@ describe('adk-dev-id', () => {
       expect(agentLink.getAgentDevId(agentDir)).toBeUndefined()
     })
 
-    it('overwrites a previously persisted devId with a newly minted one', () => {
-      agentLink.writeAgentLocalDevId(agentDir, 'dev_old')
+    it('clears a previously persisted quartet when the nested runtime has no verified scope', () => {
+      agentLink.writeAgentLocalDevTarget(agentDir, 'dev_old', '41', 'https://old.example', 'old_ws')
       writeNestedCache(botPath, { devId: 'dev_new' })
 
       adkDevId.preserveDevId(agentDir, botPath)
 
-      expect(agentLink.getAgentDevId(agentDir)).toBe('dev_new')
+      expect(agentLink.getAgentDevId(agentDir)).toBeUndefined()
+    })
+
+    it('persists devTargetBotId beside the opaque devId without overwriting the production botId', () => {
+      fs.writeFileSync(
+        agentLink.agentInfoFilePath(agentDir),
+        JSON.stringify({ botId: 'prod_bot', workspaceId: 'ws_1' })
+      )
+      writeNestedCache(botPath, {
+        devId: 'dev_opaque',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+        tunnelId: 'dev_opaque',
+        botId: 'prod_bot',
+      })
+
+      adkDevId.preserveDevId(agentDir, botPath)
+
+      expect(agentLink.readAgentLocalInfo(agentDir)).toEqual({
+        devId: 'dev_opaque',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+      })
+      expect(agentLink.readAgentLocalInfo(agentDir)).not.toHaveProperty('botId')
+      expect(agentLink.readAgentInfoIfPresent(agentDir)?.botId).toBe('prod_bot')
+    })
+
+    it('persists the complete nested target scope without dropping any quartet field', () => {
+      writeNestedCache(botPath, {
+        devId: 'dev_opaque',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+        tunnelId: 'dev_opaque',
+      })
+
+      adkDevId.preserveDevId(agentDir, botPath)
+
+      expect(agentLink.readAgentLocalInfo(agentDir)).toEqual({
+        devId: 'dev_opaque',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+      })
+    })
+
+    it('clears the stale numeric target when a new opaque devId has no verified target', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(agentDir),
+        JSON.stringify({
+          workspaceId: 'ws_local',
+          apiUrl: 'http://127.0.0.1:8787',
+          devId: 'runtime-a',
+          devTargetBotId: '42',
+        })
+      )
+      writeNestedCache(botPath, {
+        devId: 'runtime-b',
+        tunnelId: 'runtime-b',
+      })
+
+      adkDevId.preserveDevId(agentDir, botPath)
+
+      expect(agentLink.readAgentLocalInfo(agentDir)).toEqual({
+        workspaceId: 'ws_local',
+        apiUrl: 'http://127.0.0.1:8787',
+      })
     })
   })
 
@@ -115,17 +233,47 @@ describe('adk-dev-id', () => {
     it('reuses the same devId/tunnelId on the second run', () => {
       // Run 1: nested cache starts fresh; classic dev mints a devId and sets
       // tunnelId itself (via project-command.ts), independent of these helpers.
-      writeNestedCache(botPath, { devId: 'dev_reused', tunnelId: 'dev_reused' })
+      writeNestedCache(botPath, {
+        devId: 'dev_reused',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+        tunnelId: 'dev_reused',
+      })
       adkDevId.preserveDevId(agentDir, botPath)
       expect(agentLink.getAgentDevId(agentDir)).toBe('dev_reused')
 
-      // Between runs: the ADK generator's restoreDevId() would overwrite the
-      // nested cache with only { devId, botId }, dropping tunnelId.
+      // A legacy/bootstrap nested cache may retain the opaque id while losing
+      // the transient tunnel field between runs.
       writeNestedCache(botPath, { devId: 'dev_reused', botId: 'bot_1' })
 
       // Run 2: restoreDevTunnelId repairs tunnelId before the classic dev reads it.
       adkDevId.restoreDevTunnelId(botPath)
-      expect(readNestedCache(botPath)).toEqual({ devId: 'dev_reused', botId: 'bot_1', tunnelId: 'dev_reused' })
+      expect(readNestedCache(botPath)).toEqual({
+        devId: 'dev_reused',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+        botId: 'bot_1',
+        tunnelId: 'dev_reused',
+      })
+    })
+
+    it('does not restore an unscoped numeric target from agent.local', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(agentDir),
+        JSON.stringify({ devId: 'dev_opaque', devTargetBotId: '42' })
+      )
+      writeNestedCache(botPath, { devId: 'dev_opaque', botId: 'prod_bot' })
+
+      adkDevId.restoreDevTunnelId(botPath)
+
+      expect(readNestedCache(botPath)).toEqual({
+        devId: 'dev_opaque',
+        botId: 'prod_bot',
+        tunnelId: 'dev_opaque',
+      })
+      expect(agentLink.readAgentLocalInfo(agentDir)).not.toHaveProperty('botId')
     })
   })
 })

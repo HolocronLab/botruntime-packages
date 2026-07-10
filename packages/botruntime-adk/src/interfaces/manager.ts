@@ -22,9 +22,13 @@ export class InterfaceManager {
 
   constructor(options: InterfaceManagerOptions = {}) {
     const { noCache, ...clientOptions } = options
+    const clientFactory = new CatalogClientFactory(clientOptions)
     this.service = new CatalogService(
-      new InterfaceCatalogSource(new CatalogClientFactory(clientOptions)),
-      noCache || false
+      new InterfaceCatalogSource(clientFactory),
+      noCache || !clientFactory.hasCacheAuthority,
+      clientFactory.cacheAuthority,
+      () => clientFactory.validateAuthority(),
+      !clientFactory.hasCacheAuthority
     )
   }
 

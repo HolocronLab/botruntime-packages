@@ -184,7 +184,7 @@ export namespace Errors {
           ? `Provide the required configuration (${status.missingFields.join(', ')}) for ${kind} "${alias}" in the Botpress Control Panel, then redeploy.`
           : `Configure ${kind} "${alias}" (authorization or credentials) in the Botpress Control Panel, then redeploy.`
       case 'not_installed':
-        return `${kind} "${alias}" is declared but its module is not synced. Run \`adk build\` (or \`adk dev\`) to install it.`
+        return `${kind} "${alias}" is declared but its module is not synced. Run \`brt dev\` or \`brt deploy --adk\` to reconcile agent dependencies.`
       case 'disabled':
         return `${kind} "${alias}" is disabled. Enable it in agent.config.ts or the Botpress Control Panel.`
       case 'unresolved':

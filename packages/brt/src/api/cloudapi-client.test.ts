@@ -65,7 +65,9 @@ describe('CloudapiClient', () => {
 
   it('retries an idempotent call on 5xx up to 3 attempts, then succeeds', async () => {
     stubFetch((_call, attempt) =>
-      attempt < 3 ? new Response('boom', { status: 503 }) : new Response(JSON.stringify({ variables: [] }), { status: 200 })
+      attempt < 3
+        ? new Response('boom', { status: 503 })
+        : new Response(JSON.stringify({ variables: [] }), { status: 200 })
     )
     const client = new CloudapiClient('https://cloud.example', 'my-key')
 
@@ -139,17 +141,143 @@ describe('CloudapiClient', () => {
     expect(headers['x-bot-id']).toBe('3')
   })
 
+  it('getDevBotTarget resolves the opaque dev id under the exact PAT workspace without x-bot-id', async () => {
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            bot: {
+              id: 'tunnel-opaque',
+              dev: true,
+              tags: { 'botruntime.devTargetBotId': '42' },
+            },
+          }),
+          { status: 200 }
+        )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    const response = await client.getDevBotTarget('tunnel-opaque', 'ws_123')
+
+		expect(response.bot.tags!['botruntime.devTargetBotId']).toBe('42')
+    const [call] = calls
+    expect(call!.url).toBe('https://cloud.example/v1/admin/bots/tunnel-opaque')
+    expect(call!.init.method).toBe('GET')
+    const headers = call!.init.headers as Record<string, string>
+    expect(headers['authorization']).toBe('Bearer brt_pat_xxx')
+    expect(headers['x-workspace-id']).toBe('ws_123')
+    expect(headers['x-bot-id']).toBeUndefined()
+  })
+
+  it('getDevBotTarget performs exactly one HTTP GET even when readiness is unavailable', async () => {
+    stubFetch(() => new Response('unavailable', { status: 503 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await expect(client.getDevBotTarget('tunnel-opaque', 'ws_123')).rejects.toThrow(errors.HTTPError)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.init.method).toBe('GET')
+  })
+
+  it('workspace config methods use the nested human route and never x-bot-id', async () => {
+    stubFetch((call) => {
+      if (call.init.method === 'GET') return new Response(JSON.stringify({ variables: [] }), { status: 200 })
+      return new Response('{}', { status: 200 })
+    })
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await client.setWorkspaceConfigVar('ws_123', '42', 'FOO', 'bar')
+    await client.listWorkspaceConfigVars('ws_123', '42')
+    await client.deleteWorkspaceConfigVar('ws_123', '42', 'FOO')
+
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
+      ['PUT', 'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/config-variables/FOO'],
+      ['GET', 'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/config-variables'],
+      ['DELETE', 'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/config-variables/FOO'],
+    ])
+    for (const call of calls) {
+      const headers = call.init.headers as Record<string, string>
+      expect(headers['authorization']).toBe('Bearer brt_pat_xxx')
+      expect(headers['x-bot-id']).toBeUndefined()
+      expect(headers['x-workspace-id']).toBeUndefined()
+    }
+  })
+
+  it('workspace integration install/register uses human routes and does not expose a webhook secret', async () => {
+    stubFetch((call) => {
+      if (call.init.method === 'POST' && call.url.endsWith('/integrations')) {
+        return new Response(
+          JSON.stringify({
+            installationId: '7',
+            webhookId: 'wh_dev',
+            status: 'pending',
+          }),
+          { status: 200 }
+        )
+      }
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 'registered',
+          webhookUrl: 'https://hooks/wh_dev',
+        }),
+        {
+          status: 200,
+        }
+      )
+    })
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    const installed = await client.installWorkspaceIntegration('ws_123', '42', 'telegram', '0.0.1', {
+      botToken: 'sealed-server-side',
+    })
+    const registered = await client.registerWorkspaceIntegration('ws_123', '42', 'wh_dev')
+
+    expect(installed).toEqual({
+      installationId: '7',
+      webhookId: 'wh_dev',
+      status: 'pending',
+    })
+    expect(installed).not.toHaveProperty('webhookSecret')
+    expect(registered).toMatchObject({ ok: true, status: 'registered' })
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations',
+      'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations/wh_dev/register',
+    ])
+    for (const call of calls) {
+      expect((call.init.headers as Record<string, string>)['x-bot-id']).toBeUndefined()
+    }
+  })
+
   it('integration publish catalog calls send x-workspace-id under a workspace PAT', async () => {
     stubFetch((call) => {
       if (call.url.endsWith('/v1/admin/integration-definitions') && call.init.method === 'GET') {
-        return new Response(JSON.stringify({ definitions: [] }), { status: 200 })
+        return new Response(JSON.stringify({ definitions: [] }), {
+          status: 200,
+        })
       }
       if (call.url.endsWith('/v1/admin/integrations/publish-bundle')) {
-        return new Response(JSON.stringify({ integrationId: 1, versionId: 2, contentHash: 'hash' }), { status: 200 })
+        return new Response(
+          JSON.stringify({
+            integrationId: 1,
+            versionId: 2,
+            contentHash: 'hash',
+          }),
+          { status: 200 }
+        )
       }
-      return new Response(JSON.stringify({ id: 1, name: 'telegram', version: '1.0.0', configSchema: {}, visibility: 'private' }), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify({
+          id: 1,
+          name: 'telegram',
+          version: '1.0.0',
+          configSchema: {},
+          visibility: 'private',
+        }),
+        {
+          status: 200,
+        }
+      )
     })
     const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
 
@@ -176,12 +304,21 @@ describe('CloudapiClient', () => {
     stubFetch(
       () =>
         new Response(
-          JSON.stringify({ id: 1, name: 'telegram', version: '1.0.0', configSchema: {}, visibility: 'private' }),
+          JSON.stringify({
+            id: 1,
+            name: 'telegram',
+            version: '1.0.0',
+            configSchema: {},
+            visibility: 'private',
+          }),
           { status: 200 }
         )
     )
     const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
-    const network = { providerHosts: ['api.telegram.org'], ingressRelayed: true }
+    const network = {
+      providerHosts: ['api.telegram.org'],
+      ingressRelayed: true,
+    }
 
     await client.createIntegrationDefinition('telegram', '1.0.0', {}, 'ws_123', network)
     await client.updateIntegrationDefinition(1, 'telegram', '1.0.0', {}, 'ws_123', network)
@@ -205,14 +342,32 @@ describe('CloudapiClient', () => {
   it('integration publish catalog calls omit x-workspace-id when none is passed', async () => {
     stubFetch((call) => {
       if (call.url.endsWith('/v1/admin/integration-definitions') && call.init.method === 'GET') {
-        return new Response(JSON.stringify({ definitions: [] }), { status: 200 })
+        return new Response(JSON.stringify({ definitions: [] }), {
+          status: 200,
+        })
       }
       if (call.url.endsWith('/v1/admin/integrations/publish-bundle')) {
-        return new Response(JSON.stringify({ integrationId: 1, versionId: 2, contentHash: 'hash' }), { status: 200 })
+        return new Response(
+          JSON.stringify({
+            integrationId: 1,
+            versionId: 2,
+            contentHash: 'hash',
+          }),
+          { status: 200 }
+        )
       }
-      return new Response(JSON.stringify({ id: 1, name: 'telegram', version: '1.0.0', configSchema: {}, visibility: 'private' }), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify({
+          id: 1,
+          name: 'telegram',
+          version: '1.0.0',
+          configSchema: {},
+          visibility: 'private',
+        }),
+        {
+          status: 200,
+        }
+      )
     })
     const client = new CloudapiClient('https://cloud.example', 'bot-key')
 
@@ -232,7 +387,13 @@ describe('CloudapiClient', () => {
     stubFetch(
       () =>
         new Response(
-          JSON.stringify({ id: 1, name: 'yadisk', version: '0.1.0', configSchema: {}, visibility: 'private' }),
+          JSON.stringify({
+            id: 1,
+            name: 'yadisk',
+            version: '0.1.0',
+            configSchema: {},
+            visibility: 'private',
+          }),
           { status: 200 }
         )
     )

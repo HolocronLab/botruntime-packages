@@ -171,7 +171,7 @@ export class Agent0CognitiveCatalogSource implements Agent0ProviderCatalogSource
           {
             code: 'CATALOG_SOURCE_UNAVAILABLE',
             source: this.id,
-            message: 'Botpress Cognitive model catalog is unavailable',
+            message: 'Holocron Cognitive model catalog is unavailable',
           },
         ],
       }

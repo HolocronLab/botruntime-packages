@@ -231,7 +231,7 @@ const ConversationHandlerSpan = {
     ...optional('messageId', 'userId', 'event.payload', 'message.payload', 'message.type'),
     'handler.matched': {
       type: 'boolean',
-      description: 'False when no ADK Conversation matched the incoming channel and the message was skipped',
+      description: 'False when no agent conversation matched the incoming channel and the message was skipped',
       title: 'Handler Matched',
     },
   },

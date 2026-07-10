@@ -6,6 +6,7 @@
  */
 
 import type { EvalDefinition as _EvalDefinition } from './definition'
+import type { EvalErrorCode } from './errors'
 
 export {
   Eval,
@@ -23,8 +24,8 @@ export {
   type NumericOperator,
 } from './definition'
 
-export type { Span, SpanStatus } from './spans/trace'
-export type { WaitOptions, WorkflowWaitOptions } from './spans/span-source'
+export type { Span, SpanStatus, TraceMetadata } from './spans/trace'
+export type { SpanSourceCapabilities, WaitOptions, WorkflowWaitOptions } from './spans/span-source'
 import type { SpanSource } from './spans/span-source'
 export type { SpanSource }
 
@@ -87,7 +88,7 @@ export interface EvalReport {
   duration: number
   error?: string
   /** Stable EvalErrorCode when `error` came from a typed EvalRunnerError — lets consumers distinguish setup/config failures from bot failures. */
-  errorCode?: string
+  errorCode?: EvalErrorCode
 }
 
 // --- Progress event for real-time UI updates ---
@@ -177,7 +178,7 @@ export interface EvalRunnerConfig {
   devServerHeaders?: Record<string, string>
   /**
    * Optional host-provided chat client. The CLI passes its bundled chat client
-   * here so the eval engine does not depend on @botpress/adk.
+   * here so the eval engine does not depend on the brt CLI package.
    */
   chatClient?: ChatClient
   onProgress?: (event: EvalProgressEvent) => void | Promise<void>
@@ -199,13 +200,19 @@ export interface EvalRunnerConfig {
   /** Bot-level eval options from agent.config.ts. Cascades: eval > agent config > default. */
   evalOptions?: {
     idleTimeout?: number
-    /** LLM judge pass threshold (integer, 1-5). Values outside this range are clamped. Cascades: eval > agent config > default (3). */
+    /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
     judgePassThreshold?: number
     /** Model to use for llm_judge assertions (e.g. 'openai:gpt-4o'). Defaults to 'fast'. */
     judgeModel?: string
   }
   /** Factory for creating span sources. Each eval gets its own instance. Defaults to LocalSpanSource (SSE from dev server). */
   createSpanSource?: () => SpanSource
+  /**
+   * Trusted-host handoff: the host has already authenticated this span source
+   * before creating the externally visible eval run. Capability validation is
+   * still performed; only the duplicate reader-auth probe is skipped.
+   */
+  sourcePreflighted?: boolean
   /** Externally-provided run ID. When set, the runner uses this instead of generating its own. */
   runId?: string
   /** Pre-resolved chat integration webhook ID. Skips the getBot() discovery call when provided. */

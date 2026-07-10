@@ -46,4 +46,16 @@ describe('cloud-project-link', () => {
     fs.writeFileSync(path.join(dir, 'bot.json'), '{not json')
     expect(() => cloudLink.loadLinkIfPresent(dir, 'prod')).toThrow(/not valid JSON/)
   })
+
+  it('rejects an unsafe legacy botId before it can target a rounded bot', () => {
+    fs.writeFileSync(path.join(dir, 'bot.json'), '{"botId":9007199254740993,"workspaceId":7}')
+
+    expect(() => cloudLink.loadLinkIfPresent(dir, 'prod')).toThrow(/bot\.json.*botId.*safe integer/i)
+  })
+
+  it('rejects an unsafe legacy workspaceId at the read boundary', () => {
+    fs.writeFileSync(path.join(dir, 'bot.json'), '{"botId":42,"workspaceId":9007199254740993}')
+
+    expect(() => cloudLink.loadLinkIfPresent(dir, 'prod')).toThrow(/bot\.json.*workspaceId.*safe integer/i)
+  })
 })

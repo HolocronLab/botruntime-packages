@@ -7,6 +7,12 @@ import { BatchSpanProcessor, SimpleSpanProcessor } from '@opentelemetry/sdk-trac
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { HttpSpanExporter } from './http-span-exporter'
 import { FilteredSpanProcessor } from './filtered-span-processor'
+import {
+  CloudSafeSpanExporter,
+  VORTEX_EXPORTED_SPANS,
+  cloudTraceHeaders,
+  resolveCloudTraceEnvironment,
+} from './cloud-safe-span'
 import { shutdownLogging } from './logging'
 import { AsyncLocalStorageContextManager } from './context-manager'
 import { installHttpClientInstrumentation } from './instrument-http'
@@ -17,18 +23,19 @@ import { getSingleton } from '../runtime/singletons'
 // OpenTelemetry Setup
 // ============================================================================
 
-let spanProcessors: SpanProcessor[] = []
-let httpExporter: HttpSpanExporter | null = null
-let vortexSpanProcessor: SpanProcessor | null = null
+const spanProcessors: SpanProcessor[] = []
 
 if (Environment.isDevelopment()) {
   // Internal custom exporter → CLI span ingest server (auto-negotiated port)
   const spanIngestUrl = process.env.ADK_SPAN_INGEST_URL
-  if (!spanIngestUrl) {
-    console.warn('[tracing] ADK_SPAN_INGEST_URL is not set — HttpSpanExporter disabled')
-  } else {
-    httpExporter = new HttpSpanExporter(spanIngestUrl)
-    spanProcessors.push(httpExporter)
+  if (spanIngestUrl) {
+    try {
+      spanProcessors.push(new HttpSpanExporter(spanIngestUrl))
+    } catch (error) {
+      console.warn(
+        `[tracing] local span exporter disabled: ${error instanceof Error ? error.message : 'invalid loopback URL'}`
+      )
+    }
   }
 
   // Standard OTLP exporter → external tools (Jaeger, otel-tui, etc.)
@@ -40,39 +47,37 @@ if (Environment.isDevelopment()) {
   }
 }
 
-const VORTEX_EXPORTED_SPANS = new Set([
-  'request.incoming',
-  'handler.conversation',
-  'handler.event',
-  'handler.trigger',
-  'handler.workflow',
-  'autonomous.execution',
-  'autonomous.iteration',
-  'autonomous.tool',
-  'chat.sendMessage',
-  'state.saveAllDirty',
-  'state.save',
-  'cognitive.request',
-])
-
 const environmentInfo = getEnvironmentInfo()
 const botName = process.env.BP_BOT_NAME || process.env.ADK_BOT_NAME
-const botId = process.env.BP_BOT_ID || process.env.ADK_BOT_ID
+const cloudTraceEnvironment = resolveCloudTraceEnvironment(process.env)
+const botId = cloudTraceEnvironment.runtimeBotId
 const workspaceId = process.env.BP_WORKSPACE_ID || process.env.ADK_WORKSPACE_ID
 
 // Production OTLP exporter → Vortex → managed ClickStack.
-const bpApiUrl = process.env.BP_API_URL
-const bpToken = process.env.BP_TOKEN || process.env.ADK_TOKEN
+const bpApiUrl = cloudTraceEnvironment.apiUrl
+const bpToken = cloudTraceEnvironment.token
 if (bpApiUrl) {
   const base = bpApiUrl.replace(/\/+$/, '')
-  const vortexExporter = new OTLPTraceExporter({
-    url: `${base}/v1/ingestion/traces/bot`,
-    headers: {
-      ...(bpToken ? { Authorization: `Bearer ${bpToken}` } : {}),
-    },
-  })
-  vortexSpanProcessor = new FilteredSpanProcessor(new SimpleSpanProcessor(vortexExporter), VORTEX_EXPORTED_SPANS)
-  spanProcessors.push(vortexSpanProcessor)
+  try {
+    const headers = cloudTraceHeaders({
+      token: bpToken,
+      development: Environment.isDevelopment(),
+      runtimeBotId: botId,
+    })
+    const vortexExporter = new CloudSafeSpanExporter(
+      new OTLPTraceExporter({
+        url: `${base}/v1/ingestion/traces/bot`,
+        headers,
+      })
+    )
+    const vortexSpanProcessor = new FilteredSpanProcessor(
+      new SimpleSpanProcessor(vortexExporter),
+      VORTEX_EXPORTED_SPANS
+    )
+    spanProcessors.push(vortexSpanProcessor)
+  } catch (error) {
+    console.warn(`[tracing] managed trace exporter disabled: ${error instanceof Error ? error.message : 'invalid auth'}`)
+  }
 }
 const resource = resourceFromAttributes({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- spreading environment info into resource attributes
@@ -103,7 +108,7 @@ if (!Environment.isCommand()) {
   })
 }
 
-export const tracer = _trace.getTracer('adk', '1.0.0')
+export const tracer = _trace.getTracer('brt', '1.0.0')
 
 // ============================================================================
 // Silent Tracing
@@ -143,8 +148,6 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
     await provider.forceFlush()
     await provider.shutdown().catch(() => {})
-    await httpExporter?.shutdown().catch(() => {})
-    await vortexSpanProcessor?.shutdown().catch(() => {})
     await shutdownLogging().catch(() => {})
     process.exit(0)
   })

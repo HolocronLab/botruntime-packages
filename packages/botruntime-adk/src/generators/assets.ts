@@ -1,7 +1,58 @@
 import { createFile } from '../utils/fs.js'
 import { defaultAdkFolder } from '../const.js'
 import path from 'path'
-import { AssetsManager, AssetsCacheManager } from '../assets/index.js'
+import { AssetsManager, AssetsCacheManager, type AssetsCacheScope } from '../assets/index.js'
+import type { ServerConnectionCredentials } from '../auth/index.js'
+import { AdkError } from '@holocronlab/botruntime-analytics'
+
+export interface GenerateAssetsRuntimeOptions {
+  dev?: boolean
+  credentials?: ServerConnectionCredentials
+  cacheScope?: AssetsCacheScope
+  failOnRemoteFetchError?: boolean
+}
+
+function resolveAssetsGenerationScope(
+  botId: string | undefined,
+  dev: boolean,
+  credentials?: ServerConnectionCredentials,
+  scope?: AssetsCacheScope
+): AssetsCacheScope | undefined {
+  const expectedEnvironment = dev ? 'dev' : 'prod'
+  const targetBotId = botId?.trim() || undefined
+  const scopeBotId = scope?.botId?.trim() || undefined
+  if (scope && (scope.environment !== expectedEnvironment || scopeBotId !== targetBotId)) {
+    throw new AdkError({
+      code: 'INVALID_ASSET_CACHE_SCOPE',
+      message: 'Asset cache scope must match the generation environment and target bot ID.',
+      expected: true,
+    })
+  }
+
+  const normalizedApiUrl = credentials?.apiUrl.replace(/\/+$/, '')
+  if (
+    credentials &&
+    ((scope?.apiUrl && scope.apiUrl.replace(/\/+$/, '') !== normalizedApiUrl) ||
+      (scope?.workspaceId && scope.workspaceId !== credentials.workspaceId))
+  ) {
+    throw new AdkError({
+      code: 'INVALID_ASSET_CACHE_SCOPE',
+      message: 'Asset cache authority must match the selected API URL and workspace.',
+      expected: true,
+    })
+  }
+
+  if (!scope && !credentials) return undefined
+  return {
+    environment: expectedEnvironment,
+    ...(targetBotId ? { botId: targetBotId } : {}),
+    ...(credentials
+      ? { apiUrl: normalizedApiUrl!, workspaceId: credentials.workspaceId }
+      : scope?.apiUrl && scope.workspaceId
+        ? { apiUrl: scope.apiUrl.replace(/\/+$/, ''), workspaceId: scope.workspaceId }
+        : {}),
+  }
+}
 
 export async function generateAssetsTypes(projectPath: string): Promise<void> {
   const assetsManager = new AssetsManager({ projectPath })
@@ -17,10 +68,17 @@ export async function generateAssetsTypes(projectPath: string): Promise<void> {
 export async function generateAssetsRuntime(
   projectPath: string,
   botId?: string,
-  options?: { dev?: boolean }
+  options?: GenerateAssetsRuntimeOptions
 ): Promise<void> {
-  const assetsManager = new AssetsManager({ projectPath, botId })
   const dev = options?.dev ?? false
+  const cacheScope = resolveAssetsGenerationScope(botId, dev, options?.credentials, options?.cacheScope)
+  const assetsManager = new AssetsManager({
+    projectPath,
+    botId,
+    credentials: options?.credentials,
+    cacheScope,
+    failOnRemoteFetchError: options?.failOnRemoteFetchError,
+  })
 
   // Get enriched assets with remote metadata when available
   const enrichedAssets = await assetsManager.getEnrichedLocalAssets()
@@ -30,7 +88,7 @@ export async function generateAssetsRuntime(
   const localHashesMap: Record<string, string> = {}
 
   // Read cache to get local hashes
-  const cacheManager = new AssetsCacheManager(projectPath)
+  const cacheManager = new AssetsCacheManager(projectPath, { scope: cacheScope })
   const cache = await cacheManager.load()
 
   for (const asset of enrichedAssets) {
@@ -98,12 +156,23 @@ if (typeof globalThis !== 'undefined') {
   await createFile(runtimePath, runtimeCode)
 }
 
-export async function initAssets(projectPath: string, botId?: string, options?: { dev?: boolean }): Promise<void> {
-  const assetsManager = new AssetsManager({ projectPath, botId })
+export async function initAssets(
+  projectPath: string,
+  botId?: string,
+  options?: GenerateAssetsRuntimeOptions
+): Promise<void> {
+  const cacheScope = resolveAssetsGenerationScope(botId, options?.dev ?? false, options?.credentials, options?.cacheScope)
+  const assetsManager = new AssetsManager({
+    projectPath,
+    botId,
+    credentials: options?.credentials,
+    cacheScope,
+    failOnRemoteFetchError: options?.failOnRemoteFetchError,
+  })
 
   if (await assetsManager.hasAssetsDirectory()) {
     await generateAssetsTypes(projectPath)
-    await generateAssetsRuntime(projectPath, botId, options)
+    await generateAssetsRuntime(projectPath, botId, { ...options, cacheScope })
   } else {
     // Generate empty types if no assets directory exists
     const emptyTypesCode = `// No assets directory found

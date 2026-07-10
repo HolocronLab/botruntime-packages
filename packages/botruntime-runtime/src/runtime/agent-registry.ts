@@ -68,7 +68,7 @@ const NOT_INSTALLED: StatusVerdict = { state: 'not_installed' }
 
 /**
  * Build the status-bearing integration carrier consumed by the action proxy, and
- * register the installed ones with the ADK API. Extracted from the generated
+ * register the installed ones with the agent runtime API. Extracted from the generated
  * `setupAdkRuntime` so the fault-isolation logic is unit-testable:
  *
  * - A `not_installed` entry is a MODE B stub (no real module) — skipped, never registered.
@@ -111,7 +111,7 @@ export function buildPluginRegistry(
   }))
 }
 
-// TODO: remove this in favor of `adk` API once we have it everywhere
+// TODO: remove this in favor of the shared agent runtime API once it is available everywhere.
 // we need to remove interfacesMapping and interfaces from here
 /**
  * Export singleton instance

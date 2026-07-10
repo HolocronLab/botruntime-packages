@@ -73,8 +73,8 @@ export interface DeployPlan {
   /**
    * Dependency capability gate (WS5): enabled dependencies in the target snapshot whose
    * state is not `available` (unconfigured / unresolved / not_installed / errored).
-   * A non-empty `blocking` set makes `adk deploy` fail with `UNCONFIGURED_DEPENDENCIES`
-   * unless `--allow-unconfigured` is passed. Empty on a first deploy (empty prod snapshot).
+   * A non-empty `blocking` set makes `brt deploy --adk` fail with `UNCONFIGURED_DEPENDENCIES`
+   * unless the embedding caller explicitly opts into inert dependencies. Empty on a first deploy.
    */
   dependencyPlan: {
     blocking: DependencyStatus[]

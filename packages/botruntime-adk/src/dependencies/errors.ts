@@ -40,5 +40,10 @@ export class DependencyError extends AdkError<DependencyErrorCode> {
   }
 }
 
-export const DEPENDENCY_WARNING_CODES = ['MIGRATED_DEPENDENCIES', 'CLOUD_FETCH_PARTIAL', 'NO_PROD_BOT'] as const
+export const DEPENDENCY_WARNING_CODES = [
+  'MIGRATED_DEPENDENCIES',
+  'CLOUD_FETCH_PARTIAL',
+  'NO_DEV_BOT',
+  'NO_PROD_BOT',
+] as const
 export type DependencyWarningCode = (typeof DEPENDENCY_WARNING_CODES)[number]

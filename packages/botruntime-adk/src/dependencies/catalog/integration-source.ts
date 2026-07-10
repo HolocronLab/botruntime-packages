@@ -165,12 +165,12 @@ export class IntegrationCatalogSource implements CatalogSource<IntegrationDefini
     if (ref.version !== 'latest') {
       const latestExists = await this._findPrivateOrPublicIntegration(client, { ...ref, version: 'latest' })
       if (latestExists) {
-        const scope = ref.workspace ? `workspace "${ref.workspace}"` : 'the official Botpress hub'
+        const scope = ref.workspace ? `workspace "${ref.workspace}"` : 'the public integration catalog'
         return new AdkError({
           code: 'INTEGRATION_NOT_FOUND',
           message:
             `Integration "${ref.name}" version "${ref.version}" not found in ${scope} ` +
-            `(latest is ${latestExists.version}). Run 'adk integrations info ${ref.fullName}' to see available versions.`,
+            `(latest is ${latestExists.version}). Run 'brt integrations get ${ref.fullName}' to inspect the catalog entry.`,
           expected: true,
         })
       }
@@ -179,7 +179,7 @@ export class IntegrationCatalogSource implements CatalogSource<IntegrationDefini
     if (!ref.workspace) {
       return new AdkError({
         code: 'INTEGRATION_NOT_FOUND',
-        message: `Integration "${ref.name}" not found in the official Botpress hub`,
+        message: `Integration "${ref.name}" not found in the public integration catalog`,
         expected: true,
       })
     }
@@ -213,10 +213,11 @@ export class IntegrationCatalogSource implements CatalogSource<IntegrationDefini
         code: 'INTEGRATION_NOT_FOUND',
         message:
           `Integration "${ref.name}" not found in workspace "${ref.workspace}" (workspaceId: ${workspaceId}). ` +
-          `Are you sure you published the integration? ` +
-          `Run 'adk deploy' to publish it to your workspace.`,
+          `Publish it from its integration project with 'brt integrations publish', then retry ` +
+          `'brt dev' or 'brt deploy --adk'.`,
         expected: true,
-        suggestion: "Are you sure you published the integration? Run 'adk deploy' to publish it to your workspace.",
+        suggestion:
+          "Publish it with 'brt integrations publish', then retry 'brt dev' or 'brt deploy --adk'.",
       })
     }
 
@@ -226,7 +227,8 @@ export class IntegrationCatalogSource implements CatalogSource<IntegrationDefini
       message:
         `Integration "${ref.name}" not found in workspace "${ref.workspace}" (current workspaceId: ${workspaceId}). ` +
         `This integration may be private. Private integrations can only be installed in the same workspace. ` +
-        `If you want to share this integration with other workspaces, deploy it with --visibility="unlisted" or --visibility="public".`,
+        `To share it, set an unlisted or public visibility in the integration definition and run ` +
+        `'brt integrations publish'.`,
       expected: true,
     })
   }

@@ -3,7 +3,7 @@
  *
  * Implements the EvalStore interface for the local dev environment:
  *   - Eval definitions loaded from the agent's evals/ directory
- *   - Run results persisted in SQLite (.adk/evals/evals.db)
+ *   - Run results persisted in the legacy-compatible SQLite path (.adk/evals/evals.db)
  *   - Runner state tracked via in-memory activeRunId
  *
  * The CLI is the single writer and reader of the SQLite database — no
@@ -148,7 +148,7 @@ export class LocalEvalStore implements EvalStore {
 
   // ── Run lifecycle — write ───────────────────────────────────────────
 
-  async createRun(_runType?: string, _metadata?: Record<string, unknown>): Promise<string> {
+  async createRun(_runType?: 'manual' | 'scheduled'): Promise<string> {
     return crypto.randomUUID().replace(/-/g, '').slice(0, 26)
   }
 

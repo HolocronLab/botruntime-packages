@@ -99,7 +99,7 @@ export class BaseCustomComponent<TProps = any> implements Definitions.Primitive 
 
   encode(props: TProps): { url: string; name: string; data: TProps } {
     if (!this._url) {
-      throw new Error(`Component "${this.name}" not deployed. Run "adk deploy".`)
+      throw new Error(`Component "${this.name}" not deployed. Run "brt deploy --adk".`)
     }
     return { url: this._url, name: this.name, data: props }
   }

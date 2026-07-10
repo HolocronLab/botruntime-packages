@@ -101,7 +101,7 @@ export class BpDevCommand extends BaseCommand<BpDevProgressEvent> {
       bpArgs.push('--sourceMap')
     }
 
-    // Propagate `adk dev --no-watch` down to `bp dev` (default leaves it watching)
+    // Propagate `brt dev --no-watch` down to `bp dev` (default leaves it watching).
     if (this.options.watch === false) {
       bpArgs.push('--no-watch')
     }
@@ -402,7 +402,7 @@ export class BpDevCommand extends BaseCommand<BpDevProgressEvent> {
 
   /**
    * The PID of the spawned `bp dev` child process, or null if not yet started.
-   * Used by `adk ps` to display bot runtime process information.
+   * Exposes the child PID to embedding callers and process supervisors.
    */
   get pid(): number | null {
     return this.childProcess?.pid ?? null

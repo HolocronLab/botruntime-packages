@@ -1,46 +1,49 @@
 # @holocronlab/botruntime-adk
 
-Fork of `@botpress/adk@2.0.2` (MIT) — core ADK library for building AI agents on
-botruntime, rebranded and repointed at the `@holocronlab` package scope.
+The agent development engine for botruntime. This package is a **library**, not
+a second command-line tool: it exports project loading, generation, dependency
+reconciliation, type generation, and runtime helpers used in-process by `brt`.
 
-Every import of an upstream Botpress-scoped package has been repointed at its
-botruntime equivalent:
+`brt` is the only executable in the developer workflow:
 
-| Upstream | This fork depends on |
-| --- | --- |
-| `@botpress/sdk` | `@holocronlab/botruntime-sdk` |
-| `@botpress/client` | `@holocronlab/botruntime-client` |
-| `@botpress/chat` | `@holocronlab/botruntime-chat` |
-| `@botpress/cognitive` | `@holocronlab/botruntime-cognitive` |
-| `@botpress/runtime` | `@holocronlab/botruntime-runtime` |
-| `@bpinternal/zui` | `@holocronlab/botruntime-zui` |
-| `@bpinternal/jex` | `@holocronlab/botruntime-jex` |
-| `@botpress/analytics` | `@holocronlab/botruntime-analytics` |
-| `@botpress/cli` (subprocess) | `@holocronlab/brt` |
+```bash
+brt dev
+brt dev --check
+brt deploy --adk
+```
 
-## CLI compatibility note
+The CLI calls this package directly; it does not shell out to an `adk`, `bp`, or
+Botpress executable. This boundary is the accepted architecture in
+[ADR-0006](../../docs/adr/0006-single-cli-brt-engines-mcp.md).
 
-`src/commands/bp-cli.ts` no longer shells out to the upstream `bp` CLI. It
-resolves and invokes `@holocronlab/brt`'s `bin.js` (a full fork of the former
-`@botpress/cli`) instead, from `~/.adk/bp-cli/<version>/node_modules/@holocronlab/brt/bin.js`.
+## Package surface
 
-**Known gap:** as of `@holocronlab/brt@0.2.0`, the published package on GitHub
-Packages ships only TypeScript source + `bin.js`; it has no `dist/` directory,
-so `bin.js`'s `require('./dist/cli.js')` fails at runtime. The CLI-subprocess
-commands (`adk dev`, `adk build`, `adk deploy`, `adk add`, `adk chat`) will not
-work end-to-end until `@holocronlab/brt` publishes a built `dist/cli.js`. This
-does not affect `bunx tsc --noEmit` or the library build, since nothing in this
-package imports brt's JS module graph — it is invoked purely as an external
-subprocess.
+- `@holocronlab/botruntime-adk` — agent project and generation APIs.
+- `@holocronlab/botruntime-adk/dependencies` — target-scoped dependency
+  snapshots, readiness reconciliation, migration, and resolver APIs.
+- Internal subpaths are reserved for `brt` and are not a public CLI contract.
 
-## Also intentionally deferred
+## Build and publication
 
-- The generated project scaffold in `agent-init/agent-project-generator.ts`
-  drops the upstream `evals` dependency from `adk init` output — there is no
-  `@holocronlab/botruntime-evals` fork yet.
-- `agent0/index.ts`'s public re-export intentionally omits
-  `./capabilities/index.js`; no `capabilities/index.ts` exists in the
-  reconstructed source, and upstream's own published `dist/agent0/` has no
-  compiled `capabilities/index.js` either (only static prompt/skill assets),
-  so the type-declaration re-export in upstream's `dist/agent0/index.d.ts` is
-  itself a dangling reference.
+The repository builds executable ESM and declarations into `dist/`:
+
+```bash
+bun run check:type
+bun run test
+bun run build
+```
+
+`prepublishOnly` verifies the required JavaScript entry points before release.
+The package is configured for GitHub Packages at `https://npm.pkg.github.com`
+and publishes `dist/`, `package.json`, and this README. The current source
+version is declared in `package.json`; a registry release should be verified in
+GitHub Packages rather than inferred from the repository alone.
+
+## Developer documentation
+
+- [Dev and production workflow](https://botruntime.ru/docs/cli/development)
+- [Dependency state internals](https://botruntime.ru/docs/cli/dependency-state)
+- [CLI reference](https://botruntime.ru/docs/cli/reference)
+
+The package is derived from the MIT-licensed Botpress ADK library and repointed
+to the `@holocronlab/botruntime-*` runtime stack. See `LICENSE` for attribution.

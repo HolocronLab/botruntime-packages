@@ -4,13 +4,13 @@ import type { DeployPlan, IntegrationVersionMismatch } from './types.js'
 
 /**
  * The deploy gate (WS5), in one place: `computeDeployPlan` computes the blocking
- * set with {@link isDeployBlocking}, and every deploy surface — `adk deploy`, the
- * dev-console deploy handler, and any future entry point — enforces it through
+ * set with {@link isDeployBlocking}, and every deploy surface — `brt deploy --adk`, the
+ * web-console deploy handler, and any future entry point — enforces it through
  * {@link assertNoBlockingDependencies}. Keeping projection, predicate, and error
  * here means the surfaces cannot drift on what blocks a deploy or how it reads.
  */
 
-/** JSON-safe projection of a deploy-blocking dependency (CLI error details + dev-console plan summary). */
+/** JSON-safe projection of a deploy-blocking dependency (CLI error details + web-console plan summary). */
 export interface BlockingDependencySummary {
   type: string
   alias: string
@@ -79,6 +79,9 @@ export function assertNoBlockingDependencies(plan: DeployPlan, options?: { allow
     message: `${blocking.length} enabled ${blocking.length === 1 ? 'dependency is' : 'dependencies are'} unconfigured or unresolved: ${summary}`,
     details: { blocking: summarizeBlockingDependencies(blocking) },
     suggestion:
-      'Run `adk integrations status` (and `adk plugins status`) to see details, configure them, then retry — or deploy with --allow-unconfigured to ship them inert.',
+      "Inspect details.blocking. Install or configure integrations through 'brt integrations install <name> --config-file <path>' " +
+      "(or '--config-stdin') and register the returned webhookId with 'brt integrations register <webhook-id>', " +
+      "then retry 'brt dev' or 'brt deploy --adk'. " +
+      'Plugin status/install commands are unavailable; correct the declared plugin reference or target configuration before retrying.',
   })
 }

@@ -1,5 +1,5 @@
 /**
- * Validates an event name according to ADK rules:
+ * Validates an event name according to botruntime rules:
  * - Only alphanumeric characters (A-Z, a-z, 0-9) and underscores
  * - Maximum 100 characters
  * - Must start with a letter

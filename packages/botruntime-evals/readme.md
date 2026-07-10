@@ -1,6 +1,6 @@
 # botruntime Evals
 
-Evaluation definitions and runner for ADK-based botruntime agents.
+Evaluation definitions and runner for brt-based botruntime agents.
 
 Author evals with a small declarative API (`Eval`), then run them against a
 live agent through the trace-driven runner: an SSE collector streams spans in

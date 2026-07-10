@@ -67,6 +67,56 @@ export interface BotCommand {
   description: string
 }
 
+export interface DevBotReadinessIntegration {
+  id?: string
+  installationId?: string
+  name?: string
+  version?: string
+  enabled?: boolean
+  configurationType?: string
+  configurationRevision?: string
+  status?: string
+  statusReason?: string
+}
+
+export interface DevBotReadinessPlugin {
+  id?: string
+  name?: string
+  version?: string
+  enabled?: boolean
+  configuration?: Record<string, unknown>
+  interfaces?: Record<string, unknown>
+  integrations?: Record<string, unknown>
+}
+
+export interface DevBotReadinessBot {
+  id: string
+  name?: string
+  dev?: boolean
+  url?: string
+  updatedAt?: string
+  integrations: Record<string, DevBotReadinessIntegration>
+  plugins?: Record<string, DevBotReadinessPlugin>
+  tags?: Record<string, string>
+  devReadiness?: unknown
+}
+
+export interface DevBotReadinessResponse {
+  bot: DevBotReadinessBot
+}
+
+export interface WorkspaceInstallResponse {
+  installationId: string
+  webhookId: string
+  status: string
+}
+
+export interface WorkspaceRegisterResponse {
+  ok: boolean
+  status: string
+  webhookUrl: string
+}
+
 // GET /v1/admin/bots/{id}/logs response shape, frozen from
 // packages/botruntime-api/openapi/openapi.json's getBotLogsResponse schema
 // (fields: timestamp/level/message required, workflowId/userId/conversationId
@@ -205,7 +255,12 @@ export class CloudapiClient {
   // server reads x-workspace-id only on the PAT auth path and ignores it for
   // legacy/bot-scoped keys (auth.go:12), so sending it is harmless for those.
   public async provisionBot(name?: string, workspaceId?: string): Promise<ProvisionResponse> {
-    return this.raw({ method: 'POST', path: '/v1/admin/provision-bot', body: { name }, workspaceId })
+    return this.raw({
+      method: 'POST',
+      path: '/v1/admin/provision-bot',
+      body: { name },
+      workspaceId,
+    })
   }
 
   // ---- deploy bundle (idempotent upsert) -----------------------------------
@@ -233,6 +288,14 @@ export class CloudapiClient {
     })
   }
 
+  public async getDevBotTarget(botId: string, workspaceId: string): Promise<DevBotReadinessResponse> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}`,
+      workspaceId,
+    })
+  }
+
   public async getBundle(botId: string, internalToken?: string): Promise<BundleResponse> {
     return this.raw({
       method: 'GET',
@@ -244,12 +307,22 @@ export class CloudapiClient {
     })
   }
 
-  public async listBots(): Promise<{ bots: Array<{ id: string; name?: string }> }> {
-    return this.raw({ method: 'GET', path: '/v1/admin/bots', idempotent: true })
+  public async listBots(): Promise<{
+    bots: Array<{ id: string; name?: string }>
+  }> {
+    return this.raw({
+      method: 'GET',
+      path: '/v1/admin/bots',
+      idempotent: true,
+    })
   }
 
   public async listWorkspaces(): Promise<unknown> {
-    return this.raw({ method: 'GET', path: '/v1/admin/workspaces', idempotent: true })
+    return this.raw({
+      method: 'GET',
+      path: '/v1/admin/workspaces',
+      idempotent: true,
+    })
   }
 
   // ---- config variables (env.X parity) -------------------------------------
@@ -279,6 +352,34 @@ export class CloudapiClient {
     })
   }
 
+  public async setWorkspaceConfigVar(
+    workspaceId: string,
+    botId: string,
+    name: string,
+    value: string
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'PUT',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/config-variables/${encodeURIComponent(name)}`,
+      body: { value },
+    })
+  }
+
+  public async listWorkspaceConfigVars(workspaceId: string, botId: string): Promise<{ variables: ConfigVar[] }> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/config-variables`,
+      idempotent: true,
+    })
+  }
+
+  public async deleteWorkspaceConfigVar(workspaceId: string, botId: string, name: string): Promise<unknown> {
+    return this.raw({
+      method: 'DELETE',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/config-variables/${encodeURIComponent(name)}`,
+    })
+  }
+
   // ---- integrations (install NOT idempotent; register idempotent) ----------
   public async installIntegration(
     botId: string,
@@ -300,6 +401,33 @@ export class CloudapiClient {
       method: 'POST',
       path: `/v1/admin/integrations/${webhookId}/register`,
       botId,
+      idempotent: true,
+    })
+  }
+
+  public async installWorkspaceIntegration(
+    workspaceId: string,
+    botId: string,
+    name: string,
+    version: string,
+    config: Record<string, unknown>,
+    alias?: string
+  ): Promise<WorkspaceInstallResponse> {
+    return this.raw({
+      method: 'POST',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/integrations`,
+      body: { name, version, alias, config },
+    })
+  }
+
+  public async registerWorkspaceIntegration(
+    workspaceId: string,
+    botId: string,
+    webhookId: string
+  ): Promise<WorkspaceRegisterResponse> {
+    return this.raw({
+      method: 'POST',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/integrations/${encodeURIComponent(webhookId)}/register`,
       idempotent: true,
     })
   }
@@ -335,7 +463,9 @@ export class CloudapiClient {
     })
   }
 
-  public async listIntegrationDefinitions(workspaceId?: string): Promise<{ definitions: IntegrationDefinitionEntity[] }> {
+  public async listIntegrationDefinitions(
+    workspaceId?: string
+  ): Promise<{ definitions: IntegrationDefinitionEntity[] }> {
     return this.raw({
       method: 'GET',
       path: '/v1/admin/integration-definitions',
@@ -392,11 +522,23 @@ export class CloudapiClient {
   // the deploy therefore sends BOTH x-workspace-id (writer gate owner|admin)
   // and x-bot-id (numeric, which table set to address).
   public async listTables(botId: string, workspaceId?: string): Promise<{ tables: Array<{ name: string }> }> {
-    return this.raw({ method: 'GET', path: '/v1/tables', botId, workspaceId, idempotent: true })
+    return this.raw({
+      method: 'GET',
+      path: '/v1/tables',
+      botId,
+      workspaceId,
+      idempotent: true,
+    })
   }
 
   public async createTable(botId: string, name: string, schema: unknown, workspaceId?: string): Promise<unknown> {
-    return this.raw({ method: 'POST', path: '/v1/tables', botId, workspaceId, body: { name, schema } })
+    return this.raw({
+      method: 'POST',
+      path: '/v1/tables',
+      botId,
+      workspaceId,
+      body: { name, schema },
+    })
   }
 }
 

@@ -9,9 +9,11 @@ import { generateAssetsTypes, generateAssetsRuntime } from '../generators/assets
 import { formatCode } from '../generators/utils.js'
 import { BpBuildCommand } from '../commands/bp-build-command.js'
 import { ConfigManager } from '../config/manager.js'
-import { resolveProjectCredentials } from '../auth/index.js'
+import { assertCompleteCredentials, auth, type ServerConnectionCredentials } from '../auth/index.js'
+import { verifyServerConfigTarget, type ServerConfigTarget } from '../integrations/config-utils.js'
 import { superviseChild } from './supervise-child.js'
 import { AdkError } from '@holocronlab/botruntime-analytics'
+import { readAgentInfo, readAgentLocalInfo } from '../agent-project/agent-resolver.js'
 
 /**
  * Find the agent project root by walking up from startPath looking for agent.config.ts
@@ -72,6 +74,21 @@ export interface RunOptions {
   inheritStdio?: boolean
 }
 
+type ScriptArtifactTarget =
+  | {
+      version: 1
+      environment: 'dev'
+      botId: string
+      runtimeBotId: string
+      apiUrl: string
+      workspaceId: string
+    }
+  | { version: 1; environment: 'prod'; botId: string; apiUrl: string; workspaceId: string }
+
+const SCRIPT_ARTIFACT_TARGET_FILE = '.botruntime-script-target.json'
+
+const normalizeApiUrl = (apiUrl: string): string => apiUrl.replace(/\/+$/, '')
+
 export interface TestRuntimeResult {
   /** Path to the bot project */
   botPath: string
@@ -106,36 +123,207 @@ export class ScriptRunner {
     this.credentials = options.credentials
   }
 
+  private getServerConnectionCredentials(): ServerConnectionCredentials | undefined {
+    if (!this.credentials.workspaceId) return undefined
+    return {
+      token: this.credentials.token,
+      apiUrl: this.credentials.apiUrl,
+      workspaceId: this.credentials.workspaceId,
+    }
+  }
+
+  private async resolveConfigTarget(): Promise<ServerConfigTarget> {
+    const credentials = this.getServerConnectionCredentials()
+    if (!credentials) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: `${this.prod ? 'Prod' : 'Dev'} script generation requires explicit token, apiUrl, and workspaceId.`,
+        expected: true,
+      })
+    }
+
+    if (this.prod) {
+      const info = await readAgentInfo(this.projectPath)
+      if (!info?.botId) {
+        throw new AdkError({
+          code: 'BOT_ID_REQUIRED',
+          message: 'Prod script generation requires a botId in agent.json.',
+          expected: true,
+        })
+      }
+      if (info.workspaceId !== credentials.workspaceId) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: `agent.json workspaceId=${info.workspaceId} does not match the selected credentials workspaceId=${credentials.workspaceId}.`,
+          expected: true,
+        })
+      }
+      if (normalizeApiUrl(info.apiUrl ?? '') !== normalizeApiUrl(credentials.apiUrl)) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: `agent.json apiUrl=${info.apiUrl} does not match the selected credentials apiUrl=${credentials.apiUrl}.`,
+          expected: true,
+        })
+      }
+      return { environment: 'prod', botId: info.botId, credentials }
+    }
+
+    const localInfo = await readAgentLocalInfo(this.projectPath)
+    if (
+      !localInfo?.devId ||
+      !localInfo.devTargetBotId ||
+      !localInfo.devApiUrl ||
+      !localInfo.devWorkspaceId
+    ) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message:
+          'Dev script generation requires a complete scoped dev target in agent.local.json. Run the stateful dev command first.',
+        expected: true,
+      })
+    }
+    if (localInfo.devWorkspaceId !== credentials.workspaceId) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: `agent.local.json devWorkspaceId=${localInfo.devWorkspaceId} does not match the selected credentials workspaceId=${credentials.workspaceId}.`,
+        expected: true,
+      })
+    }
+    if (normalizeApiUrl(localInfo.devApiUrl) !== normalizeApiUrl(credentials.apiUrl)) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: `agent.local.json devApiUrl=${localInfo.devApiUrl} does not match the selected credentials apiUrl=${credentials.apiUrl}.`,
+        expected: true,
+      })
+    }
+    return {
+      environment: 'dev',
+      botId: localInfo.devTargetBotId,
+      runtimeBotId: localInfo.devId,
+      credentials,
+    }
+  }
+
+  private scriptArtifactTarget(target: ServerConfigTarget): ScriptArtifactTarget | undefined {
+    const credentials = target.credentials
+    if (!credentials) return undefined
+    if (target.environment === 'prod') {
+      return {
+        version: 1,
+        environment: 'prod',
+        botId: target.botId,
+        apiUrl: normalizeApiUrl(credentials.apiUrl),
+        workspaceId: credentials.workspaceId,
+      }
+    }
+    if (!target.botId || !target.runtimeBotId) return undefined
+    return {
+      version: 1,
+      environment: 'dev',
+      botId: target.botId,
+      runtimeBotId: target.runtimeBotId,
+      apiUrl: normalizeApiUrl(credentials.apiUrl),
+      workspaceId: credentials.workspaceId,
+    }
+  }
+
+  private async artifactsMatchTarget(botPath: string, target: ServerConfigTarget): Promise<boolean> {
+    const expected = this.scriptArtifactTarget(target)
+    if (!expected) return false
+    try {
+      const raw = await fs.readFile(path.join(botPath, SCRIPT_ARTIFACT_TARGET_FILE), 'utf8')
+      const actual = JSON.parse(raw) as Record<string, unknown>
+      return (
+        actual.version === expected.version &&
+        actual.environment === expected.environment &&
+        actual.botId === expected.botId &&
+        actual.apiUrl === expected.apiUrl &&
+        actual.workspaceId === expected.workspaceId &&
+        (expected.environment === 'prod' || actual.runtimeBotId === expected.runtimeBotId)
+      )
+    } catch {
+      return false
+    }
+  }
+
+  private async invalidateArtifactTarget(botPath: string): Promise<void> {
+    try {
+      await fs.unlink(path.join(botPath, SCRIPT_ARTIFACT_TARGET_FILE))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+
+  private async writeArtifactTarget(botPath: string, target: ServerConfigTarget): Promise<void> {
+    const binding = this.scriptArtifactTarget(target)
+    if (!binding) return
+    await fs.mkdir(botPath, { recursive: true })
+    const targetPath = path.join(botPath, SCRIPT_ARTIFACT_TARGET_FILE)
+    const temporaryPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`
+    await fs.writeFile(temporaryPath, `${JSON.stringify(binding, null, 2)}\n`, 'utf8')
+    await fs.rename(temporaryPath, targetPath)
+  }
+
   /**
    * Ensure the bot project is generated and ready for script execution
    */
-  async prepare(): Promise<{ botPath: string; runnerPath: string; project: AgentProject }> {
+  async prepare(): Promise<{
+    botPath: string
+    runnerPath: string
+    project: AgentProject
+    configTarget: ServerConfigTarget
+  }> {
+    const adkCommand = this.prod ? 'adk-deploy' : 'adk-dev'
+    const configTarget = await this.resolveConfigTarget()
+    const credentials = configTarget.credentials
+    if (!credentials) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: 'Script generation requires an authenticated server target.',
+        expected: true,
+      })
+    }
     const project = await AgentProject.load(this.projectPath, {
-      adkCommand: 'adk-build',
+      adkCommand,
+      configTarget,
     })
+    await verifyServerConfigTarget(project, configTarget)
+    const controlBotId = configTarget.botId
 
     const botPath = path.join(this.projectPath, '.adk', 'bot')
     const runnerPath = path.join(botPath, 'src', 'script-runner.ts')
     const botpressTypesPath = path.join(botPath, '.botpress', 'implementation', 'index.ts')
 
-    // Check if we need to regenerate
-    const needsRegenerate = this.forceRegenerate || !existsSync(runnerPath) || !existsSync(botpressTypesPath)
+    // File existence is insufficient: generated config/assets are target-specific.
+    // Missing, invalid, or mismatched provenance forces a complete regeneration.
+    const artifactsMatchTarget = await this.artifactsMatchTarget(botPath, configTarget)
+    const needsRegenerate =
+      this.forceRegenerate || !existsSync(runnerPath) || !existsSync(botpressTypesPath) || !artifactsMatchTarget
 
     if (needsRegenerate) {
-      // Generate assets types first
-      try {
-        await generateAssetsTypes(project.path)
-        await generateAssetsRuntime(project.path, project.agentInfo?.botId, { dev: true })
-      } catch {
-        // Assets directory might not exist
-      }
+      // Invalidate first. If generation fails halfway, a previous matching marker
+      // must not make the next run reuse partially overwritten artifacts.
+      await this.invalidateArtifactTarget(botPath)
 
-      // Generate the bot project (script-runner is the dev-mode runner — keep the dev
-      // assets-runtime so the lazy URL refresher is wired into the runtime bundle)
+      // Generate assets types first
+      await generateAssetsTypes(project.path)
+      await generateAssetsRuntime(project.path, controlBotId, {
+        dev: !this.prod,
+        credentials,
+        cacheScope: {
+          environment: configTarget.environment,
+          ...(controlBotId ? { botId: controlBotId } : {}),
+          apiUrl: credentials.apiUrl,
+          workspaceId: credentials.workspaceId,
+        },
+        failOnRemoteFetchError: this.prod,
+      })
+
       await generateBotProject({
         projectPath: project.path,
         outputPath: botPath,
-        adkCommand: 'adk-dev',
+        adkCommand,
+        configTarget,
       })
 
       // Generate the script runner entry point
@@ -143,9 +331,11 @@ export class ScriptRunner {
 
       // Run bp build to generate .botpress types
       await this.runBpBuild(botPath)
+
+      await this.writeArtifactTarget(botPath, configTarget)
     }
 
-    return { botPath, runnerPath, project }
+    return { botPath, runnerPath, project, configTarget }
   }
 
   /**
@@ -170,7 +360,7 @@ export class ScriptRunner {
        * ADK Script Runner Entry Point
        *
        * This file bootstraps the ADK runtime and then executes a user script.
-       * It's auto-generated by the ADK CLI.
+       * It is auto-generated by botruntime ADK tooling.
        */
       import * as bp from '.botpress'
       import { setupAdkRuntime } from './adk-runtime'
@@ -283,17 +473,16 @@ export class ScriptRunner {
    * ```
    */
   async setupTestRuntime(options: { env?: Record<string, string> } = {}): Promise<TestRuntimeResult> {
-    const { botPath, project } = await this.prepare()
+    const { botPath, project, configTarget } = await this.prepare()
 
-    // Determine which bot ID to use
-    const botId = this.prod ? project.agentInfo?.botId : project.agentInfo?.devId || project.agentInfo?.botId
-    const workspaceId = project.agentInfo?.workspaceId || this.credentials.workspaceId || ''
+    const botId = configTarget.environment === 'prod' ? configTarget.botId : configTarget.runtimeBotId
+    const workspaceId = configTarget.credentials?.workspaceId ?? ''
 
     if (!botId) {
       const idType = this.prod ? 'botId' : 'devId'
       const suggestion = this.prod
-        ? 'Please deploy your agent first with "adk deploy".'
-        : 'Please run "adk dev" first to create a development bot, or use --prod to use the production bot.'
+        ? 'Deploy the production target first with "brt deploy --adk".'
+        : 'Run "brt dev" first to create the development target.'
       throw new AdkError({
         code: 'BOT_ID_REQUIRED',
         expected: true,
@@ -308,6 +497,8 @@ export class ScriptRunner {
       const manager = new ConfigManager(botId, {
         project,
         credentials: this.credentials,
+        apiUrl: this.credentials.apiUrl,
+        workspaceId: this.credentials.workspaceId,
       })
       configuration = await manager.getAll()
     } catch {
@@ -408,7 +599,7 @@ export class ScriptRunner {
    * Run a script with the ADK runtime initialized
    */
   async run(scriptPath: string, options: RunOptions = {}): Promise<number> {
-    const { botPath, runnerPath, project } = await this.prepare()
+    const { botPath, runnerPath, project, configTarget } = await this.prepare()
 
     // Resolve the script path
     const absoluteScriptPath = path.isAbsolute(scriptPath) ? scriptPath : path.resolve(this.projectPath, scriptPath)
@@ -421,15 +612,14 @@ export class ScriptRunner {
       })
     }
 
-    // Determine which bot ID to use
-    const botId = this.prod ? project.agentInfo?.botId : project.agentInfo?.devId || project.agentInfo?.botId
-    const workspaceId = project.agentInfo?.workspaceId || this.credentials.workspaceId
+    const botId = configTarget.environment === 'prod' ? configTarget.botId : configTarget.runtimeBotId
+    const workspaceId = configTarget.credentials?.workspaceId
 
     if (!botId) {
       const idType = this.prod ? 'botId' : 'devId'
       const suggestion = this.prod
-        ? 'Please deploy your agent first with "adk deploy".'
-        : 'Please run "adk dev" first to create a development bot, or use --prod to use the production bot.'
+        ? 'Deploy the production target first with "brt deploy --adk".'
+        : 'Run "brt dev" first to create the development target.'
       throw new AdkError({
         code: 'BOT_ID_REQUIRED',
         expected: true,
@@ -447,6 +637,8 @@ export class ScriptRunner {
       const manager = new ConfigManager(botId, {
         project,
         credentials: this.credentials,
+        apiUrl: this.credentials.apiUrl,
+        workspaceId: this.credentials.workspaceId,
       })
       configuration = await manager.getAll()
     } catch {
@@ -579,9 +771,11 @@ export async function setupTestRuntime(options: SetupTestRuntimeOptions = {}): P
   // Auto-load credentials if not provided
   let credentials = options.credentials
   if (!credentials) {
-    const loadedCredentials = await resolveProjectCredentials({
-      project: { path: projectPath },
-    })
+    // The active profile is the credential authority. Do not resolve through
+    // project link files here: those files are validated by ScriptRunner before
+    // the first online project/catalog load.
+    const loadedCredentials = await auth.getActiveCredentials()
+    assertCompleteCredentials(loadedCredentials, 'Active test-runtime profile credentials')
     credentials = {
       token: loadedCredentials.token,
       apiUrl: loadedCredentials.apiUrl,

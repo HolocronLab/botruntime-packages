@@ -11,7 +11,7 @@ import { getSingleton } from './singletons'
  * 1. **Inside execution context** (actions, workflows, conversations):
  *    Uses the bot-specific client from the current execution context.
  *
- * 2. **Outside execution context** (e.g., `adk run` scripts):
+ * 2. **Outside execution context** (for example, scripts started through `brt`):
  *    Creates a new Client using environment variables:
  *    - BP_TOKEN or ADK_TOKEN for authentication
  *    - ADK_BOT_ID for the bot ID
@@ -54,13 +54,13 @@ function getStandaloneClient(): Client {
     const token = process.env.BP_TOKEN || process.env.ADK_TOKEN
     if (!token) {
       throw new Error(
-        'No token found. Set BP_TOKEN or ADK_TOKEN environment variable, or run this script using "adk run".'
+        'No token found. Set BP_TOKEN or ADK_TOKEN, or run the agent with `brt dev`.'
       )
     }
 
     const botId = process.env.ADK_BOT_ID
     if (!botId) {
-      throw new Error('No bot ID found. Set ADK_BOT_ID environment variable, or run this script using "adk run".')
+      throw new Error('No bot ID found. Set BP_BOT_ID or ADK_BOT_ID, or run the agent with `brt dev`.')
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'

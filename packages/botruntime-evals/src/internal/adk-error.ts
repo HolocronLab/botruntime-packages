@@ -5,8 +5,8 @@
  * inlining it here as a local module keeps this package equally
  * self-contained without introducing a new external dependency.
  *
- * Shared base error for ADK packages. Lives in `@botpress/analytics` because
- * it's the dependency-light package every surface already shares (cli, adk,
+ * Shared base error for brt packages. Lives in `@botpress/analytics` because
+ * it's the dependency-light package every surface already shares (cli, brt,
  * ui) — so all typed errors can genuinely inherit one base instead of
  * mirroring its shape.
  *
@@ -18,7 +18,7 @@
  * violations — full stack, page someone).
  *
  * The runtime package is out of scope and keeps its own `Errors.AbstractError`
- * hierarchy. The adk typed families (`DependencyError`, `Agent0*Error`) extend
+ * hierarchy. The legacy AdkError-named typed families (`DependencyError`, `Agent0*Error`) extend
  * this base; new code should start here.
  */
 export class AdkError<Code extends string = string> extends Error {
@@ -44,7 +44,7 @@ export class AdkError<Code extends string = string> extends Error {
   readonly expected: boolean
   /** Structured context. Sanitized before any telemetry leaves the machine. */
   readonly details?: Record<string, unknown>
-  /** Actionable next step shown to the user, e.g. "Run 'adk login' first." */
+  /** Actionable next step shown to the user, e.g. "Run 'brt login' first." */
   readonly suggestion?: string
 
   constructor(opts: {

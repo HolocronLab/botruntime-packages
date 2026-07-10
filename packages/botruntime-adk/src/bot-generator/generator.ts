@@ -5,10 +5,13 @@ import fs from 'fs/promises'
 import path from 'path'
 import { AgentProject } from '../agent-project/index.js'
 import {
+  assertServerConfigTarget,
   fetchServerIntegrationConfigs,
   fetchServerPluginConfigs,
   mergeIntegrationConfig,
+  verifyServerConfigTarget,
 } from '../integrations/config-utils.js'
+import type { ServerConfigTarget } from '../integrations/config-utils.js'
 import type { ParsedIntegration } from '../integrations/types.js'
 import {
   integrationRequiresAuthorization,
@@ -57,6 +60,8 @@ import { PluginParser } from '../agent-project/dependencies-parser.js'
 import { BUILTIN_INTERFACES } from '../constants.js'
 import { BuiltInActions, BuiltInWorkflows, Primitives, Workflow } from '@holocronlab/botruntime-runtime/internal'
 import { BUILT_IN_TAGS } from '@holocronlab/botruntime-runtime/definition'
+import { DependencySnapshotStore } from '../dependencies/snapshot-store.js'
+import type { CatalogClientOptions } from '../dependencies/catalog/client-factory.js'
 
 /**
  * Pluggable in-process dependency installer. When provided, the dependency-sync
@@ -79,16 +84,22 @@ export type DependencyInstaller = (args: {
   credentials: { token: string; apiUrl: string }
 }) => Promise<void>
 
+export type BotGenerationMode = 'adk-dev' | 'adk-build' | 'adk-deploy'
+
 export interface BotGeneratorOptions {
   projectPath: string
   outputPath?: string
-  adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
+  adkCommand: BotGenerationMode
+  configTarget: ServerConfigTarget
   callbacks?: SyncCallbacks
   installer?: DependencyInstaller
 }
 
-function projectLoadOptions(adkCommand: BotGeneratorOptions['adkCommand']): Pick<BotGeneratorOptions, 'adkCommand'> {
-  return adkCommand ? { adkCommand } : {}
+function projectLoadOptions(
+  adkCommand: BotGenerationMode,
+  configTarget: ServerConfigTarget
+): Pick<BotGeneratorOptions, 'adkCommand' | 'configTarget'> {
+  return { adkCommand, configTarget }
 }
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -136,8 +147,12 @@ function stubPackageLiteral(kind: 'integration' | 'plugin', alias: string): stri
 export class BotGenerator {
   private projectPath: string
   private outputPath: string
-  private adkCommand?: 'adk-dev' | 'adk-build' | 'adk-deploy'
+  private adkCommand: BotGenerationMode
+  private configTarget: ServerConfigTarget
   private callbacks?: SyncCallbacks
+  private projectPromise?: Promise<AgentProject>
+  private snapshotTargetValidated = false
+  private serverTargetVerification?: Promise<void>
 
   /**
    * Per-alias capability verdicts computed during `generateBotDefinition` (which
@@ -151,14 +166,78 @@ export class BotGenerator {
   private pluginStatuses: Record<string, StatusVerdict> = {}
 
   constructor(options: BotGeneratorOptions) {
+    const supportedModes: BotGenerationMode[] = ['adk-dev', 'adk-build', 'adk-deploy']
+    if (!supportedModes.includes(options.adkCommand)) {
+      throw new AdkError({
+        code: 'INVALID_GENERATION_TARGET',
+        message: 'Generation mode must be adk-dev, adk-build, or adk-deploy.',
+        expected: true,
+      })
+    }
+    assertServerConfigTarget(options.configTarget)
+    if (!options.configTarget.credentials) {
+      throw new AdkError({
+        code: 'INVALID_GENERATION_TARGET',
+        message: 'Generation requires explicit token, apiUrl, and workspaceId credentials as its catalog authority.',
+        expected: true,
+      })
+    }
+    const expectedEnvironment = options.adkCommand === 'adk-dev' ? 'dev' : 'prod'
+    if (options.configTarget.environment !== expectedEnvironment) {
+      throw new AdkError({
+        code: 'INVALID_GENERATION_TARGET',
+        message: `${options.adkCommand} requires a ${expectedEnvironment} server config target.`,
+        expected: true,
+      })
+    }
+
     this.projectPath = path.resolve(options.projectPath)
     this.outputPath = path.resolve(options.outputPath || path.join(this.projectPath, '.adk'))
     this.adkCommand = options.adkCommand
+    this.configTarget = options.configTarget
     this.callbacks = options.callbacks
   }
 
-  private loadProject(): Promise<AgentProject> {
-    return AgentProject.load(this.projectPath, projectLoadOptions(this.adkCommand))
+  loadProject(): Promise<AgentProject> {
+    this.projectPromise ??= AgentProject.load(
+      this.projectPath,
+      projectLoadOptions(this.adkCommand, this.configTarget)
+    )
+    return this.projectPromise
+  }
+
+  private catalogClientOptions(): CatalogClientOptions {
+    const credentials = this.configTarget.credentials
+    if (!credentials) {
+      return {}
+    }
+
+    return {
+      credentials,
+      apiUrl: credentials.apiUrl,
+      workspaceId: credentials.workspaceId,
+    }
+  }
+
+  async verifyServerTarget(): Promise<void> {
+    if (this.configTarget.environment !== 'dev' || !this.configTarget.botId) return
+    this.serverTargetVerification ??= this.loadProject().then((project) =>
+      verifyServerConfigTarget(project, this.configTarget)
+    )
+    await this.serverTargetVerification
+  }
+
+  private async assertDependencySnapshotTarget(): Promise<void> {
+    if (this.snapshotTargetValidated) return
+    const credentials = this.configTarget.credentials
+    if (!this.configTarget.botId || !credentials) return
+    await new DependencySnapshotStore({ projectPath: this.projectPath }).read({
+      env: this.configTarget.environment,
+      apiUrl: credentials.apiUrl,
+      workspaceId: credentials.workspaceId,
+      botId: this.configTarget.botId,
+    })
+    this.snapshotTargetValidated = true
   }
 
   private async listFilesRecursive(rootDir: string): Promise<string[]> {
@@ -209,6 +288,8 @@ export class BotGenerator {
   }
 
   async generate(): Promise<void> {
+    await this.verifyServerTarget()
+    await this.assertDependencySnapshotTarget()
     // Load the agent project
     const project = await this.loadProject()
 
@@ -248,6 +329,8 @@ export class BotGenerator {
    * below survives only as a fail-safe for out-of-band deletions.
    */
   async emitDependencyArtifacts(): Promise<void> {
+    await this.verifyServerTarget()
+    await this.assertDependencySnapshotTarget()
     // Order matters: generateBotDefinition computes the status verdicts, which
     // generateIntegrationsDefinition/generatePluginsDefinition then read to emit
     // the carriers.
@@ -259,9 +342,7 @@ export class BotGenerator {
   private async generateIntegrationsTypes(): Promise<void> {
     // Load the project to get interfaces
     const project = await this.loadProject()
-    const manager = new IntegrationManager({
-      project,
-    })
+    const manager = new IntegrationManager(this.catalogClientOptions())
     const integrations = await manager.loadIntegrations(project.dependencies || {})
 
     // List existing files before generation (.adk/integrations)
@@ -326,9 +407,7 @@ export class BotGenerator {
 
   private async generatePluginsTypes(): Promise<void> {
     const project = await this.loadProject()
-    const manager = new PluginManager({
-      project,
-    })
+    const manager = new PluginManager(this.catalogClientOptions())
     const result = await manager.loadPlugins(project.dependencies || {})
 
     // List existing files before generation (.adk/plugins)
@@ -424,9 +503,7 @@ export class BotGenerator {
     const project = await this.loadProject()
 
     // Load integrations to generate channel types
-    const manager = new IntegrationManager({
-      project,
-    })
+    const manager = new IntegrationManager(this.catalogClientOptions())
     const integrations = await manager.loadIntegrations(project.dependencies || {})
 
     // Collect all channel names from integrations
@@ -495,12 +572,8 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
   private async generateInterfacesTypes(): Promise<void> {
     // Load the project to get interfaces
     const project = await this.loadProject()
-    const integrationManager = new IntegrationManager({
-      project,
-    })
-    const manager = new InterfaceManager({
-      project,
-    })
+    const integrationManager = new IntegrationManager(this.catalogClientOptions())
+    const manager = new InterfaceManager(this.catalogClientOptions())
 
     // List existing files before generation (.adk/interfaces)
     const interfacesDir = path.join(this.projectPath, '.adk', 'interfaces')
@@ -791,11 +864,9 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
 
     const project = await this.loadProject()
     const integrations = project.integrations
-    // Fetch server-side configs to preserve values (e.g. auth tokens) not in agent.config.ts
-    // During deploy/build, fetch from the production bot (botId) to avoid leaking dev config
-    const isDeployOrBuild = this.adkCommand === 'adk-deploy' || this.adkCommand === 'adk-build'
-    const configTargetBotId = isDeployOrBuild ? project.agentInfo?.botId : undefined
-    const serverConfigResult = await fetchServerIntegrationConfigs(project, configTargetBotId)
+    // Environment selection belongs to the command boundary. Codegen consumes
+    // that exact descriptor and never re-resolves merged project metadata.
+    const serverConfigResult = await fetchServerIntegrationConfigs(project, this.configTarget)
     this.reportServerConfigSync('integration', serverConfigResult, integrations)
 
     const imports: string[] = []
@@ -810,7 +881,7 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
       // Authorization gate (WS3 + WS5). A managed-OAuth/connection integration the user
       // enabled but never authorized (e.g. `gmail`: `enabled: true`, no `identifier`) would
       // hard-fail Cloud's `register` hook ("No refresh token found …") and abort the whole
-      // `adk dev` / `adk deploy` boot. The fix is to leave it inert (`enabled: false`) — NOT
+      // `brt dev` / `brt deploy --adk` boot. The fix is to leave it inert (`enabled: false`) — NOT
       // to omit it: `bp` skips registering a disabled integration, but keeps it on the bot so
       // the user can still authorize it (omitting prunes it from the cloud bot — a first-auth
       // dead end) and so any plugin depending on this alias still resolves at `addPlugin`.
@@ -849,7 +920,7 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
         enabled = integration.enabled
       } else if (serverConfigResult.error) {
         // Cloud unreachable: we can't tell "first install" from "user disabled in the
-        // dev console", so default to disabled rather than risk re-enabling something
+        // web console", so default to disabled rather than risk re-enabling something
         // the user turned off.
         enabled = false
       } else {
@@ -926,7 +997,7 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
     const plugins = project.dependencies?.plugins || {}
     const addPlugins: string[] = []
 
-    const serverPluginConfigResult = await fetchServerPluginConfigs(project, configTargetBotId)
+    const serverPluginConfigResult = await fetchServerPluginConfigs(project, this.configTarget)
     this.reportServerConfigSync(
       'plugin',
       serverPluginConfigResult,
@@ -1571,8 +1642,8 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
   }
 
   async generateAdkRuntime(): Promise<void> {
-    const project = new AgentProject(this.projectPath)
-    await project.reload()
+    await this.verifyServerTarget()
+    const project = await this.loadProject()
 
     const srcDir = path.join(this.outputPath, 'src')
 
@@ -2097,20 +2168,23 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
   }
 
   async copyAssetsRuntime(): Promise<void> {
+    await this.verifyServerTarget()
     const assetsRuntimePath = path.join(this.projectPath, '.adk', 'assets-runtime.ts')
 
-    // For anything that isn't an explicit `adk dev` invocation, regenerate the runtime
-    // artifact with dev:false. This keeps shipped agents free of the dev-only URL refresher
-    // (and its `client` import), overwrites any stale dev-mode file left over from a prior
-    // `adk dev` if the assets directory was removed in between, and also handles callers
-    // that don't pass `adkCommand` (defensive default to prod-safe). We delegate to the
-    // `initAssets` generator because it handles both the with-assets (populated runtime)
-    // and without-assets (empty stub) branches.
-    const isShippingBuild = this.adkCommand !== 'adk-dev'
-    if (isShippingBuild) {
-      const project = await this.loadProject()
-      await regenerateAssetsArtifacts(this.projectPath, project.agentInfo?.botId, { dev: false })
-    }
+    // Always regenerate for the explicit mode and target. This prevents a dev
+    // build from reusing a stale shipping artifact (or vice versa), and keeps
+    // asset API calls on the same isolated bot as integration/plugin config.
+    await regenerateAssetsArtifacts(this.projectPath, this.configTarget.botId, {
+      dev: this.adkCommand === 'adk-dev',
+      credentials: this.configTarget.credentials,
+      cacheScope: {
+        environment: this.configTarget.environment,
+        ...(this.configTarget.botId ? { botId: this.configTarget.botId } : {}),
+        apiUrl: this.configTarget.credentials!.apiUrl,
+        workspaceId: this.configTarget.credentials!.workspaceId,
+      },
+      failOnRemoteFetchError: this.configTarget.environment === 'prod',
+    })
 
     if (existsSync(assetsRuntimePath)) {
       const content = await fs.readFile(assetsRuntimePath, 'utf-8')
@@ -2123,26 +2197,44 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   const generator = new BotGenerator(options)
   const botPath = options.outputPath || path.join(options.projectPath, '.adk', 'bot')
 
+  await generator.verifyServerTarget()
+
   // generate() must run first: it creates botPath and the bot source files.
   await generator.generate()
 
-  // These four steps are mutually independent and write to distinct locations
-  // (ADK runtime files, copied assets, the @holocronlab/botruntime-sdk node_modules symlink,
-  // and the devId project cache) — none of them touch bp_modules — so run them
-  // concurrently rather than serially.
-  const devIdManager = new DevIdManager(options.projectPath, botPath)
-  await Promise.all([
+  // These steps write to distinct locations and do not touch bp_modules.
+  // Dev-id restoration is strictly a dev concern; shipping generation must not
+  // load the dev dependency snapshot while preparing its project cache.
+  const independentGenerationSteps: Array<Promise<void>> = [
     generator.generateAdkRuntime(),
     generator.copyAssetsRuntime(),
     linkSdk(options.projectPath, botPath),
-    devIdManager.restoreDevId(),
-  ])
+  ]
+  if (options.adkCommand === 'adk-dev') {
+    const devIdManager = new DevIdManager(options.projectPath, botPath)
+    const cacheTarget =
+      options.configTarget.environment === 'dev' && options.configTarget.botId && options.configTarget.runtimeBotId
+        ? {
+            devId: options.configTarget.runtimeBotId,
+            devTargetBotId: options.configTarget.botId,
+            devApiUrl: options.configTarget.credentials!.apiUrl.replace(/\/+$/, ''),
+            devWorkspaceId: options.configTarget.credentials!.workspaceId,
+          }
+        : undefined
+    independentGenerationSteps.push(devIdManager.restoreDevId(cacheTarget))
+  }
+  await Promise.all(independentGenerationSteps)
 
   // The syncs below vendor dependencies into the same botPath (bp_modules and
   // the root package.json), so they stay sequential to avoid racing on shared
   // files. When `options.installer` is set they vendor IN-PROCESS (no child
   // process); otherwise they fall back to the execa `bp add` path.
-  const syncOptions = { ...projectLoadOptions(options.adkCommand), installer: options.installer }
+  const syncOptions = {
+    ...projectLoadOptions(options.adkCommand, options.configTarget),
+    credentials: options.configTarget.credentials,
+    installer: options.installer,
+    projectPromise: generator.loadProject(),
+  }
 
   // Sync integrations
   const integrationSync = new IntegrationSync(options.projectPath, botPath, syncOptions)
@@ -2156,7 +2248,7 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   }
 
   // Sync interfaces
-  const interfaceSync = new InterfaceSync(options.projectPath, botPath, { installer: options.installer })
+  const interfaceSync = new InterfaceSync(options.projectPath, botPath, syncOptions)
   const interfaceSyncResult = await interfaceSync.syncInterfaces()
 
   if (interfaceSyncResult.errors.length > 0) {
@@ -2185,7 +2277,7 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   // plugin whose backing integration was omitted aborts the whole boot inside
   // the SDK's addPlugin. Failing here, with the sync error attached, is the only
   // non-destructive outcome.
-  const project = await AgentProject.load(options.projectPath, projectLoadOptions(options.adkCommand))
+  const project = await syncOptions.projectPromise
   const syncErrorByAlias = new Map<string, string>()
   for (const { alias, error } of [...integrationSyncResult.errors, ...pluginSyncResult.errors]) {
     syncErrorByAlias.set(alias, error)

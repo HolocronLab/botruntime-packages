@@ -12,6 +12,7 @@
   "files": [
     "src",
     "templates",
+    "brt-docs-contract.json",
     "README.md"
   ],
   "publishConfig": {
@@ -24,6 +25,9 @@
   },
   "scripts": {
     "brt": "bun src/cli.ts",
+    "docs:contract:check": "bun src/generate-docs-contract.ts --check",
+    "docs:contract:generate": "bun src/generate-docs-contract.ts",
+    "docs:contract:test": "vitest --run src/docs-contract.test.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run"
   },

@@ -3,6 +3,12 @@ export type { DependencyManagerOptions, ResourceEntry } from './dependency-manag
 
 export {
   dependencyStateSchema,
+  dependencySnapshotTargetSchema,
+  dependencyMigrationPendingSchema,
+  dependencyMigrationSourceSchema,
+  dependencyMigrationPlanSchema,
+  dependencyMigrationCompletionRecordSchema,
+  dependencyMigrationMarkerSchema,
   type Environment,
   type ResourceType,
   type IntegrationDependencyEntry,
@@ -12,7 +18,14 @@ export {
   type PluginDependencyMapping,
   type DependencyStateData,
   type DependencySnapshotData,
+  type DependencySnapshotTarget,
+  type DependencyTargetScope,
   type DependencyMigrationMarker,
+  type DependencyMigrationPending,
+  type DependencyMigrationProgress,
+  type DependencyMigrationSource,
+  type DependencyMigrationPlan,
+  type DependencyMigrationCompletionRecord,
   type AddSpec,
   type ConfigPatch,
   type MutationResult,
@@ -25,6 +38,23 @@ export {
 
 export { computeIntegrationStatus, computePluginStatus, isCallable } from './status.js'
 export { resolveDependencyStatuses, type ResolveDependencyStatusesInput } from './status-resolver.js'
+export {
+  reconcileDependencyReadiness,
+  type CloudDependencyReadiness,
+  type CloudReadinessDependency,
+  type CloudReadinessProjection,
+  type DependencyReadinessIssue,
+  type DependencyReadinessIssueCode,
+  type DependencyReadinessReport,
+} from './readiness-reconciler.js'
+export {
+  inspectDependencyModule,
+  inspectDependencyModuleInventory,
+  listGeneratedDependencyModuleNames,
+  type DependencyModuleInspection,
+  type DependencyModuleInventoryInspection,
+  type DependencyModuleIssueCode,
+} from './module-identity.js'
 
 export { DependencyError, DEPENDENCY_ERROR_CODES, DEPENDENCY_WARNING_CODES } from './errors.js'
 export type { DependencyErrorCode, DependencyWarningCode } from './errors.js'
@@ -43,10 +73,17 @@ export {
   DependencySnapshotStore,
   emptyDependencySnapshot,
   dependencySnapshotFromBot,
+  normalizeDependencySnapshotTarget,
   type IntegrationAuthorizationSpecSource,
   type DependencySnapshotWarning,
   type DependencySnapshotStoreOptions,
 } from './snapshot-store.js'
 
 export { DependencyMigrationManager, migrateFromConfig } from './migration.js'
-export type { MigrateOptions } from './migration.js'
+export type { DependencyMigrationAuthority, MigrateOptions } from './migration.js'
+
+export { refreshCompletedDependencySnapshot } from './completed-snapshot-refresh.js'
+export type {
+  CompletedDependencySnapshotRefreshResult,
+  RefreshCompletedDependencySnapshotOptions,
+} from './completed-snapshot-refresh.js'

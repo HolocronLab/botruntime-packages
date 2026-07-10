@@ -1,36 +1,27 @@
 # {{projectName}}
 
-A Botpress Agent built with the ADK.
+A minimal Holocron agent project.
 
-## Getting Started
+## Run it
 
-1. Install dependencies:
+```bash
+{{packageManager}} install
+brt dev
+```
 
-   ```bash
-   {{packageManager}} install
-   ```
+After the first successful development run, check the same target without
+changing remote state:
 
-2. Start development server:
+```bash
+brt dev --check
+```
 
-   ```bash
-   adk dev
-   ```
+Validate TypeScript and deploy the production target:
 
-3. Deploy your agent:
-   ```bash
-   adk deploy
-   ```
+```bash
+tsc --noEmit
+brt deploy --adk
+```
 
-## Project Structure
-
-- `src/actions/` - Define callable functions
-- `src/workflows/` - Define long-running processes
-- `src/conversations/` - Define conversation handlers
-- `src/tables/` - Define data storage schemas
-- `src/triggers/` - Define event subscriptions
-- `src/knowledge/` - Add knowledge base files
-
-## Learn More
-
-- [ADK Documentation](https://botpress.com/docs/adk)
-- [Botpress Platform](https://botpress.com)
+Edit `agent.config.ts` for project metadata and
+`src/conversations/index.ts` for behavior.

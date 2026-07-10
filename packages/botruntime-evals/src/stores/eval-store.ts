@@ -37,10 +37,17 @@ export interface EvalWatchOptions {
   workflowId?: string
 }
 
+export interface EvalRunCreateOptions {
+  /** Hosted stores require an explicit workflow correlation id. */
+  workflowId?: string
+  /** Hosted stores validate this full projection before creating a visible run. */
+  definitions?: EvalDefinition[]
+}
+
 export interface EvalStore {
   listEvals(filter?: EvalFilter): Promise<EvalSummary[]>
   getEval(name: string): Promise<EvalDefinition | null>
-  createRun(runType?: string, metadata?: Record<string, unknown>): Promise<string>
+  createRun(runType?: 'manual' | 'scheduled', options?: EvalRunCreateOptions): Promise<string>
   addRunResults(runId: string, evalReport: EvalReport): Promise<void>
   completeRun(runId: string, report: EvalRunReport): Promise<void>
   loadRunResult(runId: string): Promise<EvalRunReport | null>

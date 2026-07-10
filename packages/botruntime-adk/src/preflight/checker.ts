@@ -1,6 +1,6 @@
 import type { Client, Bot } from '@holocronlab/botruntime-client'
 import { AgentProject } from '../agent-project/agent-project.js'
-import { getProjectClient, type Credentials } from '../auth/index.js'
+import { getProjectClient, type Credentials, type ServerConnectionCredentials } from '../auth/index.js'
 import { SecretsManager, type Environment } from '../secrets/manager.js'
 import { generateBotProject } from '../bot-generator/generator.js'
 import path from 'path'
@@ -12,6 +12,13 @@ import { AgentConfigSyncManager } from './agent-config-sync.js'
 import { DependencySnapshotStore } from '../dependencies/snapshot-store.js'
 import { resolveDependencyStatuses } from '../dependencies/status-resolver.js'
 import { findIntegrationVersionMismatches, isDeployBlocking } from './dependency-gate.js'
+import {
+  assertDevBotMatchesTarget,
+  type ResolvedDevTargetIdentity,
+  type ServerConfigTarget,
+} from '../integrations/config-utils.js'
+import { AdkError } from '@holocronlab/botruntime-analytics'
+import { readAgentInfo, readAgentLocalInfo } from '../agent-project/agent-resolver.js'
 
 export interface PendingPreflightResult {
   result: PreflightCheckResult
@@ -27,41 +34,161 @@ export class PreflightChecker {
   private client?: Client
   private project?: AgentProject
   private credentials?: Credentials
+  private clientTarget?: string
+  private projectTarget?: string
 
   constructor(projectPath: string, options: PreflightCheckerOptions = {}) {
     this.projectPath = projectPath
     this.credentials = options.credentials
   }
 
-  private async getProject(): Promise<AgentProject> {
-    if (!this.project) {
-      this.project = await AgentProject.load(this.projectPath)
+  private targetKey(target: ServerConfigTarget): string {
+    return JSON.stringify({
+      environment: target.environment,
+      botId: target.botId,
+      runtimeBotId: target.environment === 'dev' ? target.runtimeBotId : undefined,
+      apiUrl: target.credentials?.apiUrl,
+      workspaceId: target.credentials?.workspaceId,
+    })
+  }
+
+  private async getProject(target: ServerConfigTarget): Promise<AgentProject> {
+    const key = this.targetKey(target)
+    if (!this.project || (this.projectTarget !== undefined && this.projectTarget !== key)) {
+      this.project = await AgentProject.load(this.projectPath, {
+        adkCommand: target.environment === 'prod' ? 'adk-deploy' : 'adk-dev',
+        configTarget: target,
+      })
+      this.projectTarget = key
     }
     return this.project
   }
 
-  private async getClient(): Promise<Client> {
-    if (!this.client) {
-      const project = await this.getProject()
-
+  private async getClient(target: ServerConfigTarget): Promise<Client> {
+    const key = this.targetKey(target)
+    if (!this.client || (this.clientTarget !== undefined && this.clientTarget !== key)) {
+      const credentials = target.credentials
+      if (!credentials) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: 'Preflight requires explicit token, apiUrl, and workspaceId.',
+          expected: true,
+        })
+      }
       this.client = await getProjectClient({
-        project,
-        credentials: this.credentials,
+        credentials,
+        apiUrl: credentials.apiUrl,
+        workspaceId: credentials.workspaceId,
       })
+      this.clientTarget = key
     }
     return this.client
   }
 
+  private getServerConnectionCredentials(): ServerConnectionCredentials | undefined {
+    if (!this.credentials?.workspaceId) return undefined
+    return {
+      token: this.credentials.token,
+      apiUrl: this.credentials.apiUrl,
+      workspaceId: this.credentials.workspaceId,
+    }
+  }
+
+  private async getGenerationTarget(botId: string, env: Environment): Promise<ServerConfigTarget> {
+    const credentials = this.getServerConnectionCredentials()
+    if (!credentials) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: `${env === 'prod' ? 'Prod' : 'Dev'} preflight regeneration requires explicit token, apiUrl, and workspaceId.`,
+        expected: true,
+      })
+    }
+    if (env === 'prod') {
+      const info = await readAgentInfo(this.projectPath)
+      if (!info?.botId) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: 'Prod preflight requires a botId in agent.json.',
+          expected: true,
+        })
+      }
+      if (info.botId !== botId) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: `Prod preflight target ${botId} does not match agent.json botId=${info.botId}.`,
+          expected: true,
+        })
+      }
+      if (info.workspaceId !== credentials.workspaceId) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: `agent.json workspaceId=${info.workspaceId} does not match credentials workspaceId=${credentials.workspaceId}.`,
+          expected: true,
+        })
+      }
+      if (info.apiUrl?.replace(/\/+$/, '') !== credentials.apiUrl.replace(/\/+$/, '')) {
+        throw new AdkError({
+          code: 'INVALID_SERVER_CONFIG_TARGET',
+          message: `agent.json apiUrl=${info.apiUrl} does not match credentials apiUrl=${credentials.apiUrl}.`,
+          expected: true,
+        })
+      }
+      return { environment: 'prod', botId: info.botId, credentials }
+    }
+
+    const target = await this.getDevTargetIdentity(botId, credentials)
+    return { environment: 'dev', ...target, credentials }
+  }
+
+  private async getDevTargetIdentity(
+    runtimeBotId: string,
+    credentials: ServerConnectionCredentials
+  ): Promise<ResolvedDevTargetIdentity> {
+    const localInfo = await readAgentLocalInfo(this.projectPath)
+    const botId = localInfo?.devTargetBotId
+    if (!botId || !localInfo?.devId || !localInfo.devApiUrl || !localInfo.devWorkspaceId) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: 'Dev preflight requires a complete scoped dev target in agent.local.json.',
+        expected: true,
+      })
+    }
+    if (localInfo.devId !== runtimeBotId) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: `Dev preflight target ${runtimeBotId} does not match agent.local.json devId=${localInfo.devId}.`,
+        expected: true,
+      })
+    }
+    if (
+      localInfo.devApiUrl.replace(/\/+$/, '') !== credentials.apiUrl.replace(/\/+$/, '') ||
+      localInfo.devWorkspaceId !== credentials.workspaceId
+    ) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: 'The cached dev target scope does not match the selected preflight credentials.',
+        expected: true,
+      })
+    }
+    return { botId, runtimeBotId }
+  }
+
   private async performCheck(
     botId: string,
-    env: Environment
+    env: Environment,
+    resolvedTarget?: ServerConfigTarget
   ): Promise<{
     result: PreflightCheckResult
   }> {
-    const client = await this.getClient()
-    const project = await this.getProject()
+    const target = resolvedTarget ?? (await this.getGenerationTarget(botId, env))
+    const client = await this.getClient(target)
+    const project = await this.getProject(target)
 
-    const { bot } = await client.getBot({ id: botId })
+    const addressBotId = target.environment === 'dev' ? target.runtimeBotId! : target.botId
+    const { bot } = await client.getBot({ id: addressBotId })
+    if (target.environment === 'dev') {
+      assertDevBotMatchesTarget(bot, { botId: target.botId!, runtimeBotId: target.runtimeBotId! })
+    }
 
     const agentConfigDiffs = this.buildAgentConfigDiffs(project, bot)
     const secretWarnings = await this.buildSecretWarnings(project, env)
@@ -150,18 +277,64 @@ export class PreflightChecker {
   }
 
   async computeDeployPlan(botId: string, env: Environment = 'prod'): Promise<DeployPlan> {
-    const project = await this.getProject()
+    const target = await this.getGenerationTarget(botId, env)
+    const project = await this.getProject(target)
+    const { result } = await this.performCheck(botId, env, target)
+    const preflight: PendingPreflightResult = {
+      result,
+      apply: (callbacks) => this.apply(botId, result, env, callbacks),
+    }
+    if (!target.botId || !target.credentials) {
+      throw new AdkError({
+        code: 'INVALID_SERVER_CONFIG_TARGET',
+        message: 'Preflight control managers require a resolved botId and explicit credentials.',
+        expected: true,
+      })
+    }
+    const controlBotId = target.botId
+    const targetCredentials = target.credentials
+    const targetProject = Object.create(project) as AgentProject
+    Object.defineProperty(targetProject, 'agentInfo', {
+      value: {
+        botId: controlBotId,
+        workspaceId: targetCredentials.workspaceId,
+        apiUrl: targetCredentials.apiUrl,
+        ...(target.environment === 'dev'
+          ? {
+              devId: target.runtimeBotId,
+              devTargetBotId: controlBotId,
+              devApiUrl: targetCredentials.apiUrl.replace(/\/+$/, ''),
+              devWorkspaceId: targetCredentials.workspaceId,
+            }
+          : {}),
+      },
+      enumerable: true,
+    })
 
     const tableManager =
-      project.tables.length > 0 ? new TableManager({ project, botId, credentials: this.credentials }) : null
+      project.tables.length > 0
+        ? new TableManager({ project: targetProject, botId: controlBotId, credentials: targetCredentials })
+        : null
     const kbManager =
-      project.knowledge.length > 0 ? new KnowledgeManager({ project, botId, credentials: this.credentials }) : null
+      project.knowledge.length > 0
+        ? new KnowledgeManager({ project: targetProject, botId: controlBotId, credentials: targetCredentials })
+        : null
     const assetsManager = (await project.hasAssetsDirectory())
-      ? new AssetsManager({ projectPath: this.projectPath, botId, credentials: this.credentials })
+      ? new AssetsManager({
+          projectPath: this.projectPath,
+          botId: controlBotId,
+          credentials: targetCredentials,
+          cacheScope: {
+            environment: target.environment,
+            botId: controlBotId,
+            apiUrl: targetCredentials.apiUrl,
+            workspaceId: targetCredentials.workspaceId,
+          },
+          failOnRemoteFetchError: target.environment === 'prod',
+        })
       : null
 
-    const [preflight, tablePlan, kbResult, assetPlan] = await Promise.all([
-      this.checkWithPendingApply(botId, env),
+    const [tablePlan, kbResult, assetPlan] = await Promise.all([
       tableManager ? tableManager.createSyncPlan() : Promise.resolve(null),
       kbManager
         ? Promise.all([kbManager.createSyncPlan(), kbManager.getOrphanedKBs()]).then(([kbPlan, orphanedKBs]) => ({
@@ -179,15 +352,18 @@ export class PreflightChecker {
     // while dev/build codegen reads dev. Snapshot-only (offline-safe, no auth):
     // Cloud's persisted WS0 verdict + the enabled flag drive it.
     const snapshotStore = new DependencySnapshotStore({ projectPath: this.projectPath })
-    const snapshot = await snapshotStore.readOrEmpty(env, {
-      tolerant: true,
+    const snapshot = await snapshotStore.readOrEmpty({
+      env,
+      apiUrl: targetCredentials.apiUrl,
+      workspaceId: targetCredentials.workspaceId,
+      botId: controlBotId,
     })
     const dependencyStatuses = await resolveDependencyStatuses({ snapshot })
     const blockingDependencies = dependencyStatuses.filter(isDeployBlocking)
-    const integrationVersionMismatches =
-      env === 'prod'
-        ? findIntegrationVersionMismatches(await snapshotStore.readOrEmpty('dev', { tolerant: true }), snapshot)
-        : []
+    // Prod preflight must not read agent.local.json. A dev-vs-prod comparison
+    // needs an explicit dev authority/client boundary; without one, treating a
+    // local link as comparable would let foreign dev state influence prod.
+    const integrationVersionMismatches: DeployPlan['dependencyPlan']['integrationVersionMismatches'] = []
 
     const hasDestructiveStorageChanges =
       (tablePlan?.totalDelete ?? 0) > 0 ||
@@ -213,7 +389,8 @@ export class PreflightChecker {
     env: Environment,
     options?: ApplyOptions
   ): Promise<void> {
-    const client = await this.getClient()
+    const target = await this.getGenerationTarget(botId, env)
+    const client = await this.getClient(target)
 
     if (result.agentConfig.length > 0) {
       const configSyncer = new AgentConfigSyncManager(client)
@@ -225,11 +402,8 @@ export class PreflightChecker {
       await generateBotProject({
         projectPath: this.projectPath,
         outputPath: path.join(this.projectPath, '.adk', 'bot'),
-        // Regenerate against the env we planned for: a prod deploy must resolve cloud config
-        // and the register-time capability verdict against the PROD bot (matching the
-        // `adk-deploy` build step), not the dev bot. Dev keeps the prior behavior (no
-        // adkCommand) to avoid changing its asset/codegen target.
-        ...(env === 'prod' ? { adkCommand: 'adk-deploy' as const } : {}),
+        adkCommand: env === 'prod' ? 'adk-deploy' : 'adk-dev',
+        configTarget: target,
         callbacks: options,
       })
       options?.onSuccess?.('Bot project regenerated')

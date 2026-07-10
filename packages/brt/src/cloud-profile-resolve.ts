@@ -1,6 +1,7 @@
 import type { ProfileCredentials } from './command-implementations/global-command'
 import type { BotLink } from './cloud-project-link'
 import * as consts from './consts'
+import * as errors from './errors'
 
 // Shared profile/apiUrl resolution for the bespoke-cloudapi-wire commands
 // (`brt link`, `brt config`, `brt secret`, `brt deploy --adk`,
@@ -37,4 +38,49 @@ export async function resolveProfile(deps: ProfileResolveDeps): Promise<{ name: 
 export function resolveApiUrl(argvApiUrl: string | undefined, profile: ProfileCredentials, link?: BotLink): string {
   const url = argvApiUrl || process.env['BP_API_URL'] || link?.apiUrl || profile.apiUrl || consts.defaultBotpressApiUrl
   return url.replace(/\/+$/, '')
+}
+
+export type StackAuthority = {
+  apiUrl?: unknown
+  workspaceId?: unknown
+}
+
+export function assertProfileAuthority(
+  source: string,
+  target: StackAuthority,
+  profile: Pick<ProfileCredentials, 'apiUrl' | 'workspaceId'>,
+  options: { requireCoordinates?: boolean } = {}
+): void {
+  const profileApiUrl = profile.apiUrl.replace(/\/+$/, '')
+  const targetApiUrl =
+    typeof target.apiUrl === 'string' && target.apiUrl.length > 0
+      ? target.apiUrl.replace(/\/+$/, '')
+      : undefined
+  const targetWorkspaceId =
+    typeof target.workspaceId === 'string' || typeof target.workspaceId === 'number'
+      ? String(target.workspaceId)
+      : undefined
+
+  if (options.requireCoordinates && targetApiUrl === undefined) {
+    throw new errors.BotpressCLIError(`${source} has no apiUrl`)
+  }
+  if (options.requireCoordinates && targetWorkspaceId === undefined) {
+    throw new errors.BotpressCLIError(`${source} has no workspaceId`)
+  }
+  if (target.apiUrl !== undefined && targetApiUrl === undefined) {
+    throw new errors.BotpressCLIError(`${source} apiUrl must be a non-empty string`)
+  }
+  if (target.workspaceId !== undefined && targetWorkspaceId === undefined) {
+    throw new errors.BotpressCLIError(`${source} workspaceId must be a string or number`)
+  }
+  if (targetApiUrl !== undefined && targetApiUrl !== profileApiUrl) {
+    throw new errors.BotpressCLIError(
+      `${source} apiUrl=${targetApiUrl} does not match selected profile apiUrl=${profileApiUrl}`
+    )
+  }
+  if (targetWorkspaceId !== undefined && targetWorkspaceId !== profile.workspaceId) {
+    throw new errors.BotpressCLIError(
+      `${source} workspaceId=${targetWorkspaceId} does not match selected profile workspaceId=${profile.workspaceId}`
+    )
+  }
 }

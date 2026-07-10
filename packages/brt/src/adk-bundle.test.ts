@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as adkBundle from './adk-bundle'
 
 describe('sha256', () => {
@@ -27,6 +27,46 @@ describe('isAgentProject', () => {
 
   it('is false when agent.config.ts is absent', () => {
     expect(adkBundle.isAgentProject(dir)).toBe(false)
+  })
+})
+
+describe('isAgentSourceChange', () => {
+  const dir = path.join(os.tmpdir(), 'brt-agent-source')
+
+  it.each([
+    adkBundle.AGENT_CONFIG_FILE,
+    'package.json',
+    'agent.json',
+    path.join('src', 'agent.ts'),
+    path.join('src', 'knowledge', 'manual.md'),
+    path.join('src', 'knowledge', 'terms.pdf'),
+    path.join('src', 'assets', 'logo.png'),
+    path.join('.adk', 'dependencies', 'dev.json'),
+  ])('accepts the ADK watcher input %s', (relativePath) => {
+    expect(adkBundle.isAgentSourceChange(dir, path.join(dir, relativePath), { dependencyEnv: 'dev' })).toBe(true)
+  })
+
+  it.each([
+    'agent.local.json',
+    'bun.lock',
+    'package-lock.json',
+    'README.md',
+    path.join('assets', 'logo.png'),
+    path.join('tests', 'agent.test.ts'),
+    path.join('evals', 'case.ts'),
+    path.join('.adk', 'bot', 'index.ts'),
+    path.join('.adk', 'dependencies', 'nested', 'state.json'),
+    path.join('.brt', 'dist', 'index.cjs'),
+    path.join('node_modules', 'dep', 'index.ts'),
+    path.join('.git', 'config'),
+  ])('rejects the non-input or generated path %s', (relativePath) => {
+    expect(adkBundle.isAgentSourceChange(dir, path.join(dir, relativePath), { dependencyEnv: 'dev' })).toBe(false)
+  })
+
+  it('rejects paths outside the agent project', () => {
+    expect(
+      adkBundle.isAgentSourceChange(dir, path.join(dir, '..', 'outside.ts'), { dependencyEnv: 'dev' })
+    ).toBe(false)
   })
 })
 
@@ -87,7 +127,7 @@ describe('ensureBundle / requireExistingBundle', () => {
 
   it('BRT_BUNDLE_PATH fails loud when the file is missing', () => {
     process.env['BRT_BUNDLE_PATH'] = path.join(dir, 'missing.cjs')
-    expect(() => adkBundle.requireExistingBundle(dir)).toThrow(/BRT_BUNDLE_PATH is set but the file is missing/)
+    expect(() => adkBundle.requireExistingBundle(dir)).toThrow(/BRT_BUNDLE_PATH.*readable regular file/)
   })
 
   it('requireExistingBundle fails loud when no bundle exists and no override is set', () => {
@@ -124,5 +164,140 @@ describe('ensureBundle / requireExistingBundle', () => {
     await expect(adkBundle.ensureBundle(build)).resolves.toBe(out)
     expect(called).toBe(true)
     expect(fs.readFileSync(out, 'utf8')).toBe('rebuilt')
+  })
+})
+
+describe('ADK bundle provenance', () => {
+  let dir: string
+  let bundlePath: string
+  const target = {
+    apiUrl: 'https://cloud.example/',
+    workspaceId: 'ws_123',
+    botId: '42',
+  }
+  const validHash = adkBundle.sha256('authoritative bundle')
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-provenance-'))
+    bundlePath = path.join(dir, '.brt', 'dist', 'index.cjs')
+    fs.mkdirSync(path.dirname(bundlePath), { recursive: true })
+    fs.writeFileSync(bundlePath, 'authoritative bundle')
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it('atomically writes the exact canonical non-secret sidecar', () => {
+    const provenancePath = adkBundle.writeBundleProvenance(bundlePath, target)
+    const parsed = JSON.parse(fs.readFileSync(provenancePath, 'utf8'))
+
+    expect(provenancePath).toBe(`${bundlePath}.provenance.json`)
+    expect(Object.keys(parsed)).toEqual(['schemaVersion', 'apiUrl', 'workspaceId', 'botId', 'sha256'])
+    expect(parsed).toEqual({
+      schemaVersion: 1,
+      apiUrl: 'https://cloud.example',
+      workspaceId: 'ws_123',
+      botId: '42',
+      sha256: adkBundle.sha256('authoritative bundle'),
+    })
+    expect(JSON.stringify(parsed)).not.toContain('token')
+    expect(fs.readdirSync(path.dirname(bundlePath)).filter((name) => name.includes('.tmp-'))).toEqual([])
+  })
+
+  it('accepts only an exact target and exact current bundle hash', () => {
+    adkBundle.writeBundleProvenance(bundlePath, target)
+
+    expect(
+      adkBundle.validateBundleProvenance(bundlePath, {
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+        botId: '42',
+      })
+    ).toEqual({
+      code: 'authoritative bundle',
+      sha256: validHash,
+      provenance: {
+        schemaVersion: 1,
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+        botId: '42',
+        sha256: validHash,
+      },
+    })
+  })
+
+  it('returns the exact verified bytes so a later file change cannot alter the deploy payload', () => {
+    adkBundle.writeBundleProvenance(bundlePath, target)
+    const verified = adkBundle.validateBundleProvenance(bundlePath, target)
+
+    fs.writeFileSync(bundlePath, 'raced replacement')
+
+    expect(verified.code).toBe('authoritative bundle')
+    expect(verified.sha256).toBe(validHash)
+    expect(adkBundle.sha256(fs.readFileSync(bundlePath, 'utf8'))).not.toBe(verified.sha256)
+  })
+
+  it.each([
+    ['missing sidecar', undefined],
+    ['malformed JSON', '{'],
+    ['null', 'null'],
+    ['array', '[]'],
+    [
+      'extra key',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42', sha256: validHash, extra: true },
+    ],
+    ['missing key', { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42' }],
+    [
+      'unknown schema',
+      { schemaVersion: 2, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42', sha256: validHash },
+    ],
+    [
+      'string schema',
+      { schemaVersion: '1', apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42', sha256: validHash },
+    ],
+    [
+      'wrong field type',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 123, botId: '42', sha256: validHash },
+    ],
+    [
+      'numeric bot id',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: 42, sha256: validHash },
+    ],
+    [
+      'empty field',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: '', botId: '42', sha256: validHash },
+    ],
+    [
+      'non-normalized apiUrl',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example/', workspaceId: 'ws_123', botId: '42', sha256: validHash },
+    ],
+    [
+      'invalid hash shape',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42', sha256: 'not-a-hash' },
+    ],
+    [
+      'api mismatch',
+      { schemaVersion: 1, apiUrl: 'https://other.example', workspaceId: 'ws_123', botId: '42', sha256: validHash },
+    ],
+    [
+      'workspace mismatch',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'other_ws', botId: '42', sha256: validHash },
+    ],
+    [
+      'bot mismatch',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '99', sha256: validHash },
+    ],
+    [
+      'bundle hash mismatch',
+      { schemaVersion: 1, apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42', sha256: 'a'.repeat(64) },
+    ],
+  ])('fails closed for %s with rebuild guidance', (_label, sidecar) => {
+    const provenancePath = `${bundlePath}.provenance.json`
+    if (typeof sidecar === 'string') fs.writeFileSync(provenancePath, sidecar)
+    else if (sidecar !== undefined) fs.writeFileSync(provenancePath, JSON.stringify(sidecar))
+
+    expect(() => adkBundle.validateBundleProvenance(bundlePath, target)).toThrow(/rebuild without --noBuild/i)
   })
 })

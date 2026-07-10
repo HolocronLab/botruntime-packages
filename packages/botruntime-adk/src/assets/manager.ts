@@ -3,7 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import type { Client } from '@holocronlab/botruntime-client'
 import { AdkError } from '@holocronlab/botruntime-analytics'
-import { getProjectClient, type Credentials } from '../auth/index.js'
+import { assertCompleteCredentials, getProjectClient, type Credentials } from '../auth/index.js'
 import {
   AssetFile,
   LocalAssetFile,
@@ -14,12 +14,14 @@ import {
   AssetSyncOptions,
   AssetsIndex,
 } from './types.js'
-import { AssetsCacheManager } from './cache.js'
+import { AssetsCacheManager, type AssetsCacheScope } from './cache.js'
 
 export interface AssetManagerOptions {
   projectPath: string
   botId?: string
   credentials?: Credentials
+  cacheScope?: AssetsCacheScope
+  failOnRemoteFetchError?: boolean
 }
 
 export class AssetsManager {
@@ -27,15 +29,56 @@ export class AssetsManager {
   private assetsPath: string
   private client?: Client
   private botId?: string
-  private credentials?: Credentials
+  private credentials?: Credentials & { workspaceId: string }
+  private failOnRemoteFetchError: boolean
   private cacheManager: AssetsCacheManager
+  private cacheEnabled: boolean
 
   constructor(options: AssetManagerOptions) {
+    const targetBotId = options.botId?.trim() || undefined
+    const scopedBotId = options.cacheScope?.botId?.trim() || undefined
+    if (options.cacheScope && targetBotId !== scopedBotId) {
+      throw new AdkError({
+        code: 'INVALID_ASSET_CACHE_SCOPE',
+        message: 'Asset cache scope botId must exactly match the remote asset target botId.',
+        expected: true,
+      })
+    }
+    if (options.credentials) {
+      assertCompleteCredentials(options.credentials, 'Explicit asset credentials')
+    }
+    if (options.cacheScope?.environment === 'prod' && options.failOnRemoteFetchError === false) {
+      throw new AdkError({
+        code: 'INVALID_ASSET_FETCH_POLICY',
+        message: 'Production asset generation is fail-closed; remote fetch errors cannot be tolerated.',
+        expected: true,
+      })
+    }
+    const scopedAuthority = options.cacheScope?.apiUrl && options.cacheScope.workspaceId
+    if (scopedAuthority) {
+      const credentials = options.credentials
+      if (
+        !credentials?.workspaceId ||
+        credentials.apiUrl.replace(/\/+$/, '') !== options.cacheScope!.apiUrl!.replace(/\/+$/, '') ||
+        credentials.workspaceId !== options.cacheScope!.workspaceId
+      ) {
+        throw new AdkError({
+          code: 'INVALID_ASSET_CACHE_SCOPE',
+          message: 'An authority-scoped remote asset cache requires matching explicit credentials.',
+          expected: true,
+        })
+      }
+    }
     this.projectPath = options.projectPath
     this.assetsPath = path.join(this.projectPath, 'assets')
-    this.botId = options.botId
-    this.credentials = options.credentials
-    this.cacheManager = new AssetsCacheManager(this.projectPath)
+    this.botId = targetBotId
+    this.credentials = options.credentials as (Credentials & { workspaceId: string }) | undefined
+    this.failOnRemoteFetchError =
+      options.failOnRemoteFetchError ?? options.cacheScope?.environment === 'prod'
+    // Explicit remote credentials without a complete authority scope may still
+    // fetch safely, but must not read/write the legacy cross-stack cache.
+    this.cacheEnabled = Boolean(scopedAuthority)
+    this.cacheManager = new AssetsCacheManager(this.projectPath, { scope: options.cacheScope })
   }
 
   private async getClient(): Promise<Client> {
@@ -50,14 +93,21 @@ export class AssetsManager {
         })
       }
 
-      this.client = await getProjectClient({
-        project: { path: this.projectPath },
-        credentials: this.credentials,
-        botId: this.botId,
-        headers: {
-          'x-multiple-integrations': 'true',
-        },
-      })
+      const headers = { 'x-multiple-integrations': 'true' }
+      this.client = this.credentials
+        ? await getProjectClient({
+            credentials: this.credentials,
+            apiUrl: this.credentials.apiUrl,
+            workspaceId: this.credentials.workspaceId,
+            botId: this.botId,
+            headers,
+          })
+        : await getProjectClient({
+            project: { path: this.projectPath },
+            credentials: this.credentials,
+            botId: this.botId,
+            headers,
+          })
     }
     return this.client
   }
@@ -399,22 +449,30 @@ declare global {
 
     // Try to get client if credentials are available
     let remoteAssetsMap: Map<string, AssetFile> = new Map()
+    let remoteFetchFailed = false
     try {
       if (this.botId) {
         const remoteAssets = await this.getRemoteAssets()
         remoteAssetsMap = new Map(remoteAssets.map((asset) => [asset.path, asset]))
       }
     } catch (error) {
-      // If we can't fetch remote assets, we'll use cache or placeholders
+      if (this.failOnRemoteFetchError) {
+        throw error
+      }
+      remoteFetchFailed = true
       console.debug('Could not fetch remote assets:', error)
     }
 
     for (const localAsset of localAssets) {
-      const cachedEntry = await this.cacheManager.getEntry(localAsset.relativePath)
+      const cachedEntry = this.cacheEnabled ? await this.cacheManager.getEntry(localAsset.relativePath) : null
       const remoteAsset = remoteAssetsMap.get(localAsset.relativePath)
 
-      if (cachedEntry) {
-        // We have cached metadata - use it and update the cache with current hashes
+      if (remoteAsset) {
+        enrichedAssets.push(remoteAsset)
+        if (this.cacheEnabled) {
+          await this.cacheManager.setEntry(localAsset.relativePath, localAsset.hash, remoteAsset.hash, remoteAsset)
+        }
+      } else if (remoteFetchFailed && cachedEntry) {
         enrichedAssets.push(cachedEntry.metadata)
         await this.cacheManager.setEntry(
           localAsset.relativePath,
@@ -422,12 +480,12 @@ declare global {
           cachedEntry.remoteHash,
           cachedEntry.metadata
         )
-      } else if (remoteAsset) {
-        // No cache but we have remote - use remote and cache it
-        enrichedAssets.push(remoteAsset)
-        await this.cacheManager.setEntry(localAsset.relativePath, localAsset.hash, remoteAsset.hash, remoteAsset)
       } else {
-        // No cache and no remote - create placeholder
+        // A successful fetch is authoritative: absence means the remote file
+        // was deleted, so stale signed URLs/file IDs must not be resurrected.
+        if (this.cacheEnabled && cachedEntry) {
+          await this.cacheManager.removeEntry(localAsset.relativePath)
+        }
         const placeholderAsset: AssetFile = {
           url: `__PLACEHOLDER_URL_${localAsset.relativePath}__`,
           path: localAsset.relativePath,

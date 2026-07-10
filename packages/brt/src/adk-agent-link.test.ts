@@ -36,6 +36,24 @@ describe('adk-agent-link', () => {
       fs.writeFileSync(agentLink.agentInfoFilePath(dir), '{not json')
       expect(() => agentLink.readAgentInfoIfPresent(dir)).toThrow(/not valid JSON/)
     })
+
+    it('rejects a numeric botId before JavaScript can round an exact agent ID', () => {
+      fs.writeFileSync(
+        agentLink.agentInfoFilePath(dir),
+        '{"botId":9007199254740993,"workspaceId":"ws_1","apiUrl":"https://api.example"}'
+      )
+
+      expect(() => agentLink.readAgentInfoIfPresent(dir)).toThrow(/agent\.json.*botId.*string/i)
+    })
+
+    it('rejects missing or non-string canonical coordinates', () => {
+      fs.writeFileSync(
+        agentLink.agentInfoFilePath(dir),
+        JSON.stringify({ botId: '42', workspaceId: 7, apiUrl: true })
+      )
+
+      expect(() => agentLink.readAgentInfoIfPresent(dir)).toThrow(/agent\.json.*workspaceId.*string/i)
+    })
   })
 
   describe('readAgentLocalInfo', () => {
@@ -47,64 +65,93 @@ describe('adk-agent-link', () => {
       fs.writeFileSync(agentLink.agentLocalInfoFilePath(dir), '{not json')
       expect(() => agentLink.readAgentLocalInfo(dir)).toThrow(/not valid JSON/)
     })
-  })
 
-  describe('writeAgentLocalDevId / getAgentDevId', () => {
-    it('creates agent.local.json with only devId when none exists', () => {
-      agentLink.writeAgentLocalDevId(dir, 'dev_123')
-      expect(agentLink.getAgentDevId(dir)).toBe('dev_123')
-
-      const raw = fs.readFileSync(agentLink.agentLocalInfoFilePath(dir), 'utf-8')
-      expect(raw).toBe(JSON.stringify({ devId: 'dev_123' }, null, 2))
-      // No trailing newline — byte-shape-compatible with @holocronlab/botruntime-adk.
-      expect(raw.endsWith('\n')).toBe(false)
-    })
-
-    it('preserves existing keys and enforces adk key order [botId, workspaceId, apiUrl, devId]', () => {
+    it('rejects numeric local IDs instead of accepting rounded target state', () => {
       fs.writeFileSync(
         agentLink.agentLocalInfoFilePath(dir),
-        JSON.stringify({ apiUrl: 'https://local.example', botId: 'bot_local' }, null, 2)
+        JSON.stringify({ botId: 42, devId: 7, devTargetBotId: 9 })
       )
 
-      agentLink.writeAgentLocalDevId(dir, 'dev_456')
+      expect(() => agentLink.readAgentLocalInfo(dir)).toThrow(/agent\.local\.json.*botId.*string/i)
+    })
+  })
 
-      const raw = fs.readFileSync(agentLink.agentLocalInfoFilePath(dir), 'utf-8')
-      expect(raw).toBe(
-        JSON.stringify({ botId: 'bot_local', apiUrl: 'https://local.example', devId: 'dev_456' }, null, 2)
+  describe('legacy dev target reads', () => {
+    it('reads an unscoped runtime hint without treating its numeric target as scoped proof', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(dir),
+        JSON.stringify({ devId: 'dev_123', devTargetBotId: '41' })
       )
+
+      expect(agentLink.getAgentDevId(dir)).toBe('dev_123')
+      expect(agentLink.getAgentDevTargetBotId(dir)).toBe('41')
+      expect(agentLink.getLegacyAgentDevRuntimeHint(agentLink.readAgentLocalInfo(dir))).toBe('dev_123')
+      expect(
+        agentLink.resolveAgentDevTargetForStack(agentLink.readAgentLocalInfo(dir), {
+          apiUrl: 'https://cloud.example',
+          workspaceId: 'cloud_ws',
+        })
+      ).toBeUndefined()
+    })
+  })
+
+  describe('scoped dev target persistence', () => {
+    it('writes the complete target quartet atomically in mirrored ADK key order', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(dir),
+        JSON.stringify({ botId: 'local_prod', workspaceId: 'local_ws', apiUrl: 'http://local.example' })
+      )
+
+      agentLink.writeAgentLocalDevTarget(
+        dir,
+        'shared-runtime',
+        '42',
+        'https://cloud.example/',
+        'cloud_ws'
+      )
+
+      const expected = {
+        botId: 'local_prod',
+        workspaceId: 'local_ws',
+        apiUrl: 'http://local.example',
+        devId: 'shared-runtime',
+        devTargetBotId: '42',
+        devApiUrl: 'https://cloud.example',
+        devWorkspaceId: 'cloud_ws',
+      }
+      expect(fs.readFileSync(agentLink.agentLocalInfoFilePath(dir), 'utf8')).toBe(
+        JSON.stringify(expected, null, 2)
+      )
+      expect(agentLink.readAgentLocalInfo(dir)).toEqual(expected)
+    })
+
+    it('clears all four dev target fields together while preserving local prod coordinates', () => {
+      fs.writeFileSync(
+        agentLink.agentLocalInfoFilePath(dir),
+        JSON.stringify({
+          botId: 'local_prod',
+          workspaceId: 'local_ws',
+          apiUrl: 'http://local.example',
+          devId: 'shared-runtime',
+          devTargetBotId: '42',
+          devApiUrl: 'https://cloud.example',
+          devWorkspaceId: 'cloud_ws',
+        })
+      )
+
+      agentLink.writeAgentLocalDevTarget(dir, undefined, undefined, undefined, undefined)
+
       expect(agentLink.readAgentLocalInfo(dir)).toEqual({
-        botId: 'bot_local',
-        apiUrl: 'https://local.example',
-        devId: 'dev_456',
+        botId: 'local_prod',
+        workspaceId: 'local_ws',
+        apiUrl: 'http://local.example',
       })
     })
 
-    it('updates an existing devId in place', () => {
-      agentLink.writeAgentLocalDevId(dir, 'dev_1')
-      agentLink.writeAgentLocalDevId(dir, 'dev_2')
-      expect(agentLink.getAgentDevId(dir)).toBe('dev_2')
-    })
-
-    it('deletes agent.local.json when clearing devId leaves it empty', () => {
-      agentLink.writeAgentLocalDevId(dir, 'dev_1')
-      expect(fs.existsSync(agentLink.agentLocalInfoFilePath(dir))).toBe(true)
-
-      agentLink.writeAgentLocalDevId(dir, undefined)
-      expect(fs.existsSync(agentLink.agentLocalInfoFilePath(dir))).toBe(false)
-      expect(agentLink.getAgentDevId(dir)).toBeUndefined()
-    })
-
-    it('keeps agent.local.json when other keys survive clearing devId', () => {
-      fs.writeFileSync(agentLink.agentLocalInfoFilePath(dir), JSON.stringify({ botId: 'bot_local' }, null, 2))
-      agentLink.writeAgentLocalDevId(dir, 'dev_1')
-      agentLink.writeAgentLocalDevId(dir, undefined)
-
-      expect(fs.existsSync(agentLink.agentLocalInfoFilePath(dir))).toBe(true)
-      expect(agentLink.readAgentLocalInfo(dir)).toEqual({ botId: 'bot_local' })
-    })
-
-    it('is a no-op (no file created) when clearing devId on an already-empty/absent file', () => {
-      agentLink.writeAgentLocalDevId(dir, undefined)
+    it('rejects a partial quartet instead of persisting ambiguous identity', () => {
+      expect(() =>
+        agentLink.writeAgentLocalDevTarget(dir, 'shared-runtime', '42', undefined, 'cloud_ws')
+      ).toThrow(/all four|complete.*scope|quartet/i)
       expect(fs.existsSync(agentLink.agentLocalInfoFilePath(dir))).toBe(false)
     })
   })

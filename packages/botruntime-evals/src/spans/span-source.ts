@@ -27,7 +27,17 @@ export interface TurnWaitOptions extends WaitOptions {
   handlerStartTimeoutMs?: number
 }
 
+export interface SpanSourceCapabilities {
+  /** Tool input is observable, so declared `params` assertions are gradeable. */
+  toolParameters: boolean
+  /** State mutation values are observable, so state assertions are gradeable. */
+  stateMutations: boolean
+}
+
 export interface SpanSource {
+  readonly capabilities: SpanSourceCapabilities
+  /** Auth/scope/readability preflight that must not mutate eval/chat state. */
+  assertReadable?(): Promise<void>
   connect(filter: { conversationId: string }): Promise<void>
   /**
    * Re-point the stream at a new conversation, keeping spans already

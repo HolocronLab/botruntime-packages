@@ -1,7 +1,20 @@
+import crypto from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import { AssetFile } from './types.js'
 import { defaultAdkFolder } from '../const.js'
+
+export interface AssetsCacheScope {
+  environment: 'dev' | 'prod'
+  botId?: string
+  /** Non-secret server authority used to isolate equal bot IDs across stacks. */
+  apiUrl?: string
+  workspaceId?: string
+}
+
+export interface AssetsCacheManagerOptions {
+  scope?: AssetsCacheScope
+}
 
 export interface AssetsCacheEntry {
   path: string
@@ -13,15 +26,26 @@ export interface AssetsCacheEntry {
 
 export interface AssetsCache {
   version: string
+  scope?: AssetsCacheScope
   entries: Record<string, AssetsCacheEntry>
 }
 
 export class AssetsCacheManager {
   private cachePath: string
   private cache: AssetsCache | null = null
+  private scope?: AssetsCacheScope
 
-  constructor(private projectPath: string) {
-    this.cachePath = path.join(projectPath, defaultAdkFolder, 'assets-cache.json')
+  constructor(private projectPath: string, options: AssetsCacheManagerOptions = {}) {
+    this.scope = normalizeScope(options.scope)
+    this.cachePath = this.scope
+      ? path.join(
+          projectPath,
+          defaultAdkFolder,
+          'assets-cache',
+          this.scope.environment,
+          `${scopeTargetName(this.scope)}.json`
+        )
+      : path.join(projectPath, defaultAdkFolder, 'assets-cache.json')
   }
 
   async load(): Promise<AssetsCache> {
@@ -31,14 +55,15 @@ export class AssetsCacheManager {
 
     try {
       const content = await fs.readFile(this.cachePath, 'utf-8')
-      this.cache = JSON.parse(content)
+      const parsed = JSON.parse(content) as AssetsCache
+      if (!parsed || typeof parsed.entries !== 'object' || !this.matchesScope(parsed.scope)) {
+        throw new Error('Invalid asset cache')
+      }
+      this.cache = parsed
       return this.cache!
     } catch {
       // Cache doesn't exist or is invalid, create new one
-      this.cache = {
-        version: '1.0',
-        entries: {},
-      }
+      this.cache = this.emptyCache()
       return this.cache
     }
   }
@@ -83,10 +108,7 @@ export class AssetsCacheManager {
   }
 
   async clear(): Promise<void> {
-    this.cache = {
-      version: '1.0',
-      entries: {},
-    }
+    this.cache = this.emptyCache()
     await this.save()
   }
 
@@ -94,4 +116,68 @@ export class AssetsCacheManager {
     const cache = await this.load()
     return Object.values(cache.entries)
   }
+
+  private emptyCache(): AssetsCache {
+    return {
+      version: this.scope ? '2.0' : '1.0',
+      ...(this.scope ? { scope: this.scope } : {}),
+      entries: {},
+    }
+  }
+
+  private matchesScope(cacheScope?: AssetsCacheScope): boolean {
+    if (!this.scope) {
+      return cacheScope === undefined
+    }
+
+    const normalizedCacheScope = normalizeScope(cacheScope)
+    return (
+      normalizedCacheScope?.environment === this.scope.environment &&
+      normalizedCacheScope.botId === this.scope.botId &&
+      normalizedCacheScope.apiUrl === this.scope.apiUrl &&
+      normalizedCacheScope.workspaceId === this.scope.workspaceId
+    )
+  }
+}
+
+function normalizeScope(scope?: AssetsCacheScope): AssetsCacheScope | undefined {
+  if (!scope) {
+    return undefined
+  }
+
+  if (scope.environment !== 'dev' && scope.environment !== 'prod') {
+    throw new Error(`Unsupported asset cache environment: ${String(scope.environment)}`)
+  }
+
+  const botId = scope.botId?.trim() || undefined
+  const apiUrl = scope.apiUrl?.replace(/\/+$/, '') || undefined
+  const workspaceId = scope.workspaceId?.trim() || undefined
+  if (scope.environment === 'prod' && !botId) {
+    throw new Error('Production asset cache scope requires a bot ID')
+  }
+  if ((apiUrl && !workspaceId) || (!apiUrl && workspaceId)) {
+    throw new Error('Asset cache authority requires both apiUrl and workspaceId')
+  }
+
+  return {
+    environment: scope.environment,
+    ...(botId ? { botId } : {}),
+    ...(apiUrl && workspaceId ? { apiUrl, workspaceId } : {}),
+  }
+}
+
+function scopeTargetName(scope: AssetsCacheScope): string {
+  const authority = scope.apiUrl && scope.workspaceId ? { apiUrl: scope.apiUrl, workspaceId: scope.workspaceId } : undefined
+  if (!scope.botId) {
+    if (!authority) return 'bootstrap'
+    const digest = crypto.createHash('sha256').update(JSON.stringify(authority)).digest('hex').slice(0, 32)
+    return `bootstrap-${digest}`
+  }
+
+  const digest = crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ botId: scope.botId, ...authority }))
+    .digest('hex')
+    .slice(0, 32)
+  return `bot-${digest}`
 }

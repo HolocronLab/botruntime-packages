@@ -1,5 +1,5 @@
 /**
- * Validates a tag name according to ADK rules:
+ * Validates a tag name according to botruntime rules:
  * - Only alphanumeric characters (A-Z, a-z, 0-9) and underscores
  * - Minimum 3 characters
  * - Must start with a letter

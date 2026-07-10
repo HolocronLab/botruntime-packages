@@ -38,8 +38,8 @@ const botpressCognitive = (): Agent0ProviderCatalogEntry['modelSource'] => ({
 export const AGENT0_PROVIDER_CATALOG = [
   {
     id: 'cognitive',
-    name: 'Botpress Cognitive',
-    description: 'First-party Botpress model access through the active ADK dev bot.',
+    name: 'Holocron Cognitive',
+    description: 'First-party model access through the selected Holocron development target.',
     firstParty: true,
     status: 'available',
     enabledByDefault: true,

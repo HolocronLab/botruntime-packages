@@ -1,5 +1,5 @@
 /**
- * ADK eval authoring API.
+ * Eval authoring API used by brt and runtime workflows.
  *
  * Runtime-heavy execution pieces are available from subpaths such as
  * `@holocronlab/botruntime-evals/runner`, `@holocronlab/botruntime-evals/loader`, and
@@ -25,6 +25,7 @@ export type {
   ResponseAssertion,
   Span,
   SpanStatus,
+  TraceMetadata,
   StateAssertion,
   StateMutation,
   TimingAssertion,

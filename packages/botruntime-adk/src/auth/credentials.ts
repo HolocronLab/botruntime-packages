@@ -12,6 +12,28 @@ export interface Credentials {
   botId?: string
 }
 
+export type CompleteCredentials = Credentials & { workspaceId: string }
+
+export function assertCompleteCredentials(
+  credentials: Credentials,
+  context: string = 'Provided credentials'
+): asserts credentials is CompleteCredentials {
+  if (
+    typeof credentials.token !== 'string' ||
+    !credentials.token.trim() ||
+    typeof credentials.apiUrl !== 'string' ||
+    !credentials.apiUrl.trim() ||
+    typeof credentials.workspaceId !== 'string' ||
+    !credentials.workspaceId.trim()
+  ) {
+    throw new AdkError({
+      code: 'INCOMPLETE_CREDENTIAL_AUTHORITY',
+      message: `${context} require non-empty token, apiUrl, and workspaceId. Partial credentials cannot borrow project authority.`,
+      expected: true,
+    })
+  }
+}
+
 export interface Profile {
   name: string
   credentials: Credentials
@@ -233,9 +255,9 @@ export class CredentialsManager {
       const displayName = profileName || 'default'
       throw new AdkError({
         code: 'NOT_AUTHENTICATED',
-        message: `No credentials found for profile '${displayName}'. ` + `Please run 'adk login' to authenticate.`,
+        message: `No credentials found for profile '${displayName}'. ` + `Run 'brt login' to authenticate.`,
         expected: true,
-        suggestion: "Run 'adk login' to authenticate.",
+        suggestion: "Run 'brt login' to authenticate.",
       })
     }
 
@@ -243,15 +265,15 @@ export class CredentialsManager {
   }
 
   /**
-   * Find a profile whose apiUrl matches the given URL.
+   * Find a profile whose normalized apiUrl and workspaceId match the target authority.
    * Returns the credentials of the first matching profile, or null if none match.
    * Accepts a pre-loaded store to avoid redundant file reads.
    */
-  private findProfileByApiUrl(store: CredentialsStore, apiUrl: string): Credentials | null {
+  private findProfileByAuthority(store: CredentialsStore, apiUrl: string, workspaceId: string): Credentials | null {
     const normalizedUrl = apiUrl.replace(/\/+$/, '') // strip trailing slashes
 
     for (const [, credentials] of Object.entries(store.profiles)) {
-      if (!credentials.apiUrl) continue
+      if (!credentials.apiUrl || credentials.workspaceId !== workspaceId) continue
       const profileUrl = credentials.apiUrl.replace(/\/+$/, '')
       if (profileUrl === normalizedUrl) {
         return credentials
@@ -261,11 +283,40 @@ export class CredentialsManager {
     return null
   }
 
+  async getAuthorityCredentials(apiUrl: string, workspaceId: string): Promise<Credentials> {
+    const normalizedUrl = apiUrl.replace(/\/+$/, '')
+    if (this.profileOverride) {
+      const selected = await this.getActiveCredentials()
+      assertCompleteCredentials(selected, 'Selected profile credentials')
+      if (selected.apiUrl.replace(/\/+$/, '') !== normalizedUrl || selected.workspaceId !== workspaceId) {
+        throw new AdkError({
+          code: 'PROFILE_AUTHORITY_MISMATCH',
+          message: `Selected profile authority does not match apiUrl=${apiUrl} workspaceId=${workspaceId}.`,
+          expected: true,
+        })
+      }
+      return selected
+    }
+
+    const store = await this.readCredentials()
+    const matching = this.findProfileByAuthority(store, apiUrl, workspaceId)
+    if (!matching) {
+      throw new AdkError({
+        code: 'PROFILE_AUTHORITY_NOT_FOUND',
+        message: `No matching profile found for apiUrl=${apiUrl} workspaceId=${workspaceId}.`,
+        expected: true,
+        suggestion: 'Login to the target server/workspace or select a matching profile.',
+      })
+    }
+    assertCompleteCredentials(matching, 'Matched profile credentials')
+    return matching
+  }
+
   /**
    * Get credentials for agent-specific operations
-   * This will prioritize workspaceId and apiUrl from agent.json over credentials file.
-   * When no explicit profile is specified, it auto-selects the profile whose apiUrl
-   * matches the agent.json apiUrl.
+   * The selected profile must exactly match agent apiUrl + workspaceId. There is
+   * no active-profile fallback because combining its PAT with link coordinates
+   * would cross credential authorities.
    *
    * @param agentPath - Path to the agent project directory
    * @throws Error if agent.json is missing or doesn't contain workspaceId
@@ -281,36 +332,7 @@ export class CredentialsManager {
     // apiUrl is also guaranteed by resolveAgent which defaults it to DEFAULT_API_URL
     const agentApiUrl = agentInfo!.apiUrl!
 
-    // Determine base credentials:
-    // If user explicitly specified a profile (--profile flag), honor that.
-    // Otherwise, try to find a profile that matches the agent's API URL.
-    let baseCredentials: Credentials
-
-    const hasExplicitProfile = !!this.profileOverride
-
-    if (hasExplicitProfile) {
-      baseCredentials = await this.getActiveCredentials()
-    } else {
-      // Read the store once and reuse it for both the profile lookup and the fallback
-      const store = await this.readCredentials()
-      const matchingCredentials = this.findProfileByApiUrl(store, agentApiUrl)
-      if (matchingCredentials) {
-        baseCredentials = matchingCredentials
-      } else {
-        // Fall back to the active profile from the same store read
-        const profileName = store.currentProfile || 'default'
-        const activeCredentials = store.profiles[profileName]
-        if (!activeCredentials) {
-          throw new AdkError({
-            code: 'NOT_AUTHENTICATED',
-            message: `No credentials found for profile '${profileName}'. ` + `Please run 'adk login' to authenticate.`,
-            expected: true,
-            suggestion: "Run 'adk login' to authenticate.",
-          })
-        }
-        baseCredentials = activeCredentials
-      }
-    }
+    const baseCredentials = await this.getAuthorityCredentials(agentApiUrl, agentInfo!.workspaceId)
 
     return {
       ...baseCredentials,
