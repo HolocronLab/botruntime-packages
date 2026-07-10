@@ -31,7 +31,7 @@ The full upstream command set is preserved:
 ```
 login  logout  bots  integrations  interfaces  plugins  init  generate(gen)
 bundle  build  read  serve  deploy  add(i/install)  remove(rm)  dev  lint  chat
-profiles
+profiles  link  logs  traces  config  secret
 ```
 
 `brt build` runs the **native** pipeline — `generate` (typings codegen into
@@ -87,3 +87,30 @@ brt init my-bot && cd my-bot && brt build && brt deploy
 ```
 
 Requires **bun >= 1.3**.
+
+## Privacy-safe traces
+
+`brt traces` reads the selected profile's trace API without exposing prompts,
+model responses, tool input/output, document content, or raw errors. The
+backend response is projected through a strict metadata allowlist before either
+human or JSON output is written.
+
+```bash
+# Production target from agent.json (or bot.json for a classic project)
+brt traces --conversation-id conv_123
+
+# Attested dev target created by brt dev; --local selects the local stack/profile
+brt traces --conversation-id conv_123 --dev
+brt traces --conversation-id conv_123 --dev --local
+
+# Stable machine output and resumable cursor pagination
+brt traces --conversation-id conv_123 --limit 100 --json
+brt traces --conversation-id conv_123 --limit 100 --next-token 456 --json
+```
+
+Production requires canonical positive-decimal `workspaceId` and `botId`
+coordinates matching the selected profile. Development requires an opaque,
+stack-scoped runtime target previously established by `brt dev`; it never
+silently falls back to production or to a default workspace. Authentication,
+target, network, HTTP, and response-shape failures exit non-zero with no partial
+trace output.

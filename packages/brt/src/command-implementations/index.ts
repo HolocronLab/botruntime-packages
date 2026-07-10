@@ -23,6 +23,7 @@ import { LintCommand } from './lint-command'
 import { LoginCommand } from './login-command'
 import { LogoutCommand } from './logout-command'
 import { LogsCommand } from './logs-command'
+import { TracesCommand } from './traces-command'
 import * as plugins from './plugin-commands'
 import * as profiles from './profile-commands'
 import { ReadCommand } from './read-command'
@@ -98,6 +99,7 @@ export default {
   },
   link: getHandler(LinkCommand),
   logs: getHandler(LogsCommand),
+  traces: getHandler(TracesCommand),
   config: {
     subcommands: {
       set: getHandler(cloudConfig.ConfigSetCommand),

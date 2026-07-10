@@ -193,6 +193,23 @@ const cloudLogsLimit = {
   description: 'Stop after printing this many log entries (client-side cap)',
 } satisfies CommandOption
 
+const cloudTracesConversationId = {
+  type: 'string',
+  description: 'Conversation correlation ID whose privacy-safe traces should be listed',
+  demandOption: true,
+} satisfies CommandOption
+
+const cloudTracesLimit = {
+  type: 'number',
+  description: 'Maximum trace rows to return (1-10000)',
+  default: 20,
+} satisfies CommandOption
+
+const cloudTracesNextToken = {
+  type: 'string',
+  description: 'Resume listing from this server-issued pagination cursor',
+} satisfies CommandOption
+
 const cloudIntegrationRef = {
   type: 'string',
   description:
@@ -706,6 +723,17 @@ const logsSchema = {
   limit: cloudLogsLimit,
 } satisfies CommandSchema
 
+// brt traces --conversation-id <id> [--dev] [--limit] [--next-token]
+// Production reads the canonical workspace/bot human route. --dev resolves an
+// attested opaque runtime target and uses the bot-scoped trace reader instead.
+const tracesSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  conversationId: cloudTracesConversationId,
+  limit: cloudTracesLimit,
+  nextToken: cloudTracesNextToken,
+} satisfies CommandSchema
+
 // brt integrations install|register|publish — the bespoke-cloudapi-wire
 // integration channel commands, ported from the (deleted) thin brt CLI's
 // commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
@@ -799,6 +827,7 @@ export const schemas = {
   cloudSecretSet: cloudSecretSetSchema,
   cloudLink: cloudLinkSchema,
   logs: logsSchema,
+  traces: tracesSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,

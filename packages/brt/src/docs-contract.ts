@@ -44,6 +44,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'link',
     'login',
     'logs',
+    'traces',
     'profiles active',
     'profiles use',
     'secret set',
@@ -58,6 +59,7 @@ const documentation: BrtDocsContract['documentation'] = {
     link: ['apiUrl', 'botId', 'keyStdin', 'local', 'workspaceId'],
     login: ['apiUrl', 'device', 'token', 'workspaceId'],
     logs: ['botId', 'conversationId', 'follow', 'limit', 'local'],
+    traces: ['conversationId', 'dev', 'limit', 'local', 'nextToken'],
     'config set': ['dev', 'local', 'valueFile'],
     'secret set': ['dev', 'local', 'valueFile'],
   },
@@ -106,6 +108,7 @@ const documentation: BrtDocsContract['documentation'] = {
       documents: ['reference'],
       commandPaths: ['config set', 'config list', 'config rm', 'secret set'],
     },
+    { id: 'trace-diagnostics', documents: ['overview', 'reference'], commandPaths: ['traces'] },
   ],
 }
 

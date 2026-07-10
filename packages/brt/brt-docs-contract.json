@@ -675,6 +675,25 @@
         "verbose",
         "workDir"
       ]
+    },
+    {
+      "path": "traces",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "conversationId",
+        "dev",
+        "json",
+        "limit",
+        "local",
+        "nextToken",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
     }
   ],
   "documentation": {
@@ -687,6 +706,7 @@
       "link",
       "login",
       "logs",
+      "traces",
       "profiles active",
       "profiles use",
       "secret set"
@@ -748,6 +768,13 @@
         "follow",
         "limit",
         "local"
+      ],
+      "traces": [
+        "conversationId",
+        "dev",
+        "limit",
+        "local",
+        "nextToken"
       ],
       "config set": [
         "dev",
@@ -868,6 +895,16 @@
           "config list",
           "config rm",
           "secret set"
+        ]
+      },
+      {
+        "id": "trace-diagnostics",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "traces"
         ]
       }
     ]
