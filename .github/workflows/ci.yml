@@ -37,12 +37,6 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@holocronlab"
-
       - name: Install brt contract-generator dependencies
         working-directory: packages/brt
         # Bun 1.3.14 cannot re-read the lock entries it emits for the recursive
@@ -52,7 +46,7 @@ jobs:
         # still fails on any command/schema drift.
         run: bun install --no-save --ignore-scripts
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
