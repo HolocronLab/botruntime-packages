@@ -7,6 +7,8 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { TracesCommand } from './traces-command'
 
+vi.mock('latest-version', () => ({ default: vi.fn(async () => '0.5.3') }))
+
 const API_URL = 'https://cloud.example'
 const WORKSPACE_ID = '42'
 const PROD_BOT_ID = '7'
@@ -99,10 +101,14 @@ describe('brt traces public contract', () => {
       expect.objectContaining({
         description: expect.stringMatching(/trace/i),
         schema: expect.objectContaining({
-          conversationId: expect.objectContaining({ demandOption: true }),
+          tokens: expect.objectContaining({ positional: true, array: true }),
+          conversationId: expect.objectContaining({ type: 'string' }),
           dev: expect.objectContaining({ type: 'boolean' }),
+          error: expect.objectContaining({ type: 'boolean' }),
           limit: expect.objectContaining({ type: 'number' }),
           nextToken: expect.objectContaining({ type: 'string' }),
+          status: expect.objectContaining({ type: 'string' }),
+          traceId: expect.objectContaining({ type: 'string' }),
         }),
       })
     )
@@ -122,6 +128,96 @@ describe('brt traces public contract', () => {
       `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=20`
     )
     expect(headers(calls[0]!)).toEqual({ authorization: 'Bearer pat_secret' })
+  })
+
+  it('maps every supported API filter without changing its spelling', async () => {
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await command({
+      action: 'lookup-order',
+      error: false,
+      name: 'autonomous.tool',
+      since: '2026-07-10T09:00:00Z',
+      source: 'otlp',
+      status: 'ok',
+      traceId: 'ABCDEF0123456789ABCDEF0123456789',
+      until: '2026-07-10T10:00:00Z',
+      workflow: 'onboarding',
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    const query = new URL(calls[0]!.url).searchParams
+    expect(Object.fromEntries(query)).toEqual({
+      conversationId: 'conv:1',
+      pageSize: '20',
+      status: 'ok',
+      error: 'false',
+      source: 'otlp',
+      name: 'autonomous.tool',
+      workflow: 'onboarding',
+      action: 'lookup-order',
+      traceId: 'abcdef0123456789abcdef0123456789',
+      since: '2026-07-10T09:00:00Z',
+      until: '2026-07-10T10:00:00Z',
+    })
+  })
+
+  it('accepts Botpress-compatible tokens and converts durations from one captured instant', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-10T10:00:00.000Z'))
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await command({
+      conversationId: undefined,
+      limit: undefined,
+      tokens: [
+        'conversation=conv:token',
+        'error',
+        'workflow=onboarding',
+        'action=lookup-order',
+        'trace=ABCDEF0123456789ABCDEF0123456789',
+        'since=1h',
+        'until=30m',
+        'limit=75',
+      ],
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(Object.fromEntries(new URL(calls[0]!.url).searchParams)).toEqual({
+      conversationId: 'conv:token',
+      pageSize: '75',
+      error: 'true',
+      workflow: 'onboarding',
+      action: 'lookup-order',
+      traceId: 'abcdef0123456789abcdef0123456789',
+      since: '2026-07-10T09:00:00.000Z',
+      until: '2026-07-10T09:30:00.000Z',
+    })
+  })
+
+  it.each([
+    [{ conversationId: undefined, tokens: [] }, /conversation.*required/i],
+    [{ tokens: ['include-llm'] }, /include-llm.*privacy/i],
+    [{ tokens: ['trigger=handler'] }, /trigger.*not supported/i],
+    [{ tokens: ['follow'] }, /follow.*not supported/i],
+    [{ tokens: ['wat=unknown'] }, /unknown trace filter/i],
+    [{ tokens: ['conversation=other'] }, /conversation.*more than once|conflict/i],
+    [{ tokens: ['error'], error: false }, /error.*more than once|conflict/i],
+    [{ tokens: ['limit=10'], limit: 20 }, /limit.*more than once|conflict/i],
+    [{ status: 'warning' }, /status.*unset.*ok.*error/i],
+    [{ source: 'raw' }, /source.*supported/i],
+    [{ name: 'raw.prompt' }, /name.*supported/i],
+    [{ traceId: '0'.repeat(32) }, /trace-id.*non-zero/i],
+    [{ since: 'yesterday' }, /since.*RFC3339.*duration/i],
+    [{ since: '1h', until: '2h' }, /since.*until/i],
+    [{ limit: 10_001 }, /limit.*1.*10000/i],
+  ])('rejects invalid, unsupported, or duplicate filters before network: %j', async (overrides, expected) => {
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await command(overrides).handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(calls).toEqual([])
+    expect(stderr).toMatch(expected)
   })
 
   it('uses the attested opaque dev runtime route without mixing in the production target', async () => {
@@ -146,7 +242,11 @@ describe('brt traces public contract', () => {
       return json({ traces: [trace()], meta: {} })
     })
 
-    const result = await command({ dev: true }).handler()
+    const result = await command({
+      dev: true,
+      error: true,
+      status: 'error',
+    }).handler()
 
     expect(result.exitCode).toBe(0)
     expect(calls.map((call) => decodeURIComponent(new URL(call.url).pathname))).toEqual([
@@ -156,6 +256,12 @@ describe('brt traces public contract', () => {
     expect(headers(calls[1]!)).toEqual({
       authorization: 'Bearer pat_secret',
       'x-bot-id': DEV_RUNTIME_BOT_ID,
+    })
+    expect(Object.fromEntries(new URL(calls[1]!.url).searchParams)).toEqual({
+      conversationId: 'conv:1',
+      pageSize: '20',
+      status: 'error',
+      error: 'true',
     })
     expect(calls[1]!.url).not.toContain(PROD_BOT_ID + '/traces')
   })
@@ -194,6 +300,7 @@ describe('brt traces public contract', () => {
   })
 
   it.each([
+    [400, /filters|rejected/i],
     [401, /brt login|profile/i],
     [403, /access|permission|member/i],
     [404, /link|target/i],
@@ -264,6 +371,15 @@ describe('brt traces public contract', () => {
     expect(output.nextToken).toBe('1')
   })
 
+  it('never exceeds the backend pageSize maximum when the client-side limit is larger', async () => {
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await command({ limit: 1_500 }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(new URL(calls[0]!.url).searchParams.get('pageSize')).toBe('1000')
+  })
+
   it('prints a readable metadata-only line in human mode', async () => {
     stubFetch(async () => json({ traces: [trace()], meta: {} }))
 
@@ -319,11 +435,13 @@ describe('brt traces public contract', () => {
       confirm: false,
       conversationId: 'conv:1',
       dev: false,
+      error: undefined,
       json: false,
       limit: 20,
       local: false,
       nextToken: undefined,
       profile: 'default',
+      tokens: [],
       verbose: false,
       workDir,
       ...overrides,

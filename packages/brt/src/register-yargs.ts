@@ -41,9 +41,10 @@ export const registerYargs = (yargz: YargsInstance, commands: tree.CommandTree) 
     let usage = aliases
     if (positionals.length) {
       positionals = _.sortBy(positionals, ([, option]) => option.idx)
-      const positionalArgs = positionals.map(([optName, option]) =>
-        option.demandOption ? `<${optName}>` : `[${optName}]`
-      )
+      const positionalArgs = positionals.map(([optName, option]) => {
+        const usageName = option.array ? `${optName}..` : optName
+        return option.demandOption ? `<${usageName}>` : `[${usageName}]`
+      })
       const positionalStr = positionalArgs.join(' ')
       usage = aliases.map((optAlias) => `${optAlias} ${positionalStr}`)
     }

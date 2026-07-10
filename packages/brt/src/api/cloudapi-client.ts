@@ -144,6 +144,21 @@ export interface GetBotLogsParams {
   nextToken?: string
 }
 
+export interface TraceListParams {
+  conversationId: string
+  pageSize: number
+  status?: 'unset' | 'ok' | 'error'
+  error?: boolean
+  source?: string
+  name?: string
+  workflow?: string
+  action?: string
+  traceId?: string
+  since?: string
+  until?: string
+  nextToken?: string
+}
+
 interface RequestOpts {
   method: string
   path: string
@@ -533,7 +548,7 @@ export class CloudapiClient {
   public async listWorkspaceTraces(
     workspaceId: string,
     botId: string,
-    params: { conversationId: string; pageSize: number; nextToken?: string }
+    params: TraceListParams
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -548,7 +563,7 @@ export class CloudapiClient {
 
   public async listDevelopmentTraces(
     runtimeBotId: string,
-    params: { conversationId: string; pageSize: number; nextToken?: string }
+    params: TraceListParams
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -616,11 +631,20 @@ function requestLabel(opts: RequestOpts): string {
   return `${opts.method} ${opts.path.split('?', 1)[0]}`
 }
 
-function tracePath(basePath: string, params: { conversationId: string; pageSize: number; nextToken?: string }): string {
+function tracePath(basePath: string, params: TraceListParams): string {
   const query = new URLSearchParams({
     conversationId: params.conversationId,
     pageSize: String(params.pageSize),
   })
+  if (params.status !== undefined) query.set('status', params.status)
+  if (params.error !== undefined) query.set('error', String(params.error))
+  if (params.source !== undefined) query.set('source', params.source)
+  if (params.name !== undefined) query.set('name', params.name)
+  if (params.workflow !== undefined) query.set('workflow', params.workflow)
+  if (params.action !== undefined) query.set('action', params.action)
+  if (params.traceId !== undefined) query.set('traceId', params.traceId)
+  if (params.since !== undefined) query.set('since', params.since)
+  if (params.until !== undefined) query.set('until', params.until)
   if (params.nextToken) query.set('nextToken', params.nextToken)
   return `${basePath}?${query.toString()}`
 }

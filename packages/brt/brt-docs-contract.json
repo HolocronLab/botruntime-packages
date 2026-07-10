@@ -680,19 +680,29 @@
       "path": "traces",
       "aliases": [],
       "options": [
+        "action",
         "apiUrl",
         "botId",
         "botpressHome",
         "confirm",
         "conversationId",
         "dev",
+        "error",
         "json",
         "limit",
         "local",
+        "name",
         "nextToken",
         "profile",
+        "since",
+        "source",
+        "status",
+        "tokens",
+        "traceId",
+        "until",
         "verbose",
-        "workDir"
+        "workDir",
+        "workflow"
       ]
     }
   ],
@@ -770,11 +780,20 @@
         "local"
       ],
       "traces": [
+        "action",
         "conversationId",
         "dev",
+        "error",
         "limit",
         "local",
-        "nextToken"
+        "name",
+        "nextToken",
+        "since",
+        "source",
+        "status",
+        "traceId",
+        "until",
+        "workflow"
       ],
       "config set": [
         "dev",
@@ -790,6 +809,9 @@
     "criticalUsages": {
       "integrations install": [
         "<name@version>"
+      ],
+      "traces": [
+        "[tokens..]"
       ]
     },
     "requirements": [
