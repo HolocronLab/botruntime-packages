@@ -31,7 +31,7 @@ The full upstream command set is preserved:
 ```
 login  logout  bots  integrations  interfaces  plugins  init  generate(gen)
 bundle  build  read  serve  deploy  add(i/install)  remove(rm)  dev  lint  chat
-profiles  link  logs  traces  config  secret
+profiles  link  logs  traces  conversations  config  secret
 ```
 
 `brt build` runs the **native** pipeline — `generate` (typings codegen into
@@ -136,3 +136,40 @@ stack-scoped runtime target previously established by `brt dev`; it never
 silently falls back to production or to a default workspace. Authentication,
 target, network, HTTP, and response-shape failures exit non-zero with no partial
 trace output.
+
+## Privacy-safe conversations
+
+`brt conversations` follows the current Botpress ADK CLI command shape with
+separate `list` and `show` operations, but reads the selected cloud target
+instead of a local SQLite trace store. Conversation tags and message content
+are never printed. `show` builds its timeline only from the same typed,
+metadata-only trace projection used by `brt traces`.
+
+```bash
+# Production target from the canonical project link
+brt conversations list
+brt conversations list limit=5 since=1h
+brt conversations show conv_123
+
+# Attested development target; --local only selects the linked stack
+brt conversations list --dev
+brt conversations show conv_123 --dev --local
+
+# Stable machine output and resumable list pagination
+brt conversations list --limit 100 --json
+brt conversations list --limit 100 --next-token 456 --json
+brt conversations show conv_123 --json
+```
+
+`list` accepts Botpress-compatible `limit=<n>` and `since=<duration>` tokens;
+the equivalent named flags are also available. `--next-token` resumes from the
+strict positive-decimal server cursor. JSON list output contains only `id`,
+timestamps, `channel`, `integration`, and `messageCount`. JSON show output
+contains grouped trace IDs, timestamps, duration, typed status, typed trigger,
+tool metadata, and bounded error kinds. It never includes prompts, model
+responses, tool input/output, documents, message payloads, conversation tags,
+or raw errors.
+
+The Botpress local-only `--include-llm` option is deliberately absent: the
+cloud privacy boundary has no content bypass. Production and development use
+the same fail-loud canonical target and profile-auth rules as `brt traces`.

@@ -61,6 +61,10 @@ export default {
   link: commandImplementations.link,
   logs: commandImplementations.logs,
   traces: commandImplementations.traces,
+  conversations: {
+    list: commandImplementations.conversations.subcommands.list,
+    show: commandImplementations.conversations.subcommands.show,
+  },
   config: {
     set: commandImplementations.config.subcommands.set,
     list: commandImplementations.config.subcommands.list,

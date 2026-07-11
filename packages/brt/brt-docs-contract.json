@@ -192,6 +192,45 @@
       ]
     },
     {
+      "path": "conversations list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "limit",
+        "local",
+        "nextToken",
+        "profile",
+        "since",
+        "tokens",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "conversations show",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "conversationId",
+        "dev",
+        "json",
+        "local",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
       "path": "deploy",
       "aliases": [],
       "options": [
@@ -717,6 +756,8 @@
       "login",
       "logs",
       "traces",
+      "conversations list",
+      "conversations show",
       "profiles active",
       "profiles use",
       "secret set"
@@ -795,6 +836,17 @@
         "until",
         "workflow"
       ],
+      "conversations list": [
+        "dev",
+        "limit",
+        "local",
+        "nextToken",
+        "since"
+      ],
+      "conversations show": [
+        "dev",
+        "local"
+      ],
       "config set": [
         "dev",
         "local",
@@ -812,6 +864,12 @@
       ],
       "traces": [
         "[tokens..]"
+      ],
+      "conversations list": [
+        "[tokens..]"
+      ],
+      "conversations show": [
+        "<conversationId>"
       ]
     },
     "requirements": [
@@ -927,6 +985,17 @@
         ],
         "commandPaths": [
           "traces"
+        ]
+      },
+      {
+        "id": "conversation-diagnostics",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "conversations list",
+          "conversations show"
         ]
       }
     ]

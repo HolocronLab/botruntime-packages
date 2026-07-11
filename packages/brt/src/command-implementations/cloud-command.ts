@@ -27,6 +27,26 @@ export interface CloudProjectTarget {
   integrations?: cloudLink.IntegrationLink[]
 }
 
+export type DiagnosticCloudTarget =
+  | {
+      client: CloudapiClient
+      output: { environment: 'production'; workspaceId: string; botId: string }
+      workspaceId: string
+      botId: string
+    }
+  | {
+      client: CloudapiClient
+      output: {
+        environment: 'development'
+        workspaceId: string
+        runtimeBotId: string
+        targetBotId: string
+      }
+      workspaceId: string
+      runtimeBotId: string
+      targetBotId: string
+    }
+
 export abstract class CloudCommand<C extends CloudCommandDefinition> extends GlobalCommand<C> {
   protected get projectDir(): string {
     return utils.path.absoluteFrom(utils.path.cwd(), this.argv.workDir)
@@ -314,6 +334,36 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     return { client, workspaceId, ...target }
   }
 
+  // Shared read-only diagnostic target. Production authority is the selected
+  // profile PAT plus canonical numeric workspace/bot coordinates. Development
+  // authority is the same PAT narrowed by the attested opaque runtime bot id.
+  protected async diagnosticCloudapiTarget(): Promise<DiagnosticCloudTarget> {
+    if (this.targetsDevBot) {
+      const target = await this.devCloudapiTarget()
+      return {
+        ...target,
+        output: {
+          environment: 'development',
+          workspaceId: target.workspaceId,
+          runtimeBotId: target.runtimeBotId,
+          targetBotId: target.targetBotId,
+        },
+      }
+    }
+
+    const link = this.loadLink()
+    const botId = requirePositiveDiagnosticIdentity('botId', this.requireBotId(link))
+    const workspaceId = requirePositiveDiagnosticIdentity('workspaceId', link.workspaceId)
+    const { profile } = await this.resolveProfile()
+    const apiUrl = this.resolveApiUrl(profile, link)
+    return {
+      client: this.machineCloudapiClient(profile, apiUrl),
+      output: { environment: 'production', workspaceId, botId },
+      workspaceId,
+      botId,
+    }
+  }
+
   private _readLocalStackMetadata(): { fileName: string; workspaceId?: string; apiUrl?: string } {
     if (fs.existsSync(path.join(this.projectDir, 'agent.config.ts'))) {
       const local = agentLink.readAgentLocalInfo(this.projectDir)
@@ -375,4 +425,18 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     fs.mkdirSync(path.dirname(cachePath), { recursive: true })
     fs.writeFileSync(cachePath, JSON.stringify({ ...cache, devId: runtimeBotId, devTargetBotId: targetBotId }, null, 2))
   }
+}
+
+const POSITIVE_DECIMAL_ID = /^[1-9][0-9]*$/
+
+function requirePositiveDiagnosticIdentity(field: 'workspaceId' | 'botId', value: string | undefined): string {
+  if (value === undefined) {
+    throw new errors.BotpressCLIError(
+      `canonical project link has no ${field}; run \`brt link --bot-id <id> --workspace-id <id>\` first`
+    )
+  }
+  if (!POSITIVE_DECIMAL_ID.test(value)) {
+    throw new errors.BotpressCLIError(`canonical project link ${field} must be a positive decimal ID`)
+  }
+  return value
 }

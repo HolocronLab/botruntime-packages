@@ -45,6 +45,8 @@ const documentation: BrtDocsContract['documentation'] = {
     'login',
     'logs',
     'traces',
+    'conversations list',
+    'conversations show',
     'profiles active',
     'profiles use',
     'secret set',
@@ -75,12 +77,16 @@ const documentation: BrtDocsContract['documentation'] = {
       'until',
       'workflow',
     ],
+    'conversations list': ['dev', 'limit', 'local', 'nextToken', 'since'],
+    'conversations show': ['dev', 'local'],
     'config set': ['dev', 'local', 'valueFile'],
     'secret set': ['dev', 'local', 'valueFile'],
   },
   criticalUsages: {
     'integrations install': ['<name@version>'],
     traces: ['[tokens..]'],
+    'conversations list': ['[tokens..]'],
+    'conversations show': ['<conversationId>'],
   },
   requirements: [
     {
@@ -125,6 +131,11 @@ const documentation: BrtDocsContract['documentation'] = {
       commandPaths: ['config set', 'config list', 'config rm', 'secret set'],
     },
     { id: 'trace-diagnostics', documents: ['overview', 'reference'], commandPaths: ['traces'] },
+    {
+      id: 'conversation-diagnostics',
+      documents: ['overview', 'reference'],
+      commandPaths: ['conversations list', 'conversations show'],
+    },
   ],
 }
 
