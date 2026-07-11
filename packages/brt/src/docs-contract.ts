@@ -47,6 +47,9 @@ const documentation: BrtDocsContract['documentation'] = {
     'traces',
     'conversations list',
     'conversations show',
+    'eval',
+    'eval run',
+    'eval runs',
     'profiles active',
     'profiles use',
     'secret set',
@@ -79,6 +82,9 @@ const documentation: BrtDocsContract['documentation'] = {
     ],
     'conversations list': ['dev', 'limit', 'local', 'nextToken', 'since'],
     'conversations show': ['dev', 'local'],
+    eval: ['dev', 'judgeModel', 'local', 'tag', 'timeout', 'type'],
+    'eval run': ['dev', 'judgeModel', 'local', 'tag', 'timeout', 'type'],
+    'eval runs': ['dev', 'latest', 'limit', 'local', 'nextToken', 'status', 'verbose'],
     'config set': ['dev', 'local', 'valueFile'],
     'secret set': ['dev', 'local', 'valueFile'],
   },
@@ -87,6 +93,9 @@ const documentation: BrtDocsContract['documentation'] = {
     traces: ['[tokens..]'],
     'conversations list': ['[tokens..]'],
     'conversations show': ['<conversationId>'],
+    eval: ['[name]'],
+    'eval run': ['[name]'],
+    'eval runs': ['[runId]'],
   },
   requirements: [
     {
@@ -136,6 +145,11 @@ const documentation: BrtDocsContract['documentation'] = {
       documents: ['overview', 'reference'],
       commandPaths: ['conversations list', 'conversations show'],
     },
+    {
+      id: 'hosted-evals',
+      documents: ['overview', 'reference'],
+      commandPaths: ['eval', 'eval run', 'eval runs'],
+    },
   ],
 }
 
@@ -154,6 +168,13 @@ const commandInventory = (tree: DefinitionTree): CommandInventoryEntry[] => {
     for (const [name, node] of Object.entries(current)) {
       const path = [...prefix, name]
       if ('subcommands' in node) {
+        if (node.default) {
+          commands.push({
+            path: path.join(' '),
+            aliases: aliasesOf(node.default.alias),
+            options: Object.keys(node.default.schema).toSorted(),
+          })
+        }
         visit(node.subcommands, path)
         continue
       }

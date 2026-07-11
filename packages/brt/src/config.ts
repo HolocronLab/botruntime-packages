@@ -292,6 +292,67 @@ const cloudConversationId = {
   demandOption: true,
 } satisfies CommandOption
 
+const cloudEvalName = {
+  type: 'string',
+  description: 'Run only the eval with this name',
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const cloudEvalTag = {
+  type: 'string',
+  description: 'Run only evals carrying this tag',
+} satisfies CommandOption
+
+const cloudEvalType = {
+  type: 'string',
+  choices: ['capability', 'regression'] as const,
+  description: 'Run only evals of this type',
+} satisfies CommandOption
+
+const cloudEvalJudgeModel = {
+  type: 'string',
+  alias: 'judge-model',
+  description: 'Model used for llm_judge assertions (for example openai:gpt-4o)',
+} satisfies CommandOption
+
+const cloudEvalTimeout = {
+  type: 'number',
+  description: 'Maximum hosted workflow wait in milliseconds (1000-3600000)',
+  default: 3_600_000,
+} satisfies CommandOption
+
+const cloudEvalRunId = {
+  type: 'string',
+  description: 'Positive decimal hosted eval run ID',
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const cloudEvalLatest = {
+  type: 'boolean',
+  description: 'Show the latest hosted eval run',
+  default: false,
+} satisfies CommandOption
+
+const cloudEvalRunsLimit = {
+  type: 'number',
+  description: 'Maximum hosted eval runs to list (1-100; default: 10)',
+  default: 10,
+} satisfies CommandOption
+
+const cloudEvalRunsStatus = {
+  type: 'string',
+  choices: ['pending', 'running', 'completed', 'failed'] as const,
+  description: 'Filter hosted eval runs by status',
+} satisfies CommandOption
+
+const cloudEvalRunsNextToken = {
+  type: 'string',
+  alias: 'next-token',
+  description: 'Resume listing from the opaque server-issued cursor',
+} satisfies CommandOption
+
 const cloudIntegrationRef = {
   type: 'string',
   description:
@@ -844,6 +905,26 @@ const conversationsShowSchema = {
   dev: cloudDevTarget,
 } satisfies CommandSchema
 
+const evalRunSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  name: cloudEvalName,
+  tag: cloudEvalTag,
+  type: cloudEvalType,
+  judgeModel: cloudEvalJudgeModel,
+  timeout: cloudEvalTimeout,
+} satisfies CommandSchema
+
+const evalRunsSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  runId: cloudEvalRunId,
+  latest: cloudEvalLatest,
+  limit: cloudEvalRunsLimit,
+  status: cloudEvalRunsStatus,
+  nextToken: cloudEvalRunsNextToken,
+} satisfies CommandSchema
+
 // brt integrations install|register|publish — the bespoke-cloudapi-wire
 // integration channel commands, ported from the (deleted) thin brt CLI's
 // commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
@@ -940,6 +1021,8 @@ export const schemas = {
   traces: tracesSchema,
   conversationsList: conversationsListSchema,
   conversationsShow: conversationsShowSchema,
+  evalRun: evalRunSchema,
+  evalRuns: evalRunsSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,

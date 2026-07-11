@@ -47,6 +47,24 @@ export type DiagnosticCloudTarget =
       targetBotId: string
     }
 
+export type EvalCloudTarget =
+  | {
+      client: CloudapiClient
+      output: { environment: 'production'; workspaceId: string; botId: string }
+      selector: string
+    }
+  | {
+      client: CloudapiClient
+      output: {
+        environment: 'development'
+        workspaceId: string
+        runtimeBotId: string
+        targetBotId: string
+      }
+      selector: string
+      runtimeBotId: string
+    }
+
 export abstract class CloudCommand<C extends CloudCommandDefinition> extends GlobalCommand<C> {
   protected get projectDir(): string {
     return utils.path.absoluteFrom(utils.path.cwd(), this.argv.workDir)
@@ -238,7 +256,12 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
   protected async botCloudapiClient(profileName: string, botId: string, apiUrl: string): Promise<CloudapiClient> {
     const store = this.readBotsStore()
     const creds = botsStoreModule.getBotCreds(store, profileName, botId)
-    if (!creds?.apiKey) {
+    if (
+      typeof creds?.apiKey !== 'string' ||
+      creds.apiKey.length === 0 ||
+      creds.apiKey !== creds.apiKey.trim() ||
+      /[\u0000-\u001f\u007f]/.test(creds.apiKey)
+    ) {
       throw new errors.BotpressCLIError(
         `no per-bot key for bot ${botId} in ${this.botsStorePath()} (profile "${profileName}") — ` +
           `this bot was not linked from this machine; run \`brt link --bot-id ${botId} --key-stdin\``
@@ -361,6 +384,37 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
       output: { environment: 'production', workspaceId, botId },
       workspaceId,
       botId,
+    }
+  }
+
+  // Hosted eval endpoints are bot-scoped. Production therefore uses the
+  // saved per-bot key, while development uses the profile PAT narrowed by the
+  // attested opaque x-bot-id resolver. Query/path IDs never establish scope.
+  protected async evalCloudapiTarget(): Promise<EvalCloudTarget> {
+    if (this.targetsDevBot) {
+      const target = await this.devCloudapiTarget()
+      return {
+        client: target.client,
+        selector: target.runtimeBotId,
+        runtimeBotId: target.runtimeBotId,
+        output: {
+          environment: 'development',
+          workspaceId: target.workspaceId,
+          runtimeBotId: target.runtimeBotId,
+          targetBotId: target.targetBotId,
+        },
+      }
+    }
+
+    const link = this.loadLink()
+    const botId = requirePositiveDiagnosticIdentity('botId', this.requireBotId(link))
+    const workspaceId = requirePositiveDiagnosticIdentity('workspaceId', link.workspaceId)
+    const { name: profileName, profile } = await this.resolveProfile()
+    const apiUrl = this.resolveApiUrl(profile, link)
+    return {
+      client: await this.botCloudapiClient(profileName, botId, apiUrl),
+      selector: botId,
+      output: { environment: 'production', workspaceId, botId },
     }
   }
 

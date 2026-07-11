@@ -3,6 +3,7 @@ import type * as typings from './typings'
 export type DefinitionSubTree = {
   description: string
   subcommands: DefinitionTree
+  default?: typings.CommandDefinition
 }
 
 export type DefinitionTree = {
@@ -13,6 +14,7 @@ export type DefinitionTreeNode = typings.CommandDefinition | DefinitionSubTree
 
 export type ImplementationSubTree<D extends DefinitionSubTree = DefinitionSubTree> = {
   subcommands: ImplementationTree<D['subcommands']>
+  default?: typings.CommandImplementation<NonNullable<D['default']>>
 }
 
 export type ImplementationTreeNode<N extends DefinitionTreeNode = DefinitionTreeNode> =
@@ -29,6 +31,7 @@ export type ImplementationTree<D extends DefinitionTree = DefinitionTree> = {
 export type CommandSubTree<D extends DefinitionSubTree = DefinitionSubTree> = {
   description: string
   subcommands: CommandTree<D['subcommands']>
+  default?: typings.CommandLeaf<NonNullable<D['default']>>
 }
 
 export type CommandTreeNode<N extends DefinitionTreeNode = DefinitionTreeNode> = N extends typings.CommandDefinition
@@ -69,7 +72,14 @@ export const zipTree = <T extends DefinitionTree>(defTree: T, implTree: Implemen
     }
 
     if (guards.definition.isSubTree(def) && guards.implementation.isSubTree(impl)) {
-      tree[key] = { ...def, subcommands: zipTree(def.subcommands, impl.subcommands) } as CommandTreeNode<typeof def>
+      const subtree = { ...def, subcommands: zipTree(def.subcommands, impl.subcommands) } as CommandSubTree<typeof def>
+      if (def.default && !impl.default) {
+        throw new Error(`Missing default command implementation for ${key}`)
+      }
+      if (def.default && impl.default) {
+        subtree.default = { ...def.default, handler: impl.default } as typeof subtree.default
+      }
+      tree[key] = subtree as CommandTreeNode<typeof def>
       continue
     }
   }
