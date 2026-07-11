@@ -484,7 +484,13 @@ export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrat
     }
 
     if (!this.argv.noBuild) {
-      await new BuildCommand(this.api, this.prompt, this.logger, this.argv).setProjectContext(this.projectContext).run()
+      await new BuildCommand(this.api, this.prompt, this.logger, {
+        ...this.argv,
+        sourceMap: false,
+        minify: true,
+      })
+        .setProjectContext(this.projectContext)
+        .run()
     }
     const bundlePath = this.projectPaths.abs.outFileCJS
     if (!fs.existsSync(bundlePath)) {
