@@ -36,12 +36,19 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
           scope: "@holocronlab"
 
-      - name: Install and typecheck brt (file deps resolve locally in the checkout)
-        working-directory: packages/brt
-        run: bun install && bun run typecheck
-
       - name: Rewrite brt local file deps to published registry versions
-        run: node scripts/prepare-brt-publish.mjs --write
+        run: |
+          node scripts/prepare-brt-publish.mjs --write
+          mv packages/brt/bun.lock "$RUNNER_TEMP/brt.source.bun.lock"
+
+      - name: Install and typecheck brt from registry dependencies
+        working-directory: packages/brt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bun install --no-save --ignore-scripts
+          bun run typecheck
 
       - name: Publish brt to GitHub Packages (skip if this version is already published)
         working-directory: packages/brt
