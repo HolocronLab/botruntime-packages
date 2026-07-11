@@ -317,13 +317,14 @@ describe('brt traces public contract', () => {
 
   it('returns exit code 1 with network remediation', async () => {
     stubFetch(async () => {
-      throw new TypeError('socket closed')
+      throw new TypeError('socket closed with raw prompt secret')
     })
 
-    const result = await command().handler()
+    const result = await command({ verbose: true }).handler()
 
     expect(result.exitCode).toBe(1)
     expect(stderr).toMatch(/network|connect|api url|retry/i)
+    expect(stdout + stderr).not.toContain('raw prompt secret')
   })
 
   it.each([

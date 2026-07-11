@@ -261,6 +261,37 @@ const cloudTracesUntil = {
   description: 'Inclusive upper bound as RFC3339 or a relative duration such as 30s, 5m, or 1h',
 } satisfies CommandOption
 
+const cloudConversationsTokens = {
+  type: 'string',
+  description: 'Botpress-compatible filters: limit=<n>, since=<duration>',
+  array: true,
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const cloudConversationsLimit = {
+  type: 'number',
+  description: 'Maximum conversations to return (1-10000; default: 20)',
+} satisfies CommandOption
+
+const cloudConversationsSince = {
+  type: 'string',
+  description: 'Only conversations updated since RFC3339 or a relative duration such as 30s, 5m, 1h, or 2d',
+} satisfies CommandOption
+
+const cloudConversationsNextToken = {
+  type: 'string',
+  description: 'Resume listing from this server-issued positive decimal cursor',
+} satisfies CommandOption
+
+const cloudConversationId = {
+  type: 'string',
+  description: 'Conversation ID to inspect',
+  positional: true,
+  idx: 0,
+  demandOption: true,
+} satisfies CommandOption
+
 const cloudIntegrationRef = {
   type: 'string',
   description:
@@ -795,6 +826,24 @@ const tracesSchema = {
   nextToken: cloudTracesNextToken,
 } satisfies CommandSchema
 
+// brt conversations list|show — cloud metadata-only conversation diagnostics.
+// List projects out backend tags; show builds a privacy-safe timeline only from
+// the typed trace projection and deliberately has no include-llm bypass.
+const conversationsListSchema = {
+  ...cloudProjectSchema,
+  tokens: cloudConversationsTokens,
+  dev: cloudDevTarget,
+  since: cloudConversationsSince,
+  limit: cloudConversationsLimit,
+  nextToken: cloudConversationsNextToken,
+} satisfies CommandSchema
+
+const conversationsShowSchema = {
+  ...cloudProjectSchema,
+  conversationId: cloudConversationId,
+  dev: cloudDevTarget,
+} satisfies CommandSchema
+
 // brt integrations install|register|publish — the bespoke-cloudapi-wire
 // integration channel commands, ported from the (deleted) thin brt CLI's
 // commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
@@ -889,6 +938,8 @@ export const schemas = {
   cloudLink: cloudLinkSchema,
   logs: logsSchema,
   traces: tracesSchema,
+  conversationsList: conversationsListSchema,
+  conversationsShow: conversationsShowSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,

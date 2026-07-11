@@ -102,6 +102,20 @@ export default {
     description: 'Fetch privacy-safe runtime trace metadata for a conversation on the selected target',
     schema: config.schemas.traces,
   },
+  conversations: {
+    description: 'List and inspect privacy-safe conversations on the selected target',
+    subcommands: {
+      list: {
+        description: 'List recent conversation metadata',
+        schema: config.schemas.conversationsList,
+        alias: 'ls',
+      },
+      show: {
+        description: 'Show a privacy-safe conversation trace timeline',
+        schema: config.schemas.conversationsShow,
+      },
+    },
+  },
   config: {
     description: 'Manage per-bot config variables for the selected project target',
     subcommands: {

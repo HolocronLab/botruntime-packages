@@ -177,29 +177,16 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
         }
     fetchPage: (params: TraceListParams) => Promise<unknown>
   }> {
-    if (this.targetsDevBot) {
-      const { client, workspaceId, runtimeBotId, targetBotId } = await this.devCloudapiTarget()
+    const target = await this.diagnosticCloudapiTarget()
+    if ('runtimeBotId' in target) {
       return {
-        output: {
-          environment: 'development',
-          workspaceId,
-          runtimeBotId,
-          targetBotId,
-        },
-        fetchPage: (params) => client.listDevelopmentTraces(runtimeBotId, params),
+        output: target.output,
+        fetchPage: (params) => target.client.listDevelopmentTraces(target.runtimeBotId, params),
       }
     }
-
-    const link = this.loadLink()
-    const botId = this.requireBotId(link)
-    const workspaceId = requirePositiveIdentity('workspaceId', link.workspaceId)
-    requirePositiveIdentity('botId', botId)
-    const { profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = this.machineCloudapiClient(profile, apiUrl)
     return {
-      output: { environment: 'production', workspaceId, botId },
-      fetchPage: (params) => client.listWorkspaceTraces(workspaceId, botId, params),
+      output: target.output,
+      fetchPage: (params) => target.client.listWorkspaceTraces(target.workspaceId, target.botId, params),
     }
   }
 
@@ -427,19 +414,7 @@ function validTimestampParts(match: RegExpExecArray): boolean {
   )
 }
 
-function requirePositiveIdentity(field: 'workspaceId' | 'botId', value: string | undefined): string {
-  if (value === undefined) {
-    throw new errors.BotpressCLIError(
-      `canonical project link has no ${field}; run \`brt link --bot-id <id> --workspace-id <id>\` first`
-    )
-  }
-  if (!POSITIVE_DECIMAL_ID.test(value)) {
-    throw new errors.BotpressCLIError(`canonical project link ${field} must be a positive decimal ID`)
-  }
-  return value
-}
-
-function parseTracePage(value: unknown, pageSize: number): TracePage {
+export function parseTracePage(value: unknown, pageSize: number): TracePage {
   if (!isRecord(value) || !Array.isArray(value.traces)) {
     throw new errors.BotpressCLIError('trace response has malformed traces')
   }
