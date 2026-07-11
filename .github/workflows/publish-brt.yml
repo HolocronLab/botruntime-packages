@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   pack-and-release:
@@ -29,12 +30,18 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - name: Install + typecheck brt
-        working-directory: packages/brt
-        run: bun install && bun run typecheck
-
       - name: Rewrite brt local file deps to published registry versions
-        run: node scripts/prepare-brt-publish.mjs --write
+        run: |
+          node scripts/prepare-brt-publish.mjs --write
+          mv packages/brt/bun.lock "$RUNNER_TEMP/brt.source.bun.lock"
+
+      - name: Install + typecheck brt from registry dependencies
+        working-directory: packages/brt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bun install --no-save --ignore-scripts
+          bun run typecheck
 
       - name: Pack brt
         working-directory: packages/brt
@@ -49,7 +56,7 @@ jobs:
           # Release against the SHA actually checked out (inputs.ref on dispatch), not the
           # workflow's github.sha which may point at a different commit.
           SHA="$(git rev-parse HEAD)"
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.inputs.ref || github.ref_name }}"
           case "$TAG" in brt-v*) ;; *) TAG="brt-dev-${SHA:0:8}";; esac
           gh release create "$TAG" dist-brt/*.tgz \
             --prerelease --target "$SHA" \
