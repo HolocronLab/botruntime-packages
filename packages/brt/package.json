@@ -20,8 +20,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/HolocronLab/botforge.git",
-    "directory": "tools/brt"
+    "url": "https://github.com/HolocronLab/botruntime-packages.git",
+    "directory": "packages/brt"
   },
   "scripts": {
     "brt": "bun src/cli.ts",
