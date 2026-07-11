@@ -144,6 +144,21 @@ export interface GetBotLogsParams {
   nextToken?: string
 }
 
+export interface TraceListParams {
+  conversationId: string
+  pageSize: number
+  status?: 'unset' | 'ok' | 'error'
+  error?: boolean
+  source?: string
+  name?: string
+  workflow?: string
+  action?: string
+  traceId?: string
+  since?: string
+  until?: string
+  nextToken?: string
+}
+
 interface RequestOpts {
   method: string
   path: string
@@ -153,6 +168,7 @@ interface RequestOpts {
   workspaceId?: string
   timeoutMs?: number
   idempotent?: boolean // retry on 5xx/network
+  privacySensitive?: boolean // never reflect response bodies into CLI errors
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -223,13 +239,21 @@ export class CloudapiClient {
         if (!res.ok) {
           // 4xx is never retried; 5xx is retried only for idempotent calls.
           if (res.status >= 500 && opts.idempotent && attempt < attempts) {
-            lastErr = new errors.BotpressCLIError(`${opts.method} ${opts.path}: HTTP ${res.status} ${text}`)
+            lastErr = new errors.BotpressCLIError(`${requestLabel(opts)}: HTTP ${res.status} ${text}`)
             await backoff(attempt)
             continue
           }
           throw new errors.HTTPError(res.status, httpMessage(opts, res.status, text))
         }
-        return text ? JSON.parse(text) : {}
+        if (!text) return {}
+        try {
+          return JSON.parse(text)
+        } catch (thrown) {
+          if (opts.privacySensitive) {
+            throw new errors.BotpressCLIError(`${requestLabel(opts)}: trace response is malformed JSON`)
+          }
+          throw thrown
+        }
       } catch (thrown) {
         clearTimeout(timer)
         // An HTTP-status decision (4xx, or 5xx on the last attempt) is already
@@ -240,12 +264,12 @@ export class CloudapiClient {
           await backoff(attempt)
           continue
         }
-        throw new errors.BotpressCLIError(`${opts.method} ${opts.path}: ${(thrown as Error).message}`, {
+        throw new errors.BotpressCLIError(`${requestLabel(opts)}: ${(thrown as Error).message}`, {
           cause: thrown as Error,
         })
       }
     }
-    throw lastErr ?? new errors.BotpressCLIError(`${opts.method} ${opts.path}: failed`)
+    throw lastErr ?? new errors.BotpressCLIError(`${requestLabel(opts)}: failed`)
   }
 
   // ---- provision (NOT idempotent, NOT retried) -----------------------------
@@ -516,6 +540,40 @@ export class CloudapiClient {
     })
   }
 
+  // ---- traces (metadata-only readers; idempotent GET) ---------------------
+  // Production uses the human/PAT route with canonical numeric workspace and
+  // bot coordinates. Development uses the bot-scoped route and narrows the PAT
+  // with the attested opaque runtime bot id. Both response bodies are treated
+  // as untrusted until the command applies its own strict privacy projection.
+  public async listWorkspaceTraces(
+    workspaceId: string,
+    botId: string,
+    params: TraceListParams
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: tracePath(
+        `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/traces`,
+        params
+      ),
+      idempotent: true,
+      privacySensitive: true,
+    })
+  }
+
+  public async listDevelopmentTraces(
+    runtimeBotId: string,
+    params: TraceListParams
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: tracePath('/v1/traces', params),
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: true,
+    })
+  }
+
   // ---- tables (list idempotent; create NOT — 409 means already exists) ------
   // /v1/tables/* discriminates the deploy caller from the dev callback by the
   // presence of x-workspace-id (dev does not send it); under a workspace PAT
@@ -547,11 +605,46 @@ async function backoff(attempt: number): Promise<void> {
 }
 
 function httpMessage(opts: RequestOpts, status: number, text: string): string {
-  const where = `${opts.method} ${opts.path}`
+  const where = requestLabel(opts)
+  if (opts.privacySensitive) {
+    if (status === 401)
+      return `${where}: 401 — profile token is missing, invalid, or revoked; run \`brt login\` and verify \`brt profiles active\``
+    if (status === 403)
+      return `${where}: 403 — the active profile has no access to this workspace/bot; verify membership and the selected profile`
+    if (status === 404)
+      return `${where}: 404 — trace target not found; verify the canonical project link and run \`brt link\` if it is stale`
+    if (status >= 500) return `${where}: HTTP ${status} — trace service failed; retry or check the server status`
+    return `${where}: HTTP ${status} — trace request was rejected; check the command filters and target`
+  }
   if (status === 401) return `${where}: 401 — empty/invalid/revoked api key; check \`brt profiles list\` / \`brt link\``
   if (status === 404) return `${where}: 404 — ${text || 'not found'}`
   if (status === 409) return `${where}: 409 — already exists / unique constraint (${text})`
   if (status === 500 && opts.path.includes('provision'))
     return `${where}: 500 — likely "no workspace scope"; key must carry a workspace (${text})`
   return `${where}: HTTP ${status} ${text}`
+}
+
+// Query values are intentionally excluded from errors: besides keeping
+// correlation IDs out of diagnostics, percent-encoded values would be parsed
+// as printf directives by verror when the message is wrapped.
+function requestLabel(opts: RequestOpts): string {
+  return `${opts.method} ${opts.path.split('?', 1)[0]}`
+}
+
+function tracePath(basePath: string, params: TraceListParams): string {
+  const query = new URLSearchParams({
+    conversationId: params.conversationId,
+    pageSize: String(params.pageSize),
+  })
+  if (params.status !== undefined) query.set('status', params.status)
+  if (params.error !== undefined) query.set('error', String(params.error))
+  if (params.source !== undefined) query.set('source', params.source)
+  if (params.name !== undefined) query.set('name', params.name)
+  if (params.workflow !== undefined) query.set('workflow', params.workflow)
+  if (params.action !== undefined) query.set('action', params.action)
+  if (params.traceId !== undefined) query.set('traceId', params.traceId)
+  if (params.since !== undefined) query.set('since', params.since)
+  if (params.until !== undefined) query.set('until', params.until)
+  if (params.nextToken) query.set('nextToken', params.nextToken)
+  return `${basePath}?${query.toString()}`
 }

@@ -193,6 +193,74 @@ const cloudLogsLimit = {
   description: 'Stop after printing this many log entries (client-side cap)',
 } satisfies CommandOption
 
+const cloudTracesConversationId = {
+  type: 'string',
+  description: 'Conversation correlation ID (required unless provided as conversation=<id>)',
+} satisfies CommandOption
+
+const cloudTracesLimit = {
+  type: 'number',
+  description: 'Maximum trace rows to return (1-10000)',
+} satisfies CommandOption
+
+const cloudTracesNextToken = {
+  type: 'string',
+  description: 'Resume listing from this server-issued pagination cursor',
+} satisfies CommandOption
+
+const cloudTracesTokens = {
+  type: 'string',
+  description: 'Botpress-compatible filters: error, conversation=, workflow=, action=, trace=, since=, until=, limit=',
+  array: true,
+  positional: true,
+  idx: 0,
+} satisfies CommandOption
+
+const cloudTracesStatus = {
+  type: 'string',
+  description: 'Filter by typed status: unset, ok, or error',
+} satisfies CommandOption
+
+const cloudTracesError = {
+  type: 'boolean',
+  description: 'Filter effective errors; use --no-error for non-error rows',
+} satisfies CommandOption
+
+const cloudTracesSource = {
+  type: 'string',
+  description: 'Filter by privacy-safe trace source',
+} satisfies CommandOption
+
+const cloudTracesName = {
+  type: 'string',
+  description: 'Filter by typed trace span name',
+} satisfies CommandOption
+
+const cloudTracesWorkflow = {
+  type: 'string',
+  description: 'Filter rows by workflow name',
+} satisfies CommandOption
+
+const cloudTracesAction = {
+  type: 'string',
+  description: 'Filter rows by action or tool name',
+} satisfies CommandOption
+
+const cloudTracesTraceId = {
+  type: 'string',
+  description: 'Drill into a normalized 32-hex trace ID',
+} satisfies CommandOption
+
+const cloudTracesSince = {
+  type: 'string',
+  description: 'Inclusive lower bound as RFC3339 or a relative duration such as 30s, 5m, or 1h',
+} satisfies CommandOption
+
+const cloudTracesUntil = {
+  type: 'string',
+  description: 'Inclusive upper bound as RFC3339 or a relative duration such as 30s, 5m, or 1h',
+} satisfies CommandOption
+
 const cloudIntegrationRef = {
   type: 'string',
   description:
@@ -706,6 +774,27 @@ const logsSchema = {
   limit: cloudLogsLimit,
 } satisfies CommandSchema
 
+// brt traces [tokens...] --conversation-id <id> [--dev] [--limit] [--next-token]
+// Production reads the canonical workspace/bot human route. --dev resolves an
+// attested opaque runtime target and uses the bot-scoped trace reader instead.
+const tracesSchema = {
+  ...cloudProjectSchema,
+  tokens: cloudTracesTokens,
+  dev: cloudDevTarget,
+  conversationId: cloudTracesConversationId,
+  status: cloudTracesStatus,
+  error: cloudTracesError,
+  source: cloudTracesSource,
+  name: cloudTracesName,
+  workflow: cloudTracesWorkflow,
+  action: cloudTracesAction,
+  traceId: cloudTracesTraceId,
+  since: cloudTracesSince,
+  until: cloudTracesUntil,
+  limit: cloudTracesLimit,
+  nextToken: cloudTracesNextToken,
+} satisfies CommandSchema
+
 // brt integrations install|register|publish — the bespoke-cloudapi-wire
 // integration channel commands, ported from the (deleted) thin brt CLI's
 // commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
@@ -799,6 +888,7 @@ export const schemas = {
   cloudSecretSet: cloudSecretSetSchema,
   cloudLink: cloudLinkSchema,
   logs: logsSchema,
+  traces: tracesSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,

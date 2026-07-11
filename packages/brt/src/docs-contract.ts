@@ -44,6 +44,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'link',
     'login',
     'logs',
+    'traces',
     'profiles active',
     'profiles use',
     'secret set',
@@ -58,11 +59,28 @@ const documentation: BrtDocsContract['documentation'] = {
     link: ['apiUrl', 'botId', 'keyStdin', 'local', 'workspaceId'],
     login: ['apiUrl', 'device', 'token', 'workspaceId'],
     logs: ['botId', 'conversationId', 'follow', 'limit', 'local'],
+    traces: [
+      'action',
+      'conversationId',
+      'dev',
+      'error',
+      'limit',
+      'local',
+      'name',
+      'nextToken',
+      'since',
+      'source',
+      'status',
+      'traceId',
+      'until',
+      'workflow',
+    ],
     'config set': ['dev', 'local', 'valueFile'],
     'secret set': ['dev', 'local', 'valueFile'],
   },
   criticalUsages: {
     'integrations install': ['<name@version>'],
+    traces: ['[tokens..]'],
   },
   requirements: [
     {
@@ -106,6 +124,7 @@ const documentation: BrtDocsContract['documentation'] = {
       documents: ['reference'],
       commandPaths: ['config set', 'config list', 'config rm', 'secret set'],
     },
+    { id: 'trace-diagnostics', documents: ['overview', 'reference'], commandPaths: ['traces'] },
   ],
 }
 

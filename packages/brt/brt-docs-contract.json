@@ -675,6 +675,35 @@
         "verbose",
         "workDir"
       ]
+    },
+    {
+      "path": "traces",
+      "aliases": [],
+      "options": [
+        "action",
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "conversationId",
+        "dev",
+        "error",
+        "json",
+        "limit",
+        "local",
+        "name",
+        "nextToken",
+        "profile",
+        "since",
+        "source",
+        "status",
+        "tokens",
+        "traceId",
+        "until",
+        "verbose",
+        "workDir",
+        "workflow"
+      ]
     }
   ],
   "documentation": {
@@ -687,6 +716,7 @@
       "link",
       "login",
       "logs",
+      "traces",
       "profiles active",
       "profiles use",
       "secret set"
@@ -749,6 +779,22 @@
         "limit",
         "local"
       ],
+      "traces": [
+        "action",
+        "conversationId",
+        "dev",
+        "error",
+        "limit",
+        "local",
+        "name",
+        "nextToken",
+        "since",
+        "source",
+        "status",
+        "traceId",
+        "until",
+        "workflow"
+      ],
       "config set": [
         "dev",
         "local",
@@ -763,6 +809,9 @@
     "criticalUsages": {
       "integrations install": [
         "<name@version>"
+      ],
+      "traces": [
+        "[tokens..]"
       ]
     },
     "requirements": [
@@ -868,6 +917,16 @@
           "config list",
           "config rm",
           "secret set"
+        ]
+      },
+      {
+        "id": "trace-diagnostics",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "traces"
         ]
       }
     ]

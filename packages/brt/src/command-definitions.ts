@@ -98,6 +98,10 @@ export default {
     description: 'Fetch runtime logs for the selected bot using the workspace profile',
     schema: config.schemas.logs,
   },
+  traces: {
+    description: 'Fetch privacy-safe runtime trace metadata for a conversation on the selected target',
+    schema: config.schemas.traces,
+  },
   config: {
     description: 'Manage per-bot config variables for the selected project target',
     subcommands: {
