@@ -48,6 +48,7 @@ jobs:
       # immutable package version exists in the registry.
       - name: Build the current botruntime-adk package
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --write

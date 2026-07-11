@@ -41,6 +41,7 @@ jobs:
       - name: Install, test, and build botruntime-adk
         working-directory: packages/botruntime-adk
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bun install --no-save --ignore-scripts
