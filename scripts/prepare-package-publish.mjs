@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageArg = process.argv.find((arg) => arg.startsWith('--package='))?.slice('--package='.length)
 if (!packageArg) throw new Error('pass --package=packages/<name>')
+const excludedNames = new Set(
+  process.argv.filter((arg) => arg.startsWith('--exclude=')).map((arg) => arg.slice('--exclude='.length))
+)
 
 const packageDir = resolve(root, packageArg)
 const relativeDir = relative(resolve(root, 'packages'), packageDir)
@@ -25,6 +28,7 @@ for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 
   if (!dependencies) continue
 
   for (const [name, spec] of Object.entries(dependencies)) {
+    if (excludedNames.has(name)) continue
     if (typeof spec !== 'string' || !spec.startsWith('file:')) continue
     const siblingManifestPath = resolve(packageDir, spec.slice('file:'.length), 'package.json')
     const sibling = JSON.parse(readFileSync(siblingManifestPath, 'utf8'))
