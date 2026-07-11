@@ -289,6 +289,69 @@
       ]
     },
     {
+      "path": "eval",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "judgeModel",
+        "local",
+        "name",
+        "profile",
+        "tag",
+        "timeout",
+        "type",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "eval run",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "judgeModel",
+        "local",
+        "name",
+        "profile",
+        "tag",
+        "timeout",
+        "type",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "eval runs",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "latest",
+        "limit",
+        "local",
+        "nextToken",
+        "profile",
+        "runId",
+        "status",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
       "path": "generate",
       "aliases": [
         "gen"
@@ -758,6 +821,9 @@
       "traces",
       "conversations list",
       "conversations show",
+      "eval",
+      "eval run",
+      "eval runs",
       "profiles active",
       "profiles use",
       "secret set"
@@ -847,6 +913,31 @@
         "dev",
         "local"
       ],
+      "eval": [
+        "dev",
+        "judgeModel",
+        "local",
+        "tag",
+        "timeout",
+        "type"
+      ],
+      "eval run": [
+        "dev",
+        "judgeModel",
+        "local",
+        "tag",
+        "timeout",
+        "type"
+      ],
+      "eval runs": [
+        "dev",
+        "latest",
+        "limit",
+        "local",
+        "nextToken",
+        "status",
+        "verbose"
+      ],
       "config set": [
         "dev",
         "local",
@@ -870,6 +961,15 @@
       ],
       "conversations show": [
         "<conversationId>"
+      ],
+      "eval": [
+        "[name]"
+      ],
+      "eval run": [
+        "[name]"
+      ],
+      "eval runs": [
+        "[runId]"
       ]
     },
     "requirements": [
@@ -996,6 +1096,18 @@
         "commandPaths": [
           "conversations list",
           "conversations show"
+        ]
+      },
+      {
+        "id": "hosted-evals",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "eval",
+          "eval run",
+          "eval runs"
         ]
       }
     ]

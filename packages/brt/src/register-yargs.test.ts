@@ -29,4 +29,38 @@ describe('registerYargs', () => {
     expect(tokens).toEqual(['conversation=conv', 'error', 'since=1h'])
     expect(exit).toHaveBeenCalledWith(0)
   })
+
+  it('runs a subtree default leaf while preserving explicit subcommands', async () => {
+    const seen: string[] = []
+    const commands = {
+      eval: {
+        description: 'evals',
+        default: {
+          schema: { name: { type: 'string', positional: true, idx: 0 } },
+          handler: async (argv: { name?: string }) => {
+            seen.push(`default:${argv.name ?? 'all'}`)
+            return { exitCode: 0 }
+          },
+        },
+        subcommands: {
+          runs: {
+            schema: {},
+            handler: async () => {
+              seen.push('runs')
+              return { exitCode: 0 }
+            },
+          },
+        },
+      },
+    } as CommandTree
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    const parser = yargs([]).exitProcess(false).strict()
+    registerYargs(parser, commands)
+
+    await parser.parseAsync(['eval', 'greeting'])
+    await parser.parseAsync(['eval', 'runs'])
+
+    expect(seen).toEqual(['default:greeting', 'runs'])
+    expect(exit).toHaveBeenCalledTimes(2)
+  })
 })

@@ -116,6 +116,23 @@ export default {
       },
     },
   },
+  eval: {
+    description: 'Run and inspect privacy-safe hosted eval suites on the selected target',
+    default: {
+      description: 'Start a hosted eval suite and wait for its typed result',
+      schema: config.schemas.evalRun,
+    },
+    subcommands: {
+      run: {
+        description: 'Start a hosted eval suite and wait for its typed result',
+        schema: config.schemas.evalRun,
+      },
+      runs: {
+        description: 'List or show hosted eval run history',
+        schema: config.schemas.evalRuns,
+      },
+    },
+  },
   config: {
     description: 'Manage per-bot config variables for the selected project target',
     subcommands: {

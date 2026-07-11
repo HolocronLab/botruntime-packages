@@ -164,6 +164,12 @@ export interface ConversationListParams {
   nextToken?: string
 }
 
+export interface EvalRunListParams {
+  limit: number
+  status?: 'pending' | 'running' | 'completed' | 'failed'
+  nextToken?: string
+}
+
 interface RequestOpts {
   method: string
   path: string
@@ -173,7 +179,7 @@ interface RequestOpts {
   workspaceId?: string
   timeoutMs?: number
   idempotent?: boolean // retry on 5xx/network
-  privacySensitive?: 'trace' | 'conversation' // never reflect response bodies or transport errors into CLI errors
+  privacySensitive?: 'trace' | 'conversation' | 'eval' // never reflect response bodies or transport errors into CLI errors
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -618,6 +624,58 @@ export class CloudapiClient {
     })
   }
 
+  public async createEvalWorkflow(
+    body: {
+      name: 'builtin_eval_runner'
+      status: 'pending'
+      input: Record<string, unknown>
+      timeoutAt: string
+    },
+    runtimeBotId?: string
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'POST',
+      path: '/v1/chat/workflows',
+      body,
+      botId: runtimeBotId,
+      privacySensitive: 'eval',
+    })
+  }
+
+  public async getEvalWorkflow(workflowId: string, runtimeBotId?: string): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/chat/workflows/${encodeURIComponent(workflowId)}`,
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'eval',
+    })
+  }
+
+  public async listEvalRuns(
+    selector: string,
+    params: EvalRunListParams,
+    runtimeBotId?: string
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: evalRunsPath(`/v1/evals/bot/${encodeURIComponent(selector)}/runs`, params),
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'eval',
+    })
+  }
+
+  public async getEvalRun(runId: string, runtimeBotId?: string): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/evals/runs/${encodeURIComponent(runId)}`,
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'eval',
+    })
+  }
+
   // ---- tables (list idempotent; create NOT — 409 means already exists) ------
   // /v1/tables/* discriminates the deploy caller from the dev callback by the
   // presence of x-workspace-id (dev does not send it); under a workspace PAT
@@ -653,7 +711,7 @@ function httpMessage(opts: RequestOpts, status: number, text: string): string {
   if (opts.privacySensitive) {
     const resource = opts.privacySensitive
     if (status === 401)
-      return `${where}: 401 — profile token is missing, invalid, or revoked; run \`brt login\` and verify \`brt profiles active\``
+      return `${where}: 401 — selected credential is missing, invalid, or revoked; for dev run \`brt login\`, for production re-link the per-bot key with \`brt link --key-stdin\``
     if (status === 403)
       return `${where}: 403 — the active profile has no access to this workspace/bot; verify membership and the selected profile`
     if (status === 404)
@@ -698,5 +756,12 @@ function tracePath(basePath: string, params: TraceListParams): string {
 function conversationPath(basePath: string, params: ConversationListParams): string {
   const query = new URLSearchParams({ pageSize: String(params.pageSize) })
   if (params.nextToken) query.set('nextToken', params.nextToken)
+  return `${basePath}?${query.toString()}`
+}
+
+function evalRunsPath(basePath: string, params: EvalRunListParams): string {
+  const query = new URLSearchParams({ limit: String(params.limit) })
+  if (params.status !== undefined) query.set('status', params.status)
+  if (params.nextToken !== undefined) query.set('nextToken', params.nextToken)
   return `${basePath}?${query.toString()}`
 }

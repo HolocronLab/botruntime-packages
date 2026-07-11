@@ -31,7 +31,7 @@ The full upstream command set is preserved:
 ```
 login  logout  bots  integrations  interfaces  plugins  init  generate(gen)
 bundle  build  read  serve  deploy  add(i/install)  remove(rm)  dev  lint  chat
-profiles  link  logs  traces  conversations  config  secret
+profiles  link  logs  traces  conversations  eval  config  secret
 ```
 
 `brt build` runs the **native** pipeline — `generate` (typings codegen into
@@ -173,3 +173,42 @@ or raw errors.
 The Botpress local-only `--include-llm` option is deliberately absent: the
 cloud privacy boundary has no content bypass. Production and development use
 the same fail-loud canonical target and profile-auth rules as `brt traces`.
+
+## Hosted evals
+
+`brt eval` follows the current Botpress ADK eval/run-history shape while using
+the hosted runtime workflow and privacy-safe cloud persistence. A bare
+`brt eval [name]` and the explicit `brt eval run [name]` both start the deployed
+`builtin_eval_runner`; `runs` lists or inspects persisted results.
+
+```bash
+# Run all deployed eval definitions, or select a compatible filter
+brt eval run
+brt eval greeting
+brt eval run greeting --tag smoke --type regression
+brt eval run --judge-model openai:gpt-4o
+
+# Target the attested dev runtime instead of production
+brt eval run --dev
+brt eval runs --dev --latest
+
+# Hosted history, detail, pagination, and stable machine output
+brt eval runs --limit 10 --status completed
+brt eval runs 101 --verbose
+brt eval runs --latest --json
+brt eval runs --limit 10 --next-token MTAw --json
+```
+
+Production requires the canonical positive-decimal project link and the
+per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
+the selected profile PAT narrowed by the opaque runtime bot identity previously
+attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
+two authority modes cannot be mixed implicitly.
+
+The machine envelope has `schemaVersion: 1` and only allowlisted target, run,
+entry, verdict, timing, error-kind, and typed assertion metadata. Prompts,
+user/bot messages, model responses, evidence, tool input/output, documents,
+raw evaluator errors, and raw workflow failure reasons are never written to
+stdout or stderr. A failed suite still prints its safe result, then exits
+non-zero. Auth, target, network, HTTP, cursor, timeout, and malformed-response
+failures also exit non-zero with remediation.

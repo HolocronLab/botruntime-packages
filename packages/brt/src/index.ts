@@ -4,7 +4,9 @@ import { DefinitionSubTree, DefinitionTree, DefinitionTreeNode } from './command
 import type * as typings from './typings'
 
 type CommandHandlersNode<D extends DefinitionTreeNode = DefinitionTreeNode> = D extends DefinitionSubTree
-  ? CommandHandlers<D['subcommands']>
+  ? CommandHandlers<D['subcommands']> & {
+      default?: typings.CommandImplementation<NonNullable<D['default']>>
+    }
   : D extends typings.CommandDefinition
     ? typings.CommandImplementation<D>
     : never
@@ -64,6 +66,11 @@ export default {
   conversations: {
     list: commandImplementations.conversations.subcommands.list,
     show: commandImplementations.conversations.subcommands.show,
+  },
+  eval: {
+    default: commandImplementations.eval.default,
+    run: commandImplementations.eval.subcommands.run,
+    runs: commandImplementations.eval.subcommands.runs,
   },
   config: {
     set: commandImplementations.config.subcommands.set,

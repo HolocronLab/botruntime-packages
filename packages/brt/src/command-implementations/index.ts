@@ -25,6 +25,7 @@ import { LogoutCommand } from './logout-command'
 import { LogsCommand } from './logs-command'
 import { TracesCommand } from './traces-command'
 import { ListConversationsCommand, ShowConversationCommand } from './conversations-command'
+import { EvalRunCommand, EvalRunsCommand } from './eval-command'
 import * as plugins from './plugin-commands'
 import * as profiles from './profile-commands'
 import { ReadCommand } from './read-command'
@@ -105,6 +106,13 @@ export default {
     subcommands: {
       list: getHandler(ListConversationsCommand),
       show: getHandler(ShowConversationCommand),
+    },
+  },
+  eval: {
+    default: getHandler(EvalRunCommand),
+    subcommands: {
+      run: getHandler(EvalRunCommand),
+      runs: getHandler(EvalRunsCommand),
     },
   },
   config: {
