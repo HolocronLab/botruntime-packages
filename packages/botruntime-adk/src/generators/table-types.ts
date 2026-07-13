@@ -3,6 +3,7 @@ import { AgentProject } from '../agent-project/agent-project.js'
 import { ADK_VERSION, formatCode } from './utils.js'
 import { createFile } from '../utils/fs.js'
 import path from 'path'
+import { TABLE_OUTPUT_SYSTEM_COLUMNS } from './table-system-columns.js'
 
 export interface TableTypeInfo {
   name: string
@@ -84,9 +85,9 @@ declare module "@holocronlab/botruntime-runtime/_types/tables" {
     content += '    [key: string]: {\n'
     content += '      Input: any;\n'
     content += '      Output: {\n'
-    content += '        id: number;\n'
-    content += '        createdAt: string;\n'
-    content += '        updatedAt: string;\n'
+    for (const column of TABLE_OUTPUT_SYSTEM_COLUMNS) {
+      content += `        ${column};\n`
+    }
     content += '      } & any;\n'
     content += '    };\n'
   } else {
@@ -102,9 +103,7 @@ declare module "@holocronlab/botruntime-runtime/_types/tables" {
 
       // Generate the output type with all columns plus system fields
       const outputColumns = [
-        '        id: number;',
-        '        createdAt: string;',
-        '        updatedAt: string;',
+        ...TABLE_OUTPUT_SYSTEM_COLUMNS.map((column) => `        ${column};`),
         ...Object.entries(table.columns).map(([name, col]) => `        ${name}: ${col.type};`),
       ].join('\n')
 

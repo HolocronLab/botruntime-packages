@@ -7,6 +7,7 @@ import { readFileSync, cpSync, existsSync } from 'node:fs'
 import path from 'node:path'
 
 const pkg = JSON.parse(readFileSync(path.join(import.meta.dir, '..', 'package.json'), 'utf-8')) as {
+  version: string
   dependencies?: Record<string, string>
 }
 
@@ -26,7 +27,7 @@ const entrypoints = [
 // __RUNTIME_VERSION__ / __BP_CLI_VERSION__ / __OPENCODE_VERSION__ are declared as
 // ambient consts in generators/utils.ts, commands/bp-cli.ts, agent0/runtime/process.ts.
 const define: Record<string, string> = {
-  __RUNTIME_VERSION__: JSON.stringify(pkg.dependencies?.['@holocronlab/botruntime-runtime']?.replace(/^[\^~]/, '') ?? '2.0.2'),
+  __RUNTIME_VERSION__: JSON.stringify(pkg.version),
   __BP_CLI_VERSION__: JSON.stringify(pkg.dependencies?.['@holocronlab/brt']?.replace(/^[\^~]/, '') ?? '0.2.0'),
   __OPENCODE_VERSION__: JSON.stringify(pkg.dependencies?.['opencode-ai'] ?? '1.15.10'),
 }

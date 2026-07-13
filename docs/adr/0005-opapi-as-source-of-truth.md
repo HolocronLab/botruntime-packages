@@ -57,6 +57,12 @@ Adopt **Option A + a migration gate** (informed by an OpenAI Codex architecture 
 
 ## Consequences / temporary exception
 
+- A backend-compatible extension absent from the pinned upstream schema must be
+  deterministic, tested, and applied by `scripts/regen.sh` to both OpenAPI and
+  generated client sources. The first such extension is the system
+  `rowVersion` optimistic-CAS field, implemented in
+  `scripts/apply-table-row-version-extension.mjs`. Direct hand edits to
+  generated files remain forbidden and fail the drift check.
 - `packages/botruntime-api` has a **build-time** `@botpress/api@1.108.0` dependency. This is a
   documented, temporary ADR exception — **not** a runtime dependency and not present in any
   published package's runtime deps. It is removed once the `openapi → opapi` generator lands

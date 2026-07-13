@@ -5,6 +5,7 @@ import { z } from '@holocronlab/botruntime-sdk'
 
 type TableRow = {
   id: number
+  rowVersion: number
   createdAt: string
   updatedAt: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

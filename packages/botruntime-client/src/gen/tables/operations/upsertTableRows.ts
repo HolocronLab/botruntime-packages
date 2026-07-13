@@ -16,6 +16,10 @@ export interface UpsertTableRowsRequestBody {
    */
   rows: {
     id?: number;
+    /**
+     * Expected row version for optimistic concurrency control.
+     */
+    rowVersion?: number;
     [k: string]: any;
   }[];
   /**
@@ -54,6 +58,10 @@ export interface UpsertTableRowsResponse {
      */
     id: number;
     /**
+     * System-managed optimistic concurrency token for the row.
+     */
+    rowVersion: number;
+    /**
      * Timestamp of row creation.
      */
     createdAt?: string;
@@ -84,6 +92,10 @@ export interface UpsertTableRowsResponse {
      * Unique identifier for the row.
      */
     id: number;
+    /**
+     * System-managed optimistic concurrency token for the row.
+     */
+    rowVersion: number;
     /**
      * Timestamp of row creation.
      */

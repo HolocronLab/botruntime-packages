@@ -16,6 +16,26 @@ permissions:
   packages: read
 
 jobs:
+  row-version-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test botruntime OpenAPI/client extension
+        run: node --test scripts/apply-table-row-version-extension.test.mjs
+
+      - name: Type-check runtime row metadata contract
+        working-directory: packages/botruntime-runtime
+        run: bunx tsc --ignoreConfig --strict --skipLibCheck --noEmit src/primitives/table-row-metadata.ts src/primitives/table-row-version.typecheck.ts
+
   check-drift:
     runs-on: ubuntu-latest
     steps:
@@ -27,6 +47,12 @@ jobs:
 
       - name: Regenerate codegen artifacts and fail on drift
         run: bash scripts/check-drift.sh
+
+      - name: Type-check and test generated client
+        working-directory: packages/botruntime-client
+        run: |
+          bun run check:type
+          bun run test
 
   docs-contract:
     runs-on: ubuntu-latest
@@ -43,6 +69,15 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
           scope: "@holocronlab"
 
+      # The PR may bump botruntime-client before that immutable version exists
+      # in GitHub Packages. Build the current checkout and keep it as BRT's
+      # local dependency for contract generation.
+      - name: Build the current botruntime-client package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/regen.sh
+
       # Contract generation imports the complete CLI command tree. Build the
       # current checkout's ADK first so a version bump can pass before that
       # immutable package version exists in the registry.
@@ -57,12 +92,12 @@ jobs:
           bun install --no-save --ignore-scripts
           bun run build
 
-      # Keep the freshly built ADK as the one local dependency. Resolve every
-      # other sibling from GitHub Packages, then discard the source lock so Bun
-      # cannot silently restore stale file: resolutions.
+      # Keep the freshly built ADK and client as local dependencies. Resolve
+      # every other sibling from GitHub Packages, then discard the source lock
+      # so Bun cannot silently restore stale file: resolutions.
       - name: Resolve BRT dependencies as published packages
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/brt --exclude=@holocronlab/botruntime-adk --write
+          node scripts/prepare-package-publish.mjs --package=packages/brt --exclude=@holocronlab/botruntime-adk --exclude=@holocronlab/botruntime-client --write
           mv packages/brt/bun.lock "$RUNNER_TEMP/brt.source.bun.lock"
 
       - name: Install brt contract-generator dependencies

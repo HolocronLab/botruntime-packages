@@ -12925,6 +12925,11 @@
             "type": "number",
             "description": "Unique identifier for the row."
           },
+          "rowVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "System-managed optimistic concurrency token for the row."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -12973,6 +12978,7 @@
         },
         "required": [
           "id",
+          "rowVersion",
           "computed"
         ],
         "additionalProperties": true
@@ -31069,6 +31075,11 @@
                       "id": {
                         "type": "number",
                         "maximum": 2147483647
+                      },
+                      "rowVersion": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "System-managed optimistic concurrency token for the row."
                       }
                     },
                     "required": [
@@ -31109,6 +31120,11 @@
                       "id": {
                         "type": "number",
                         "maximum": 2147483647
+                      },
+                      "rowVersion": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "System-managed optimistic concurrency token for the row."
                       }
                     },
                     "additionalProperties": true
