@@ -373,7 +373,7 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
           ;(schema.properties[col] as any).nullable = true
         }
         if ('required' in schema && Array.isArray(schema.required)) {
-          schema.required = schema.required.filter((x) => x !== col)
+          schema.required = schema.required.filter((x: string) => x !== col)
         }
       }
     }
