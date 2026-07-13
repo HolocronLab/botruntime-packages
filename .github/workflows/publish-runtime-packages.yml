@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "branch, tag, or SHA to publish client, evals, runtime, and ADK from"
+        description: "branch, tag, or SHA to publish client, SDK, evals, runtime, and ADK from"
         required: false
         default: main
 
@@ -63,6 +63,47 @@ jobs:
             fi
             if [ "$attempt" -eq 12 ]; then
               echo "botruntime-client@$VER did not become installable" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Resolve, test, and build botruntime-sdk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-sdk --write
+          mv packages/botruntime-sdk/bun.lock "$RUNNER_TEMP/botruntime-sdk.source.bun.lock"
+          cd packages/botruntime-sdk
+          bun install --no-save --ignore-scripts
+          bun run check:type
+          bun run test
+          bun run build
+
+      - name: Publish botruntime-sdk
+        working-directory: packages/botruntime-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          if npm view "@holocronlab/botruntime-sdk@$VER" version >/dev/null 2>&1; then
+            echo "@holocronlab/botruntime-sdk@$VER already published — skipping."
+          else
+            npm publish
+          fi
+
+      - name: Wait until botruntime-sdk is installable
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER="$(node -p "require('./packages/botruntime-sdk/package.json').version")"
+          for attempt in $(seq 1 12); do
+            if npm view "@holocronlab/botruntime-sdk@$VER" version >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "botruntime-sdk@$VER did not become installable" >&2
               exit 1
             fi
             sleep 5

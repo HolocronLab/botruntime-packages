@@ -141,6 +141,7 @@ describe('CloudIntegrationPublishCommand', () => {
           network: {
             providerHosts: ['api.telegram.org'],
             ingressRelayed: true,
+            webhookAuthMode: 'provider_verified',
           },
         })
       `
@@ -181,6 +182,7 @@ describe('CloudIntegrationPublishCommand', () => {
     expect(createSpy).toHaveBeenCalledWith('telegram', '1.0.0', expect.anything(), 'ws_123', {
       providerHosts: ['api.telegram.org'],
       ingressRelayed: true,
+      webhookAuthMode: 'provider_verified',
     })
     expect(publishSpy).not.toHaveBeenCalled()
   })

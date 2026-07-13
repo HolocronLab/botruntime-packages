@@ -54,6 +54,7 @@ export interface IntegrationDefinitionEntity {
 export interface IntegrationDefinitionNetwork {
   providerHosts?: string[]
   ingressRelayed?: boolean
+  webhookAuthMode?: 'shared_secret' | 'provider_verified'
 }
 
 export interface PublishIntegrationBundleResponse {
@@ -192,6 +193,7 @@ type IntegrationDefinitionWriteBody = {
   configSchema: unknown
   providerHosts?: string[]
   ingressRelayed?: boolean
+  webhookAuthMode?: 'shared_secret' | 'provider_verified'
 }
 
 const integrationDefinitionWriteBody = (
@@ -205,6 +207,7 @@ const integrationDefinitionWriteBody = (
   configSchema,
   ...(network?.providerHosts !== undefined ? { providerHosts: network.providerHosts } : {}),
   ...(network?.ingressRelayed !== undefined ? { ingressRelayed: network.ingressRelayed } : {}),
+  ...(network?.webhookAuthMode !== undefined ? { webhookAuthMode: network.webhookAuthMode } : {}),
 })
 
 export class CloudapiClient {

@@ -10,6 +10,7 @@ test('integration definition exposes optional network policy', () => {
     network: {
       providerHosts: ['api.telegram.org'],
       ingressRelayed: true,
+      webhookAuthMode: 'provider_verified',
     },
   } satisfies IntegrationDefinitionProps
 
@@ -18,6 +19,7 @@ test('integration definition exposes optional network policy', () => {
   expect(integration.network).toEqual({
     providerHosts: ['api.telegram.org'],
     ingressRelayed: true,
+    webhookAuthMode: 'provider_verified',
   })
 })
 
