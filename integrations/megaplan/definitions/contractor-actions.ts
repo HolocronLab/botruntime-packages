@@ -2,7 +2,7 @@ import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 import { contactInfoSchema, contractorSchema } from './common'
 
 const searchContractorsInput = z.object({
-  q: z.string().min(1).title('Запрос').describe('Телефон, имя или email (дедуп лида перед созданием; best-effort)'),
+  q: z.string().min(1).title('Запрос').describe('Телефон, имя или email'),
   limit: z.number().int().positive().optional().title('Лимит').describe('Максимум результатов'),
 })
 const searchContractorsOutput = z.object({
@@ -22,14 +22,14 @@ const createContractorHumanOutput = z.object({
 
 export const searchContractors: ActionDefinition = {
   title: 'Поиск контрагентов',
-  description: 'Полнотекстовый поиск контрагентов (дедуп лида перед созданием).',
+  description: 'Полнотекстовый поиск контрагентов.',
   input: { schema: searchContractorsInput },
   output: { schema: searchContractorsOutput },
 }
 
 export const createContractorHuman: ActionDefinition = {
   title: 'Создать контрагента (физлицо)',
-  description: 'Создаёт клиента-физлицо (лид/дольщик) через /contractorHuman.',
+  description: 'Создаёт контрагента-физлицо через /contractorHuman.',
   input: { schema: createContractorHumanInput },
   output: { schema: createContractorHumanOutput },
 }

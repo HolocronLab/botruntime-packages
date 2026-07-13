@@ -27,7 +27,7 @@ const taskDoActionInput = z.object({
 
 export const createTask: ActionDefinition = {
   title: 'Создать задачу',
-  description: 'Задача-эскалация/гейт юристу; deals[] связывает её со сделкой.',
+  description: 'Создаёт задачу сотруднику; deals[] связывает её со сделками.',
   input: { schema: createTaskInput },
   output: { schema: taskOutput },
 }

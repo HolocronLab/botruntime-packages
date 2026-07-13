@@ -298,6 +298,83 @@ test('addComment posts HTML content', async () => {
   })
 })
 
+test('createNegotiationTask creates a native approval with an immutable material version', async () => {
+  const env = makeEnv((req, body, url) => {
+    expect(req.method).toBe('POST')
+    expect(url.pathname).toBe('/api/v3/task')
+    const b = JSON.parse(body)
+    expect(b.isNegotiation).toBe(true)
+    expect(b.negotiationExecutors).toEqual([{ contentType: 'Employee', id: 'E2' }])
+    expect(b.negotiationItems[0].actualVersion.text).toContain('sha256:abc123')
+    expect(b.negotiationItems[0].actualVersion.attache).toEqual({ contentType: 'File', id: 'F1' })
+    return json(
+      200,
+      wrap(
+        '{"contentType":"Task","id":"T9","isNegotiation":true,"negotiationItems":[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V1","status":"not_rated"}}]}'
+      )
+    )
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const task = await c.createNegotiationTask({
+      name: 'Согласовать претензию',
+      responsibleId: 'E1',
+      approverIds: ['E2'],
+      dealIds: ['D1'],
+      materialUrl: 'https://files.local/claim.docx',
+      materialSha256: 'abc123',
+      materialName: 'claim.docx',
+      materialFile: { contentType: 'File', id: 'F1' },
+    })
+    expect(task.id).toBe('T9')
+    expect(task.negotiationItems?.[0]?.id).toBe('N1')
+  })
+})
+
+test('uploadFile sends multipart files[] and returns the uploaded Megaplan file', async () => {
+  const env = makeEnv(async (req, body, url) => {
+    expect(req.method).toBe('POST')
+    expect(url.pathname).toBe('/api/file')
+    expect(req.headers.get('authorization')).toBe('Bearer tok-1')
+    expect(req.headers.get('content-type')).toStartWith('multipart/form-data; boundary=')
+    expect(body).toContain('name="files[]"; filename="claim.docx"')
+    expect(body).toContain('claim-v1')
+    return json(200, wrap('[{"contentType":"File","id":"F1","name":"claim.docx","path":"/attach/claim.docx"}]'))
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const file = await c.uploadFile('claim.docx', new TextEncoder().encode('claim-v1'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    expect(file).toEqual({ contentType: 'File', id: 'F1', name: 'claim.docx', path: '/attach/claim.docx' })
+  })
+})
+
+test('getNegotiationDecision reads the aggregate status and human visa from the actual version', async () => {
+  const env = makeEnv((req, _body, url) => {
+    expect(req.method).toBe('GET')
+    expect(url.pathname).toBe('/api/v3/task/T9/negotiationItems')
+    return json(
+      200,
+      wrap(
+        '[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}}]}}]'
+      )
+    )
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const decision = await c.getNegotiationDecision('T9')
+    expect(decision).toEqual({
+      status: 'approved',
+      itemId: 'N1',
+      versionId: 'V2',
+      fileId: 'F2',
+      filePath: '/attach/claim-v2.docx',
+      fileName: 'claim-v2.docx',
+      actorId: 'E2',
+      actorName: 'Анна',
+    })
+  })
+})
+
 // API error: only field+message surface; the trace blob is dropped.
 test('API error exposes field+message, never the trace blob', async () => {
   const env = makeEnv(() =>

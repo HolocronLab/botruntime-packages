@@ -11,8 +11,11 @@ export const ContentType = {
   ContractorHuman: 'ContractorHuman',
   ContractorCompany: 'ContractorCompany',
   Comment: 'Comment',
+  File: 'File',
   Todo: 'Todo',
   Task: 'Task',
+  NegotiationItem: 'NegotiationItem',
+  NegotiationItemVersion: 'NegotiationItemVersion',
   DateTime: 'DateTime',
   DateOnly: 'DateOnly',
   ContactInfo: 'ContactInfo',
@@ -111,7 +114,35 @@ export type ResponseMoney = { value: number | string; currency: string; valueInM
 
 export type Comment = { contentType?: string; id: string; content?: string }
 export type Todo = { contentType?: string; id: string; name?: string }
-export type Task = { contentType?: string; id: string; name?: string; status?: string }
+export type FileRef = { contentType?: string; id: string; path?: string; name?: string; fileName?: string }
+export type EmployeeRef = Ref & { name?: string }
+export type NegotiationVisa = {
+  id?: string
+  status?: 'ok' | 'bad' | 'not_rated'
+  userCreated?: EmployeeRef
+}
+export type NegotiationItemVersion = {
+  contentType?: string
+  id?: string
+  text?: string
+  status?: 'ok' | 'bad' | 'not_rated'
+  attache?: FileRef
+  visas?: NegotiationVisa[]
+}
+export type NegotiationItem = {
+  contentType?: string
+  id?: string
+  actualVersion?: NegotiationItemVersion
+  versions?: NegotiationItemVersion[]
+}
+export type Task = {
+  contentType?: string
+  id: string
+  name?: string
+  status?: string
+  isNegotiation?: boolean
+  negotiationItems?: NegotiationItem[]
+}
 
 // Money — APIv3 money. value is held as a DECIMAL STRING (CLAUDE.md: money is
 // computed in code; a JS float would drift). encodeBody() emits it as a raw JSON

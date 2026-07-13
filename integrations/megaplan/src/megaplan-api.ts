@@ -18,12 +18,14 @@ import {
   type CommentOwnerName,
   type Deal,
   DateTime,
+  type FileRef,
   Money,
   type Program,
   type ProgramState,
   type Ref,
   selectTransition,
   type Task,
+  type NegotiationItem,
   type TaskActionName,
   type Todo,
   encodeBody,
@@ -288,6 +290,156 @@ export class MegaplanApiClient {
     return this.do<Task>('POST', '/api/v3/task', undefined, body)
   }
 
+  async createNegotiationTask(t: {
+    name: string
+    responsibleId: string
+    approverIds: string[]
+    dealIds: string[]
+    materialName: string
+    materialUrl: string
+    materialSha256: string
+    materialFile: FileRef
+    statement?: string
+  }): Promise<Task> {
+    if (t.approverIds.length === 0) {
+      throw new Error('megaplan: createNegotiationTask requires at least one approver')
+    }
+    const materialText = [
+      `<b>${escapeHtml(t.materialName)}</b>`,
+      `<code>sha256:${escapeHtml(t.materialSha256)}</code>`,
+    ].join('<br>')
+    const body = prune({
+      contentType: ContentType.Task,
+      isTemplate: false,
+      isUrgent: false,
+      isNegotiation: true,
+      name: t.name,
+      statement: t.statement,
+      responsible: { contentType: ContentType.Employee, id: t.responsibleId } satisfies Ref,
+      deals: t.dealIds.map((id) => ({ contentType: ContentType.Deal, id }) satisfies Ref),
+      negotiationExecutors: t.approverIds.map(
+        (id) => ({ contentType: ContentType.Employee, id }) satisfies Ref
+      ),
+      negotiationItems: [
+        {
+          contentType: ContentType.NegotiationItem,
+          actualVersion: {
+            contentType: ContentType.NegotiationItemVersion,
+            text: materialText,
+            attache: { contentType: ContentType.File, id: t.materialFile.id },
+          },
+        },
+      ],
+    })
+    return this.do<Task>('POST', '/api/v3/task', undefined, body)
+  }
+
+  // Megaplan's file API is intentionally outside /api/v3. A file must be
+  // uploaded first and then referenced by {contentType:"File",id} from the
+  // entity/version being created. FormData owns the multipart boundary.
+  async uploadFile(name: string, bytes: Uint8Array, contentType: string): Promise<FileRef> {
+    if (!name.trim()) throw new Error('megaplan: uploadFile requires a file name')
+    if (bytes.byteLength === 0) throw new Error('megaplan: uploadFile requires non-empty bytes')
+
+    let reauthed = false
+    for (let attempt = 1; ; ) {
+      let token: string
+      try {
+        token = await this.accessToken()
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0
+        if (transientStatus(status) && attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw err
+      }
+
+      const form = new FormData()
+      form.append('files[]', new Blob([new Uint8Array(bytes)], { type: contentType }), name)
+      let response: Response
+      try {
+        response = await this.fetchImpl(this.baseUrl + '/api/file', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+          body: form,
+        })
+      } catch (err) {
+        throw new ApiError(0, [{ message: `POST /api/file: ${(err as Error)?.message ?? String(err)}` }])
+      }
+
+      const text = await readCapped(response, MAX_BODY_BYTES)
+      if (response.status === 401 && !reauthed) {
+        reauthed = true
+        await this.clearToken(token)
+        continue
+      }
+      if (response.status === 429 && attempt < MAX_ATTEMPTS) {
+        attempt++
+        await this.backoff(attempt)
+        continue
+      }
+      if (!response.ok) throw parseApiError(response.status, text)
+      return parseUploadedFile(text)
+    }
+  }
+
+  async getNegotiationDecision(taskId: string): Promise<{
+    status: 'pending' | 'approved' | 'rejected'
+    itemId?: string
+    versionId?: string
+    fileId?: string
+    filePath?: string
+    fileName?: string
+    actorId?: string
+    actorName?: string
+  }> {
+    const items = await this.do<NegotiationItem[]>(
+      'GET',
+      `/api/v3/task/${esc(taskId)}/negotiationItems`,
+      undefined,
+      undefined
+    )
+    if (items.length === 0) {
+      throw new Error(`megaplan: negotiation task ${taskId} has no materials`)
+    }
+    const rejected = items.find((item) => item.actualVersion?.status === 'bad')
+    const approved = rejected === undefined && items.every((item) => item.actualVersion?.status === 'ok')
+    const selected = rejected ?? items[0]!
+    const version = selected.actualVersion
+    const visa = version?.visas?.find((v) => v.status === version.status)
+    return {
+      status: rejected ? 'rejected' : approved ? 'approved' : 'pending',
+      itemId: selected.id,
+      versionId: version?.id,
+      fileId: version?.attache?.id,
+      filePath: version?.attache?.path,
+      fileName: version?.attache?.name ?? version?.attache?.fileName,
+      actorId: visa?.userCreated?.id,
+      actorName: visa?.userCreated?.name,
+    }
+  }
+
+  async downloadFile(path: string): Promise<{ bytes: Uint8Array; contentType: string }> {
+    if (!path.startsWith('/')) throw new Error('megaplan: file path must be relative to the account root')
+    let reauthed = false
+    for (;;) {
+      const token = await this.accessToken()
+      const response = await this.fetchImpl(this.baseUrl + path, { headers: { authorization: `Bearer ${token}` } })
+      if (response.status === 401 && !reauthed) {
+        reauthed = true
+        await this.clearToken(token)
+        continue
+      }
+      if (!response.ok) throw new ApiError(response.status, [{ message: `GET file -> ${response.status}` }])
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+      }
+    }
+  }
+
   // taskDoAction — task status transition (assigned -> accepted -> completed). A
   // direct status write is ignored; only doAction applies. checkTodos verifies open
   // todos before completing.
@@ -478,6 +630,28 @@ export class MegaplanApiClient {
 // split into extra path segments (encodeURIComponent('/') === '%2F').
 function esc(id: string): string {
   return encodeURIComponent(id)
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!)
+}
+
+function parseUploadedFile(text: string): FileRef {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (err) {
+    throw new ApiError(200, [{ message: `POST /api/file: response parse: ${(err as Error)?.message}` }])
+  }
+  const wrapped = parsed as { data?: unknown }
+  const data = wrapped?.data ?? parsed
+  const candidate = Array.isArray(data) ? data[0] : data
+  if (typeof candidate === 'string' || typeof candidate === 'number') {
+    return { contentType: ContentType.File, id: String(candidate) }
+  }
+  const file = candidate as Partial<FileRef> | undefined
+  if (!file?.id) throw new ApiError(200, [{ message: 'POST /api/file: response contains no file id' }])
+  return { ...file, contentType: ContentType.File, id: String(file.id) }
 }
 
 // readCapped reads at most max bytes of the response and decodes them, stopping the

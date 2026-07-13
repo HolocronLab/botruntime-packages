@@ -26,6 +26,13 @@ import type {
 import type { AddCommentInput, AddCommentOutput } from '../definitions/comment-actions'
 import type { CreateTodoInput, ListTodosInput, ListTodosOutput, FinishTodoInput, TodoOutput } from '../definitions/todo-actions'
 import type { CreateTaskInput, TaskDoActionInput, TaskOutput } from '../definitions/task-actions'
+import type {
+  CreateNegotiationTaskInput,
+  CreateNegotiationTaskOutput,
+  GetNegotiationDecisionInput,
+  GetNegotiationDecisionOutput,
+} from '../definitions/approval-actions'
+import type { EntityCommand } from '../definitions/events'
 
 export type Configuration = z.infer<typeof configSchema>
 
@@ -44,16 +51,18 @@ type Actions = {
   finishTodo: { input: FinishTodoInput; output: TodoOutput }
   createTask: { input: CreateTaskInput; output: TaskOutput }
   taskDoAction: { input: TaskDoActionInput; output: TaskOutput }
+  createNegotiationTask: { input: CreateNegotiationTaskInput; output: CreateNegotiationTaskOutput }
+  getNegotiationDecision: { input: GetNegotiationDecisionInput; output: GetNegotiationDecisionOutput }
 }
 
 export type TMegaplan = {
   name: 'megaplan'
-  version: '0.1.0'
+  version: '0.2.0'
   configuration: Configuration
   configurations: Record<string, never>
   actions: Actions
   channels: Record<string, never>
-  events: Record<string, never>
+  events: { entityCommand: EntityCommand }
   states: { megaplanAuth: { type: 'integration'; payload: StatePayload } }
   user: { tags: Record<string, string> }
   entities: Record<string, never>

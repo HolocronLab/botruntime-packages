@@ -30,7 +30,7 @@ export const moneySchema = z
       .regex(/^-?\d+(\.\d+)?$/)
       .title('Сумма')
       .describe('Десятичная строка, например "60000.50"'),
-    currency: z.string().default('RUB').title('Валюта').describe('ISO-код валюты, у бота всегда RUB'),
+    currency: z.string().default('RUB').title('Валюта').describe('ISO-код валюты'),
   })
   .title('Деньги')
 
