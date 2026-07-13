@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-evals",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Evaluation definitions and runner for brt-based botruntime agents",
   "keywords": ["brt", "agent", "ai", "evals", "evaluation"],
   "license": "MIT",

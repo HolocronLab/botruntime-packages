@@ -6,6 +6,7 @@ import { AgentProject } from '../agent-project/agent-project.js'
 import { ADK_VERSION, formatCode } from './utils.js'
 import { createFile } from '../utils/fs.js'
 import { BuiltInWorkflows } from '@holocronlab/botruntime-runtime/internal'
+import { TABLE_OUTPUT_SYSTEM_COLUMNS } from './table-system-columns.js'
 
 const { transforms } = z
 
@@ -116,7 +117,7 @@ export async function generateClientWrapper(project: AgentProject): Promise<void
 
       if (tableInstance && tableInstance.columns) {
         const inputColumns: string[] = []
-        const outputColumns: string[] = ['id: number', 'createdAt: string', 'updatedAt: string']
+        const outputColumns: string[] = [...TABLE_OUTPUT_SYSTEM_COLUMNS]
 
         for (const [colName, colDef] of Object.entries(tableInstance.columns)) {
           let schema: unknown

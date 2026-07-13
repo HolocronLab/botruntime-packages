@@ -5,6 +5,9 @@ import { z } from '@holocronlab/botruntime-sdk'
 import { Errors } from '../errors'
 
 import { TableDefinitions } from '../_types/tables'
+import type { TableRowMetadata, TableRowUpdateMetadata } from './table-row-metadata'
+
+export type { TableRowMetadata, TableRowUpdateMetadata } from './table-row-metadata'
 
 function isApiNotFoundError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
@@ -201,16 +204,9 @@ export interface FindRowsOptions<TName extends string> {
   group?: TableGroup<TableDefinitions[TName]['Output']> // Type-safe group parameter
 }
 
-type Row<Shape> = {
-  id: number
-  createdAt: string
-  updatedAt: string
-} & Shape
+type Row<Shape> = TableRowMetadata & Shape
 
-type SearchResult<Shape> = {
-  id: number
-  createdAt: string
-  updatedAt: string
+type SearchResult<Shape> = TableRowMetadata & {
   similarity: number
 } & Shape
 
@@ -338,7 +334,7 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
     }
 
     // Validate column names against reserved system columns
-    const reservedColumns = ['id', 'createdAt', 'updatedAt']
+    const reservedColumns = ['id', 'rowVersion', 'createdAt', 'updatedAt']
     const conflicting = Object.keys(this.columns).filter((col) => reservedColumns.includes(col))
     if (conflicting.length > 0) {
       throw new Errors.InvalidPrimitiveError(
@@ -505,7 +501,7 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
   }
 
   async updateRows(props: {
-    rows: (Partial<TableDefinitions[TName]['Input']> & { id: number })[]
+    rows: (Partial<TableDefinitions[TName]['Input']> & TableRowUpdateMetadata)[]
     waitComputed?: boolean
   }): Promise<{
     rows: Row<TableDefinitions[TName]['Output']>[]
@@ -531,6 +527,7 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
   async upsertRows(props: {
     rows: (Partial<TableDefinitions[TName]['Input']> & {
       id?: number
+      rowVersion?: number
     })[]
     waitComputed?: boolean
     // `Output` (not `Input`) so the system `id` — the runtime default — is a valid key.

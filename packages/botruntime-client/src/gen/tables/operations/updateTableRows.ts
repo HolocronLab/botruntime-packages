@@ -18,6 +18,10 @@ export interface UpdateTableRowsRequestBody {
    */
   rows: {
     id: number;
+    /**
+     * Expected row version for optimistic concurrency control.
+     */
+    rowVersion?: number;
     [k: string]: any;
   }[];
   /**
@@ -51,6 +55,10 @@ export interface UpdateTableRowsResponse {
      * Unique identifier for the row.
      */
     id: number;
+    /**
+     * System-managed optimistic concurrency token for the row.
+     */
+    rowVersion: number;
     /**
      * Timestamp of row creation.
      */

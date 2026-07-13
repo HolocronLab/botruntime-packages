@@ -18,6 +18,9 @@ echo "[regen] 1/3 botruntime-api: emit canonical OpenAPI spec and build the loca
 echo "[regen] 2/3 botruntime-client: regenerate typed client (src/gen) via the botruntime-api seam"
 ( cd "$ROOT/packages/botruntime-client" && bun install >/dev/null 2>&1 && bun run generate )
 
+echo "[regen] applying botruntime rowVersion contract extension"
+node "$ROOT/scripts/apply-table-row-version-extension.mjs"
+
 echo "[regen] 3/3 botruntime-client: rebuild dist"
 ( cd "$ROOT/packages/botruntime-client" && bun run build )
 
