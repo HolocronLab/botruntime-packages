@@ -28,7 +28,7 @@ jobs:
       - name: Test private registry configuration for the runtime release train
         run: node --test scripts/runtime-package-registry-config.test.mjs
 
-  row-version-extension:
+  codegen-extensions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +41,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Test botruntime OpenAPI/client extension
-        run: node --test scripts/apply-table-row-version-extension.test.mjs
+      - name: Test botruntime OpenAPI/client extensions
+        run: |
+          node --test scripts/apply-table-row-version-extension.test.mjs
+          node --test scripts/apply-integration-network-extension.test.mjs
 
       - name: Type-check runtime row metadata contract
         working-directory: packages/botruntime-runtime

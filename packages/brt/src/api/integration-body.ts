@@ -100,9 +100,11 @@ export const prepareCreateIntegrationBody = async (
         }))
       : undefined,
     attributes: integration.attributes,
-    providerHosts: integration.network?.providerHosts,
-    ingressRelayed: integration.network?.ingressRelayed,
-    webhookAuthMode: integration.network?.webhookAuthMode,
+    // The server updates network policy as a patch. Explicit defaults let a
+    // redeploy clear policy that was present in an earlier definition.
+    providerHosts: integration.network?.providerHosts ?? [],
+    ingressRelayed: integration.network?.ingressRelayed ?? false,
+    webhookAuthMode: integration.network?.webhookAuthMode ?? 'shared_secret',
     extraOperations: '__advanced' in integration ? integration.__advanced?.extraOperations : undefined,
   }
 }

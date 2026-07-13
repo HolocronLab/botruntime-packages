@@ -205,9 +205,10 @@ const integrationDefinitionWriteBody = (
   name,
   version,
   configSchema,
-  ...(network?.providerHosts !== undefined ? { providerHosts: network.providerHosts } : {}),
-  ...(network?.ingressRelayed !== undefined ? { ingressRelayed: network.ingressRelayed } : {}),
-  ...(network?.webhookAuthMode !== undefined ? { webhookAuthMode: network.webhookAuthMode } : {}),
+  // Catalog updates use patch semantics, so omission would preserve stale policy.
+  providerHosts: network?.providerHosts ?? [],
+  ingressRelayed: network?.ingressRelayed ?? false,
+  webhookAuthMode: network?.webhookAuthMode ?? 'shared_secret',
 })
 
 export class CloudapiClient {

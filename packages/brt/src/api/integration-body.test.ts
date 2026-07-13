@@ -56,4 +56,16 @@ describe("integration deployment bodies", () => {
       webhookAuthMode: "provider_verified",
     });
   });
+
+  test("serializes secure network defaults so redeploy can clear stale policy", async () => {
+    const body = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({ name: "plain", version: "1.0.0" }),
+    );
+
+    expect(body).toMatchObject({
+      providerHosts: [],
+      ingressRelayed: false,
+      webhookAuthMode: "shared_secret",
+    });
+  });
 });

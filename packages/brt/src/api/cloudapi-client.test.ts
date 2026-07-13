@@ -386,7 +386,7 @@ describe('CloudapiClient', () => {
     }
   })
 
-  it('create/updateIntegrationDefinition omit egress network policy when none is passed', async () => {
+  it('create/updateIntegrationDefinition send secure defaults when network policy is omitted', async () => {
     stubFetch(
       () =>
         new Response(
@@ -407,9 +407,11 @@ describe('CloudapiClient', () => {
 
     for (const call of calls) {
       const body = JSON.parse(call.init.body as string)
-      expect(body).not.toHaveProperty('providerHosts')
-      expect(body).not.toHaveProperty('ingressRelayed')
-      expect(body).not.toHaveProperty('webhookAuthMode')
+      expect(body).toMatchObject({
+        providerHosts: [],
+        ingressRelayed: false,
+        webhookAuthMode: 'shared_secret',
+      })
     }
   })
 
