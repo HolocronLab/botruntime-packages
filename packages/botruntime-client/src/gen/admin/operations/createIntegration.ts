@@ -346,6 +346,18 @@ export interface CreateIntegrationRequestBody {
   attributes?: {
     [k: string]: string;
   };
+  /**
+   * Outbound host allowlist declared by the integration.
+   */
+  providerHosts?: string[];
+  /**
+   * Whether inbound webhook traffic is relayed through the platform.
+   */
+  ingressRelayed?: boolean;
+  /**
+   * Authentication mode enforced for inbound webhooks.
+   */
+  webhookAuthMode?: "shared_secret" | "provider_verified";
 }
 
 export type CreateIntegrationInput = CreateIntegrationRequestBody & CreateIntegrationRequestHeaders & CreateIntegrationRequestQuery & CreateIntegrationRequestParams
@@ -363,7 +375,7 @@ export const parseReq = (input: CreateIntegrationInput): CreateIntegrationReques
     headers: {  },
     query: {  },
     params: {  },
-    body: { 'name': input['name'], 'version': input['version'], 'configuration': input['configuration'], 'configurations': input['configurations'], 'states': input['states'], 'events': input['events'], 'actions': input['actions'], 'entities': input['entities'], 'identifier': input['identifier'], 'channels': input['channels'], 'user': input['user'], 'interfaces': input['interfaces'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'secrets': input['secrets'], 'code': input['code'], 'url': input['url'], 'dev': input['dev'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'attributes': input['attributes'] },
+    body: { 'name': input['name'], 'version': input['version'], 'configuration': input['configuration'], 'configurations': input['configurations'], 'states': input['states'], 'events': input['events'], 'actions': input['actions'], 'entities': input['entities'], 'identifier': input['identifier'], 'channels': input['channels'], 'user': input['user'], 'interfaces': input['interfaces'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'secrets': input['secrets'], 'code': input['code'], 'url': input['url'], 'dev': input['dev'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'attributes': input['attributes'], 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode'] },
   }
 }
 

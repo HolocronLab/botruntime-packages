@@ -100,6 +100,9 @@ export const prepareCreateIntegrationBody = async (
         }))
       : undefined,
     attributes: integration.attributes,
+    providerHosts: integration.network?.providerHosts,
+    ingressRelayed: integration.network?.ingressRelayed,
+    webhookAuthMode: integration.network?.webhookAuthMode,
     extraOperations: '__advanced' in integration ? integration.__advanced?.extraOperations : undefined,
   }
 }
