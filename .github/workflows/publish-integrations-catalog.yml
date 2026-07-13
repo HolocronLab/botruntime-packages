@@ -1,10 +1,9 @@
-# Publish integration definitions to the botruntime cloudapi catalog (bespoke wire:
-# brt integrations publish -> /v1/admin/integration-definitions). Manual dispatch only.
-# Requires repo secret BRT_API_KEY (a workspace-scoped api key). The token is passed via
-# the BRT_TOKEN env (mapped to --token by the CLI's env parser) so it never lands in argv.
+# Publish every repository integration to the global botruntime catalog.
 #
-# NOTE: this is an operational workflow that hits a live cloudapi; verify the exact
-# login/publish invocation against the running server during the operational smoke.
+# The platform workspace is the only workspace allowed to deploy public
+# integrations. BRT_API_KEY must therefore belong to that workspace, while
+# BRT_WORKSPACE_ID is stored as a repository variable. A workflow input may
+# override the variable for an explicit operator-run smoke.
 name: publish-integrations-catalog
 
 on:
@@ -13,21 +12,28 @@ on:
       ref:
         description: "branch/sha to publish integration definitions from"
         required: false
-        default: fork-botpress-deps
+        default: main
       api_url:
         description: "cloudapi base URL"
         required: false
         default: https://botruntime.ru
       workspace_id:
-        description: "workspace id to log into (required — a fresh runner has no cached workspace to select)"
-        required: true
+        description: "optional platform workspace override"
+        required: false
 
 permissions:
   contents: read
+  packages: read
+
+concurrency:
+  group: publish-integrations-catalog
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      BRT_WORKSPACE_ID: ${{ inputs.workspace_id || vars.BRT_WORKSPACE_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,29 +43,52 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - name: Install brt dependencies
-        working-directory: packages/brt
-        run: bun install
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@holocronlab"
 
-      - name: Install integration dependencies
+      - name: Install the published brt CLI
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm install --global @holocronlab/brt@0.5.4
+
+      - name: Install all integration dependencies
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          (cd integrations/megaplan && bun install)
-          (cd integrations/yadisk && bun install)
+          shopt -s nullglob
+          definitions=(integrations/*/integration.definition.ts)
+          test "${#definitions[@]}" -gt 0
+          for definition in "${definitions[@]}"; do
+            integration_dir="$(dirname "$definition")"
+            echo "Installing $integration_dir"
+            (cd "$integration_dir" && bun install --frozen-lockfile --ignore-scripts)
+          done
 
-      - name: Authenticate brt (token via BRT_TOKEN env, never argv)
+      - name: Authenticate brt
         env:
           BRT_TOKEN: ${{ secrets.BRT_API_KEY }}
         run: |
           test -n "$BRT_TOKEN"
-          bun packages/brt/src/cli.ts login \
+          test -n "$BRT_WORKSPACE_ID"
+          brt login \
             --api-url "${{ inputs.api_url }}" \
-            --workspaceId "${{ inputs.workspace_id }}" -y
+            --workspaceId "$BRT_WORKSPACE_ID" -y
 
-      - name: Publish definitions
+      - name: Publish all integrations globally
+        shell: bash
         run: |
-          bun packages/brt/src/cli.ts integrations publish \
-            --workDir integrations/megaplan \
-            --config-schema-file integrations/megaplan/catalog.schema.json
-          bun packages/brt/src/cli.ts integrations publish \
-            --workDir integrations/yadisk \
-            --config-schema-file integrations/yadisk/catalog.schema.json
+          shopt -s nullglob
+          definitions=(integrations/*/integration.definition.ts)
+          test "${#definitions[@]}" -gt 0
+          for definition in "${definitions[@]}"; do
+            integration_dir="$(dirname "$definition")"
+            echo "Publishing $integration_dir as public"
+            brt deploy \
+              --workDir "$integration_dir" \
+              --visibility public \
+              -y
+          done
