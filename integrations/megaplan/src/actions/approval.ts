@@ -23,15 +23,27 @@ export const getNegotiationDecision: IntegrationProps['actions']['getNegotiation
     if (!decision.filePath) throw new Error('megaplan: approved actual version has no attached file')
     const file = await api.downloadFile(decision.filePath)
     const fileSha256 = await sha256(file.bytes)
-    const fileUrl = await publishApprovedFile(
+    const approvedFile = await publishApprovedFile(
       input.taskId,
       decision.versionId ?? decision.fileId ?? 'actual',
       decision.fileName ?? 'approved.bin',
       file.bytes,
       file.contentType,
     )
-    return { ...decision, fileUrl, fileSha256 }
+    return {
+      ...decision,
+      fileUrl: approvedFile.url,
+      approvedFileId: approvedFile.id,
+      approvedFileKey: approvedFile.key,
+      fileSha256,
+    }
   })
+
+type PublishedFile = {
+  id: string
+  key: string
+  url: string
+}
 
 async function publishApprovedFile(
   taskId: string,
@@ -39,7 +51,7 @@ async function publishApprovedFile(
   fileName: string,
   bytes: Uint8Array,
   contentType: string,
-): Promise<string> {
+): Promise<PublishedFile> {
   const base = process.env.BP_API_URL?.replace(/\/+$/, '')
   const token = process.env.BP_TOKEN
   const botId = process.env.BP_BOT_ID
@@ -47,18 +59,22 @@ async function publishApprovedFile(
   const key = `megaplan/approvals/${taskId}/${versionId}/${fileName.replace(/[^a-zA-Z0-9._-]+/g, '_')}`
   const headers = { authorization: `Bearer ${token}`, 'x-bot-id': botId, 'content-type': 'application/json' }
   const registered = await fetch(`${base}/v1/files`, {
-    method: 'PUT', headers, body: JSON.stringify({ key, size: bytes.byteLength, contentType }),
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ key, size: bytes.byteLength, contentType, accessPolicies: ['integrations'] }),
   })
   if (!registered.ok) throw new Error(`megaplan: register approved file -> ${registered.status}`)
-  const payload = (await registered.json()) as { file?: { uploadUrl?: string; url?: string } }
-  if (!payload.file?.uploadUrl || !payload.file.url) throw new Error('megaplan: file store returned no upload/download URL')
+  const payload = (await registered.json()) as { file?: { id?: string; key?: string; uploadUrl?: string; url?: string } }
+  if (!payload.file?.id || !payload.file.key || !payload.file.uploadUrl || !payload.file.url) {
+    throw new Error('megaplan: file store returned no stable file reference or upload/download URL')
+  }
   const uploaded = await fetch(payload.file.uploadUrl, {
     method: 'PUT',
-    headers: { authorization: `Bearer ${token}`, 'x-bot-id': botId, 'content-type': contentType },
+    headers: { 'content-type': contentType },
     body: bytes,
   })
   if (!uploaded.ok) throw new Error(`megaplan: upload approved file -> ${uploaded.status}`)
-  return payload.file.url
+  return { id: payload.file.id, key: payload.file.key, url: payload.file.url }
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -67,18 +83,27 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const response = await fetch(url, { headers: botruntimeAuthHeaders(url) })
+  if (!isTrustedBotruntimeUrl(url)) {
+    throw new Error('megaplan: approval material URL must use a trusted Botruntime file origin')
+  }
+  const response = await fetch(url, { headers: botruntimeAuthHeaders() })
   if (!response.ok) throw new Error(`megaplan: download approval material -> ${response.status}`)
   const bytes = new Uint8Array(await response.arrayBuffer())
   if (bytes.byteLength === 0) throw new Error('megaplan: approval material is empty')
   return { bytes, contentType: response.headers.get('content-type') ?? 'application/octet-stream' }
 }
 
-function botruntimeAuthHeaders(url: string): Record<string, string> {
+function botruntimeAuthHeaders(): Record<string, string> {
   const token = process.env.BP_TOKEN
-  if (!token) return {}
-  const bases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
-  return bases.some((base) => sameOrigin(url, base)) ? { authorization: `Bearer ${token}` } : {}
+  const botId = process.env.BP_BOT_ID
+  return {
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...(botId ? { 'x-bot-id': botId } : {}),
+  }
+}
+
+function isTrustedBotruntimeUrl(url: string): boolean {
+  return [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL].some((base) => sameOrigin(url, base))
 }
 
 function sameOrigin(url: string, base: string | undefined): boolean {
