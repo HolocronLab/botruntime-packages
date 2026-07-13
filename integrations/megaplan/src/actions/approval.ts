@@ -4,7 +4,8 @@ import { buildClient, run } from './shared'
 export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
   run(async () => {
     const api = buildClient(ctx, client)
-    const material = await downloadApprovalMaterial(input.materialUrl)
+    const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
+    const material = await downloadApprovalMaterial(storedMaterial.url)
     const actualSha256 = await sha256(material.bytes)
     if (actualSha256 !== input.materialSha256.toLowerCase()) {
       throw new Error(`megaplan: approval material SHA-256 mismatch`)
@@ -83,33 +84,21 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Array; contentType: string }> {
-  if (!isTrustedBotruntimeUrl(url)) {
-    throw new Error('megaplan: approval material URL must use a trusted Botruntime file origin')
+  if (!isSafeHttpUrl(url)) {
+    throw new Error('megaplan: Botruntime file did not resolve to a safe HTTP URL')
   }
-  const response = await fetch(url, { headers: botruntimeAuthHeaders() })
+  // The Files API resolves a stable file ID to a short-lived storage URL. It
+  // may be cross-origin, so never forward Botruntime credentials to it.
+  const response = await fetch(url)
   if (!response.ok) throw new Error(`megaplan: download approval material -> ${response.status}`)
   const bytes = new Uint8Array(await response.arrayBuffer())
   if (bytes.byteLength === 0) throw new Error('megaplan: approval material is empty')
   return { bytes, contentType: response.headers.get('content-type') ?? 'application/octet-stream' }
 }
 
-function botruntimeAuthHeaders(): Record<string, string> {
-  const token = process.env.BP_TOKEN
-  const botId = process.env.BP_BOT_ID
-  return {
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
-    ...(botId ? { 'x-bot-id': botId } : {}),
-  }
-}
-
-function isTrustedBotruntimeUrl(url: string): boolean {
-  return [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL].some((base) => sameOrigin(url, base))
-}
-
-function sameOrigin(url: string, base: string | undefined): boolean {
-  if (!base) return false
+function isSafeHttpUrl(url: string): boolean {
   try {
-    return new URL(url).origin === new URL(base).origin
+    return ['http:', 'https:'].includes(new URL(url).protocol)
   } catch {
     return false
   }

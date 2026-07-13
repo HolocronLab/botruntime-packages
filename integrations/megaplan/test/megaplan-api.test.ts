@@ -321,7 +321,6 @@ test('createNegotiationTask creates a native approval with an immutable material
       responsibleId: 'E1',
       approverIds: ['E2'],
       dealIds: ['D1'],
-      materialUrl: 'https://files.local/claim.docx',
       materialSha256: 'abc123',
       materialName: 'claim.docx',
       materialFile: { contentType: 'File', id: 'F1' },

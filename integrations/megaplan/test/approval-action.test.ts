@@ -17,9 +17,9 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
     const parsed = new URL(request.url)
-    if (parsed.origin === 'https://runtime.local') {
-      expect(request.headers.get('authorization')).toBe('Bearer bp-token')
-      expect(request.headers.get('x-bot-id')).toBe('bot-1')
+    if (parsed.href === 'https://storage.example/material') {
+      expect(request.headers.get('authorization')).toBeNull()
+      expect(request.headers.get('x-bot-id')).toBeNull()
       return new Response(bytes, { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } })
     }
     expect(request.headers.get('authorization')).toBe('Bearer megaplan-token')
@@ -42,6 +42,10 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   const client = {
     getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
     setState: async () => ({}),
+    getFile: async ({ id }: { id: string }) => {
+      expect(id).toBe('BF-source-1')
+      return { file: { id, url: 'https://storage.example/material' } }
+    },
   }
   try {
     const output = await createNegotiationTask({
@@ -51,7 +55,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
       },
       input: {
         name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
-        materialName: 'claim.docx', materialUrl: 'https://runtime.local/v1/files/download?id=1', materialSha256: sha256,
+        materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256,
       },
       client,
     } as any)
@@ -65,7 +69,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   }
 })
 
-test('create negotiation action rejects untrusted material origins before network access', async () => {
+test('create negotiation action rejects unsafe URLs returned for a Botruntime file before network access', async () => {
   const originalFetch = globalThis.fetch
   const originalApiUrl = process.env.BP_API_URL
   const originalPublicBase = process.env.CLOUDAPI_PUBLIC_BASE_URL
@@ -86,10 +90,10 @@ test('create negotiation action rejects untrusted material origins before networ
       },
       input: {
         name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
-        materialName: 'claim.docx', materialUrl: 'http://127.0.0.1/latest/meta-data', materialSha256: 'a'.repeat(64),
+        materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: 'a'.repeat(64),
       },
-      client: {},
-    } as any)).rejects.toThrow(/trusted Botruntime file origin/i)
+      client: { getFile: async () => ({ file: { id: 'BF-source-1', url: 'file:///etc/passwd' } }) },
+    } as any)).rejects.toThrow(/safe HTTP URL/i)
     expect(calls).toBe(0)
   } finally {
     globalThis.fetch = originalFetch

@@ -296,7 +296,6 @@ export class MegaplanApiClient {
     approverIds: string[]
     dealIds: string[]
     materialName: string
-    materialUrl: string
     materialSha256: string
     materialFile: FileRef
     statement?: string

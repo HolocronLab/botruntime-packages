@@ -6,7 +6,7 @@ const createNegotiationTaskInput = z.object({
   approverIds: z.array(z.string().min(1)).min(1).title('ID согласователей'),
   dealIds: z.array(z.string().min(1)).default([]).title('ID сделок'),
   materialName: z.string().min(1).title('Название материала'),
-  materialUrl: z.string().url().title('URL неизменяемого материала'),
+  materialFileId: z.string().min(1).title('ID неизменяемого файла Botruntime'),
   materialSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).title('SHA-256 материала'),
   statement: z.string().optional().title('Постановка задачи'),
 })
