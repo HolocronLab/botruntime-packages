@@ -1,24 +1,25 @@
 import { IntegrationDefinition } from '@holocronlab/botruntime-sdk'
-import { actions, states, configSchema } from './definitions'
+import { actions, events, states, configSchema } from './definitions'
 
 export default new IntegrationDefinition({
   name: 'megaplan',
-  version: '0.1.0',
+  version: '0.2.1',
 
   title: 'Megaplan',
   readme: 'hub.md',
   icon: 'icon.svg',
-  description: 'Megaplan CRM: контрагенты, сделки, воронка, комментарии, чек-листы и задачи.',
+  description: 'Megaplan CRM: сделки, задачи-согласования, процессные команды и аудит.',
+  network: {
+    providerHosts: ['*.megaplan.ru'],
+    ingressRelayed: true,
+    webhookAuthMode: 'shared_secret',
+  },
   configuration: {
     schema: configSchema,
   },
   actions,
+  events,
   states,
-  network: {
-    providerHosts: ['*.megaplan.ru'],
-    ingressRelayed: false,
-    webhookAuthMode: 'shared_secret',
-  },
   __advanced: {
     useLegacyZuiTransformer: true,
   },

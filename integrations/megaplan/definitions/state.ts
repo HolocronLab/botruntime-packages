@@ -12,6 +12,24 @@ const megaplanAuth: StateDefinition = {
   schema: megaplanAuthSchema,
 }
 
-export const states = { megaplanAuth }
+const approvalOperationSchema = z.object({
+  claimId: z.string().min(1),
+  operationMarker: z.string().min(1),
+  status: z.enum(['claimed', 'completed']),
+  taskId: z.string().optional(),
+  itemId: z.string().optional(),
+  versionId: z.string().optional(),
+})
 
-export type StatePayload = z.infer<typeof megaplanAuthSchema>
+// One state identity per integration installation. getOrSetState is the atomic
+// claim; operationMarker stays in the payload so unrelated approval requests
+// cannot bypass the same installation-wide creation lock.
+const approvalOperation: StateDefinition = {
+  type: 'integration',
+  schema: approvalOperationSchema,
+}
+
+export const states = { megaplanAuth, approvalOperation }
+
+export type MegaplanAuthStatePayload = z.infer<typeof megaplanAuthSchema>
+export type ApprovalOperationStatePayload = z.infer<typeof approvalOperationSchema>

@@ -1,6 +1,6 @@
 {
   "name": "@botruntime/telegram",
-  "version": "1.0.9",
+  "version": "1.1.4",
   "private": true,
   "type": "module",
   "description": "Telegram integration (ported from @botpresshub/telegram) for the botruntime runtime-host. Repointed to our cloudapi via BP_API_URL; adds request_contact + setMyCommands.",

@@ -3,6 +3,7 @@ import { createDeal, getDeal, updateDealFields, moveDealStage, listPrograms, pro
 import { addComment } from './comment'
 import { createTodo, listTodos, finishTodo } from './todo'
 import { createTask, taskDoAction } from './task'
+import { createNegotiationTask, getNegotiationDecision } from './approval'
 import type { IntegrationProps } from '../bp'
 
 export default {
@@ -20,4 +21,6 @@ export default {
   finishTodo,
   createTask,
   taskDoAction,
+  createNegotiationTask,
+  getNegotiationDecision,
 } satisfies IntegrationProps['actions']

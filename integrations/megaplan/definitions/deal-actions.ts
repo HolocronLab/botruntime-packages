@@ -2,11 +2,11 @@ import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 import { dealSchema, moneySchema, programStateSchema, refSchema } from './common'
 
 const createDealInput = z.object({
-  programId: z.string().min(1).title('ID программы').describe('Воронка фирмы (обязательно)'),
+  programId: z.string().min(1).title('ID программы').describe('Воронка сделки (обязательно)'),
   contractorId: z.string().optional().title('ID контрагента'),
   managerId: z.string().optional().title('ID ответственного'),
   name: z.string().optional().title('Название'),
-  description: z.string().optional().title('Описание').describe('Напр. "Неустойка ДДУ, просрочка 120 дней"'),
+  description: z.string().optional().title('Описание'),
   stateId: z.string().optional().title('ID начального статуса'),
   price: moneySchema.optional().title('Сумма'),
 })
@@ -44,7 +44,7 @@ const programStatesOutput = z.object({
 
 export const createDeal: ActionDefinition = {
   title: 'Создать сделку',
-  description: 'Создаёт сделку (карточку дела). Обязательна только программа.',
+  description: 'Создаёт сделку. Обязательна только программа.',
   input: { schema: createDealInput },
   output: { schema: dealOutput },
 }

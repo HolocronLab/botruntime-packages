@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { axios as runtimeAxios } from '@holocronlab/botruntime-client'
 import * as mod from '../src/index'
 
 // The host loads the bundle and calls module.exports.handler with the dispatch.ts envelope. These
@@ -28,6 +29,7 @@ describe('loader contract', () => {
   it('exports a handler function and a default with .handler (extractHandler probes both)', () => {
     expect(typeof mod.handler).toBe('function')
     expect(typeof (mod.default as { handler?: unknown }).handler).toBe('function')
+    expect((mod.default as { handler?: unknown }).handler).toBe(mod.handler)
   })
 })
 
@@ -52,13 +54,31 @@ describe('host<->SDK envelope adapter', () => {
 
   it('re-nests the flat provider request so a real text reaches the env-configured @holocronlab/botruntime-client', async () => {
     const prev = process.env.BP_TOKEN
-    // No token -> the bundled @holocronlab/botruntime-client (self-configured from env, defaulting
-    // to OUR cloudapi at https://botruntime.ru) rejects with a real 401 from that server. Reaching
-    // THAT rejection proves the adapter bridged the envelope all the way into the real SDK ->
-    // webhook handler -> client call (not a parse/header 500 short-circuit). The call site wraps the
-    // client's raw ApiError as a RuntimeError (src/index.ts) so the SDK's handlerErrorToHttpResponse
-    // (6.13.0+) preserves the 4xx instead of reporting an unexpected 500.
+    const prevApiUrl = process.env.BP_API_URL
+    const axios = runtimeAxios.default
+    const originalAdapter = axios.defaults.adapter
+    const requests: Array<{ url: string; authorization: string | null }> = []
+    axios.defaults.adapter = async (config) => {
+      const url = new URL(config.url ?? '', config.baseURL)
+      requests.push({
+        url: url.toString(),
+        authorization: runtimeAxios.AxiosHeaders.from(config.headers).get('authorization')?.toString() ?? null,
+      })
+      const response = {
+        config,
+        data: { error: 'missing or invalid Authorization bearer' },
+        headers: {},
+        request: {},
+        status: 401,
+        statusText: 'Unauthorized',
+      }
+      throw new runtimeAxios.AxiosError('Request failed with status code 401', 'ERR_BAD_REQUEST', config, {}, response)
+    }
+    // A deterministic 401 proves the adapter bridged the envelope all the way into the real SDK ->
+    // webhook handler -> env-configured client call, without production network or local sockets.
+    // The handler wraps the client ApiError so the SDK preserves the honest 4xx.
     delete process.env.BP_TOKEN
+    process.env.BP_API_URL = 'https://botruntime.test'
     try {
       const res = await call(
         'webhook_received',
@@ -68,9 +88,15 @@ describe('host<->SDK envelope adapter', () => {
       )
       expect(res && res.status).toBe(400)
       expect(res && res.body).toMatch(/authenticat|authoriz/i)
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.url).toStartWith('https://botruntime.test/')
+      expect(requests[0]?.authorization).toBeNull()
     } finally {
+      axios.defaults.adapter = originalAdapter
       if (prev === undefined) delete process.env.BP_TOKEN
       else process.env.BP_TOKEN = prev
+      if (prevApiUrl === undefined) delete process.env.BP_API_URL
+      else process.env.BP_API_URL = prevApiUrl
     }
   })
 })

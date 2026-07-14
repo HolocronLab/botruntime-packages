@@ -14,7 +14,7 @@ const expectedPolicies = [
   {
     integration: "megaplan",
     hosts: ["*.megaplan.ru"],
-    ingressRelayed: false,
+    ingressRelayed: true,
     webhookAuthMode: "shared_secret",
     sdkSpec: "6.13.3",
     brtSpec: "0.5.5",

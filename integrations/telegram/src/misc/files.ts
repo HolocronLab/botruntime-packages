@@ -27,6 +27,103 @@ function cloudApi(): CloudApi {
   }
 }
 
+export type TelegramDocument = string | { source: Buffer; filename: string }
+
+const MAX_TELEGRAM_DOCUMENT_BYTES = 20 << 20
+
+// Telegram's servers cannot fetch our protected file-store URLs because they do not have the
+// runtime bearer token. Fetch only the canonical file-download route owned by this Botruntime
+// deployment, then hand the bytes to Telegram. Every other URL remains a URL, so credentials can
+// never reach another origin or an unrelated Botruntime API route.
+export async function resolveTelegramDocument(fileUrl: string, title?: string): Promise<TelegramDocument> {
+  const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
+  const trusted = trustedBases.some((base) => isBotruntimeFileDownload(fileUrl, base))
+  if (!trusted) return fileUrl
+
+  const headers: Record<string, string> = {}
+  const token = process.env.BP_TOKEN
+  const botId = process.env.BP_BOT_ID
+  if (!token || !botId) {
+    throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
+  }
+  headers.authorization = `Bearer ${token}`
+  headers['x-bot-id'] = botId
+
+  const response = await fetch(fileUrl, { headers })
+  if (!response.ok) {
+    throw new Error(`telegram: protected file download -> ${response.status}`)
+  }
+  const source = await readDocumentCapped(response)
+  if (source.byteLength === 0) {
+    throw new Error('telegram: protected file download returned an empty document')
+  }
+  return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
+}
+
+function isBotruntimeFileDownload(url: string, base: string | undefined): boolean {
+  if (!sameOrigin(url, base)) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.pathname === '/v1/files/download' && Boolean(parsed.searchParams.get('key')?.trim())
+  } catch {
+    return false
+  }
+}
+
+async function readDocumentCapped(response: Response): Promise<Buffer> {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_TELEGRAM_DOCUMENT_BYTES) throw documentTooLarge()
+  if (!response.body) return Buffer.alloc(0)
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > MAX_TELEGRAM_DOCUMENT_BYTES) throw documentTooLarge()
+      chunks.push(value)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+  const output = Buffer.allocUnsafe(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    output.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return output
+}
+
+function documentTooLarge(): Error {
+  return new Error('telegram: document exceeds the 20 MiB limit')
+}
+
+function sameOrigin(url: string, base: string | undefined): boolean {
+  if (!base) return false
+  try {
+    return new URL(url).origin === new URL(base).origin
+  } catch {
+    return false
+  }
+}
+
+function filenameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const fileKey = parsed.searchParams.get('key')
+    const keyedName = fileKey?.split('/').filter(Boolean).at(-1)
+    if (keyedName) return keyedName
+    const pathName = parsed.pathname.split('/').filter(Boolean).at(-1)
+    return pathName ? decodeURIComponent(pathName) : 'document'
+  } catch {
+    return 'document'
+  }
+}
+
 // Download the bytes behind a (token-bearing, server-side-only) Telegram file URL, push them into
 // cloudapi, and return the token-free download URL the bot/platform will see.
 export async function ingestTelegramFileLink(fileLink: string, key: string, contentType: string): Promise<string> {

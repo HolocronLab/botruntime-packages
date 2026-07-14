@@ -5,7 +5,7 @@
 import type * as sdk from '@holocronlab/botruntime-sdk'
 import type { z } from '@holocronlab/botruntime-sdk'
 import type { configSchema } from '../definitions/common'
-import type { StatePayload } from '../definitions/state'
+import type { ApprovalOperationStatePayload, MegaplanAuthStatePayload } from '../definitions/state'
 import type {
   SearchContractorsInput,
   SearchContractorsOutput,
@@ -26,6 +26,13 @@ import type {
 import type { AddCommentInput, AddCommentOutput } from '../definitions/comment-actions'
 import type { CreateTodoInput, ListTodosInput, ListTodosOutput, FinishTodoInput, TodoOutput } from '../definitions/todo-actions'
 import type { CreateTaskInput, TaskDoActionInput, TaskOutput } from '../definitions/task-actions'
+import type {
+  CreateNegotiationTaskInput,
+  CreateNegotiationTaskOutput,
+  GetNegotiationDecisionInput,
+  GetNegotiationDecisionOutput,
+} from '../definitions/approval-actions'
+import type { EntityCommand } from '../definitions/events'
 
 export type Configuration = z.infer<typeof configSchema>
 
@@ -44,17 +51,22 @@ type Actions = {
   finishTodo: { input: FinishTodoInput; output: TodoOutput }
   createTask: { input: CreateTaskInput; output: TaskOutput }
   taskDoAction: { input: TaskDoActionInput; output: TaskOutput }
+  createNegotiationTask: { input: CreateNegotiationTaskInput; output: CreateNegotiationTaskOutput }
+  getNegotiationDecision: { input: GetNegotiationDecisionInput; output: GetNegotiationDecisionOutput }
 }
 
 export type TMegaplan = {
   name: 'megaplan'
-  version: '0.1.0'
+  version: '0.2.1'
   configuration: Configuration
   configurations: Record<string, never>
   actions: Actions
   channels: Record<string, never>
-  events: Record<string, never>
-  states: { megaplanAuth: { type: 'integration'; payload: StatePayload } }
+  events: { entityCommand: EntityCommand }
+  states: {
+    megaplanAuth: { type: 'integration'; payload: MegaplanAuthStatePayload }
+    approvalOperation: { type: 'integration'; payload: ApprovalOperationStatePayload }
+  }
   user: { tags: Record<string, string> }
   entities: Record<string, never>
 }

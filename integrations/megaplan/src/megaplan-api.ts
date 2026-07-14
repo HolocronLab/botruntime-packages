@@ -18,12 +18,14 @@ import {
   type CommentOwnerName,
   type Deal,
   DateTime,
+  type FileRef,
   Money,
   type Program,
   type ProgramState,
   type Ref,
   selectTransition,
   type Task,
+  type NegotiationItem,
   type TaskActionName,
   type Todo,
   encodeBody,
@@ -35,6 +37,7 @@ const MAX_ATTEMPTS = 3
 // maxBodyBytes — read cap: the API returns megabyte-size trace blobs in errors, an
 // unbounded read is pointless.
 const MAX_BODY_BYTES = 10 << 20
+export const MAX_APPROVAL_FILE_BYTES = 20 << 20
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>
 
@@ -288,6 +291,220 @@ export class MegaplanApiClient {
     return this.do<Task>('POST', '/api/v3/task', undefined, body)
   }
 
+  async createNegotiationTask(t: {
+    name: string
+    responsibleId: string
+    approverIds: string[]
+    dealIds: string[]
+    materialName: string
+    materialSha256: string
+    materialFile: FileRef
+    statement?: string
+  }): Promise<Task> {
+    if (t.approverIds.length === 0) {
+      throw new Error('megaplan: createNegotiationTask requires at least one approver')
+    }
+    const materialText = [
+      `<b>${escapeHtml(t.materialName)}</b>`,
+      `<code>sha256:${escapeHtml(t.materialSha256)}</code>`,
+    ].join('<br>')
+    const body = prune({
+      contentType: ContentType.Task,
+      isTemplate: false,
+      isUrgent: false,
+      isNegotiation: true,
+      name: t.name,
+      statement: t.statement,
+      responsible: { contentType: ContentType.Employee, id: t.responsibleId } satisfies Ref,
+      deals: t.dealIds.map((id) => ({ contentType: ContentType.Deal, id }) satisfies Ref),
+      negotiationExecutors: t.approverIds.map(
+        (id) => ({ contentType: ContentType.Employee, id }) satisfies Ref
+      ),
+      negotiationItems: [
+        {
+          contentType: ContentType.NegotiationItem,
+          actualVersion: {
+            contentType: ContentType.NegotiationItemVersion,
+            text: materialText,
+            attache: { contentType: ContentType.File, id: t.materialFile.id },
+          },
+        },
+      ],
+    })
+    return this.do<Task>('POST', '/api/v3/task', undefined, body)
+  }
+
+  async findNegotiationTask(operationMarker: string): Promise<Task | undefined> {
+    const tasks = await this.do<Task[]>('GET', '/api/v3/task', { q: operationMarker, limit: 10 }, undefined)
+    return tasks.find((task) => task.isNegotiation === true && task.name?.includes(`[${operationMarker}]`))
+  }
+
+  // Megaplan's file API is intentionally outside /api/v3. A file must be
+  // uploaded first and then referenced by {contentType:"File",id} from the
+  // entity/version being created. FormData owns the multipart boundary.
+  async uploadFile(name: string, bytes: Uint8Array, contentType: string): Promise<FileRef> {
+    if (!name.trim()) throw new Error('megaplan: uploadFile requires a file name')
+    if (bytes.byteLength === 0) throw new Error('megaplan: uploadFile requires non-empty bytes')
+
+    let reauthed = false
+    for (let attempt = 1; ; ) {
+      let token: string
+      try {
+        token = await this.accessToken()
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0
+        if (transientStatus(status) && attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw err
+      }
+
+      const form = new FormData()
+      form.append('files[]', new Blob([new Uint8Array(bytes)], { type: contentType }), name)
+      let response: Response
+      try {
+        response = await this.fetchImpl(this.baseUrl + '/api/file', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+          body: form,
+        })
+      } catch (err) {
+        throw new ApiError(0, [{ message: `POST /api/file: ${(err as Error)?.message ?? String(err)}` }])
+      }
+
+      const text = await readCapped(response, MAX_BODY_BYTES)
+      if (response.status === 401 && !reauthed) {
+        reauthed = true
+        await this.clearToken(token)
+        continue
+      }
+      if (response.status === 429 && attempt < MAX_ATTEMPTS) {
+        attempt++
+        await this.backoff(attempt)
+        continue
+      }
+      if (!response.ok) throw parseApiError(response.status, text)
+      return parseUploadedFile(text)
+    }
+  }
+
+  async getNegotiationDecision(taskId: string): Promise<{
+    status: 'pending' | 'approved' | 'rejected'
+    itemId?: string
+    versionId?: string
+    fileId?: string
+    filePath?: string
+    fileName?: string
+    actorId?: string
+    actorName?: string
+    approverVisas: Array<{
+      id?: string
+      status?: 'ok' | 'bad' | 'not_rated'
+      actorId?: string
+      actorName?: string
+      comment?: string
+      timeCreated?: string
+    }>
+  }> {
+    const items = await this.do<NegotiationItem[]>(
+      'GET',
+      `/api/v3/task/${esc(taskId)}/negotiationItems`,
+      undefined,
+      undefined
+    )
+    if (items.length === 0) {
+      throw new Error(`megaplan: negotiation task ${taskId} has no materials`)
+    }
+    const rejected = items.find((item) => item.actualVersion?.status === 'bad')
+    const approved = rejected === undefined && items.every((item) => item.actualVersion?.status === 'ok')
+    const selected = rejected ?? items[0]!
+    const version = selected.actualVersion
+    const approverVisas = (version?.visas ?? []).map((visa) => ({
+      id: visa.id,
+      status: visa.status,
+      actorId: visa.userCreated?.id,
+      actorName: visa.userCreated?.name,
+      comment: visa.comment?.content,
+      timeCreated: visa.timeCreated,
+    }))
+    const representativeVisa = [...approverVisas].reverse().find((visa) =>
+      rejected ? visa.status === 'bad' : visa.status === 'ok'
+    )
+    return {
+      status: rejected ? 'rejected' : approved ? 'approved' : 'pending',
+      itemId: selected.id,
+      versionId: version?.id,
+      fileId: version?.attache?.id,
+      filePath: version?.attache?.path,
+      fileName: version?.attache?.name ?? version?.attache?.fileName,
+      actorId: representativeVisa?.actorId,
+      actorName: representativeVisa?.actorName,
+      approverVisas,
+    }
+  }
+
+  async downloadFile(path: string): Promise<{ bytes: Uint8Array; contentType: string }> {
+    if (!path.startsWith('/')) throw new Error('megaplan: file path must be relative to the account root')
+    let reauthed = false
+    for (let attempt = 1; ;) {
+      let token: string
+      try {
+        token = await this.accessToken()
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0
+        if (canRetry('GET', status) && attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw err
+      }
+
+      let response: Response
+      try {
+        response = await this.fetchImpl(this.baseUrl + path, { headers: { authorization: `Bearer ${token}` } })
+      } catch (err) {
+        if (attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw new ApiError(0, [{ message: `GET file: ${(err as Error)?.message ?? String(err)}` }])
+      }
+      if (response.status === 401 && !reauthed) {
+        reauthed = true
+        await this.clearToken(token)
+        continue
+      }
+      if (!response.ok) {
+        if (canRetry('GET', response.status) && attempt < MAX_ATTEMPTS) {
+          if (response.body) await response.body.cancel().catch(() => undefined)
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw new ApiError(response.status, [{ message: `GET file -> ${response.status}` }])
+      }
+      try {
+        return {
+          bytes: await readBytesCapped(response, MAX_APPROVAL_FILE_BYTES),
+          contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+        }
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0
+        if (canRetry('GET', status) && attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        if (err instanceof ApiError) throw err
+        throw new ApiError(0, [{ message: `GET file body: ${(err as Error)?.message ?? String(err)}` }])
+      }
+    }
+  }
+
   // taskDoAction — task status transition (assigned -> accepted -> completed). A
   // direct status write is ignored; only doAction applies. checkTodos verifies open
   // todos before completing.
@@ -480,6 +697,28 @@ function esc(id: string): string {
   return encodeURIComponent(id)
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!)
+}
+
+function parseUploadedFile(text: string): FileRef {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (err) {
+    throw new ApiError(200, [{ message: `POST /api/file: response parse: ${(err as Error)?.message}` }])
+  }
+  const wrapped = parsed as { data?: unknown }
+  const data = wrapped?.data ?? parsed
+  const candidate = Array.isArray(data) ? data[0] : data
+  if (typeof candidate === 'string' || typeof candidate === 'number') {
+    return { contentType: ContentType.File, id: String(candidate) }
+  }
+  const file = candidate as Partial<FileRef> | undefined
+  if (!file?.id) throw new ApiError(200, [{ message: 'POST /api/file: response contains no file id' }])
+  return { ...file, contentType: ContentType.File, id: String(file.id) }
+}
+
 // readCapped reads at most max bytes of the response and decodes them, stopping the
 // stream once the cap is hit (the Go donor's io.LimitReader: error bodies carry
 // MB-size trace blobs and an unbounded read is pointless). A null body (e.g. 204)
@@ -515,6 +754,40 @@ async function readCapped(res: Response, max: number): Promise<string> {
     offset += take.byteLength
   }
   return new TextDecoder().decode(out)
+}
+
+export async function readBytesCapped(res: Response, max: number): Promise<Uint8Array> {
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > max) throw fileTooLarge(max)
+  if (res.body === null) return new Uint8Array()
+
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > max) throw fileTooLarge(max)
+      chunks.push(value)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+function fileTooLarge(max: number): ApiError {
+  const mib = max / (1 << 20)
+  return new ApiError(413, [{ message: `approval file exceeds the ${mib} MiB limit` }])
 }
 
 // parseApiError unwraps {"meta":{"errors":[{field,message,...}]}} and keeps ONLY
