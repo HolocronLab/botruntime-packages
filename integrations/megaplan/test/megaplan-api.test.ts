@@ -383,7 +383,7 @@ test('getNegotiationDecision reads the aggregate status and human visa from the 
     return json(
       200,
       wrap(
-        '[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}}]}}]'
+        '[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}}]'
       )
     )
   })
@@ -397,8 +397,10 @@ test('getNegotiationDecision reads the aggregate status and human visa from the 
       fileId: 'F2',
       filePath: '/attach/claim-v2.docx',
       fileName: 'claim-v2.docx',
-      actorId: 'E2',
-      actorName: 'Анна',
+      approverVisas: [
+        { id: 'Z1', status: 'ok', actorId: 'E2', actorName: 'Анна' },
+        { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Борис' },
+      ],
     })
   })
 })

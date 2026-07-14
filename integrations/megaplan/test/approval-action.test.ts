@@ -145,7 +145,10 @@ test('approved document is copied without leaking credentials and returns a stab
           id: 'N1',
           actualVersion: {
             id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/approved', name: 'approved.docx' },
-            visas: [{ status: 'ok', userCreated: { id: 'E2', name: 'Юрист' } }],
+            visas: [
+              { id: 'Z1', status: 'ok', userCreated: { id: 'E2', name: 'Юрист 1' } },
+              { id: 'Z2', status: 'ok', userCreated: { id: 'E3', name: 'Юрист 2' } },
+            ],
           },
         }],
       })
@@ -189,7 +192,10 @@ test('approved document is copied without leaking credentials and returns a stab
       fileUrl: 'https://storage.example/temporary-download',
       approvedFileId: 'BF1',
       approvedFileKey: 'megaplan/approvals/T1/V2/approved.docx',
-      actorId: 'E2',
+      approverVisas: [
+        { id: 'Z1', status: 'ok', actorId: 'E2', actorName: 'Юрист 1' },
+        { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Юрист 2' },
+      ],
     })
     expect(output.fileSha256).toMatch(/^[a-f0-9]{64}$/)
   } finally {

@@ -29,8 +29,12 @@ const getNegotiationDecisionOutput = z.object({
   approvedFileId: z.string().optional().describe('Стабильный ID серверной копии в Botruntime Files'),
   approvedFileKey: z.string().optional().describe('Стабильный ключ серверной копии в Botruntime Files'),
   fileSha256: z.string().optional(),
-  actorId: z.string().optional(),
-  actorName: z.string().optional(),
+  approverVisas: z.array(z.object({
+    id: z.string().optional(),
+    status: z.enum(['ok', 'bad', 'not_rated']).optional(),
+    actorId: z.string().optional(),
+    actorName: z.string().optional(),
+  })).describe('Полный список виз фактической версии'),
 })
 
 export const createNegotiationTask: ActionDefinition = {
