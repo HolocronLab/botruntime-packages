@@ -82,4 +82,15 @@ test('the anonymous-consumer release train publishes every public package', () =
     assert.ok(directory, `${manifest.name} must declare its repository directory`)
     assert.match(workflow, new RegExp(`(?:^|\\s)${directory}(?:\\s|$)`), `${manifest.name} is missing from release order`)
   }
+
+  const packageLoops = [...workflow.matchAll(/for package in \$PACKAGE_ORDER; do/g)]
+  assert.equal(packageLoops.length, 2, 'release train must separate verification from manifest rewriting')
+
+  const verifyPhase = workflow.slice(packageLoops[0].index, packageLoops[1].index)
+  const publishPhase = workflow.slice(packageLoops[1].index)
+  assert.match(verifyPhase, /run_script_if_present "\$package_dir" build/)
+  assert.match(verifyPhase, /run_script_if_present "\$package_dir" test/)
+  assert.doesNotMatch(verifyPhase, /prepare-package-publish/)
+  assert.match(publishPhase, /prepare-package-publish/)
+  assert.match(publishPhase, /npm publish --access public/)
 })
