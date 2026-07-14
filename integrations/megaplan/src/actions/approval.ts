@@ -1,9 +1,10 @@
-import type { IntegrationProps } from '../bp'
+import type { Client, IntegrationProps } from '../bp'
+import type { ApprovalOperationStatePayload } from '../../definitions/state'
 import { MAX_APPROVAL_FILE_BYTES, readBytesCapped } from '../megaplan-api'
 import { buildClient, run } from './shared'
 
 const APPROVAL_CLAIM_EXPIRY_MS = 15 * 60 * 1000
-const APPROVAL_RESULT_EXPIRY_MS = 24 * 60 * 60 * 1000
+const APPROVAL_RELEASE_EXPIRY_MS = 1
 
 export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
   run(async () => {
@@ -16,15 +17,19 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
     const claimId = crypto.randomUUID()
     const claimRef = {
       type: 'integration' as const,
-      id: `${ctx.integrationId}:${operationMarker}`,
+      id: ctx.integrationId,
       name: 'approvalOperation' as const,
     }
     const { state: operation } = await client.getOrSetState({
       ...claimRef,
-      payload: { claimId, status: 'claimed' },
+      payload: { claimId, operationMarker, status: 'claimed' },
       expiry: APPROVAL_CLAIM_EXPIRY_MS,
     })
-    if (operation.payload.status === 'completed' && operation.payload.taskId) {
+    if (
+      operation.payload.operationMarker === operationMarker &&
+      operation.payload.status === 'completed' &&
+      operation.payload.taskId
+    ) {
       return {
         taskId: operation.payload.taskId,
         itemId: operation.payload.itemId,
@@ -36,24 +41,40 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
       if (recovered) return { taskId: recovered.id, itemId: undefined, versionId: undefined }
       throw new Error(`megaplan: approval operation ${operationMarker} is already in progress; retry later`)
     }
-    let materialUrl: string
-    if (input.materialFileId) {
-      const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
-      materialUrl = storedMaterial.url
-    } else if (input.materialUrl && isBotruntimeFileDownloadUrl(input.materialUrl)) {
-      // Compatibility with the canonical lawyer bot that persisted the Files
-      // download URL before stable file IDs were introduced. Restrict this
-      // legacy input to our own origins so it cannot become an SSRF primitive.
-      materialUrl = input.materialUrl
-    } else {
-      throw new Error('megaplan: approval material requires a stable file ID or Botruntime URL')
+    let materialFile: Awaited<ReturnType<typeof api.uploadFile>>
+    try {
+      let materialUrl: string
+      if (input.materialFileId) {
+        const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
+        materialUrl = storedMaterial.url
+      } else if (input.materialUrl && isBotruntimeFileDownloadUrl(input.materialUrl)) {
+        // Compatibility with the canonical lawyer bot that persisted the Files
+        // download URL before stable file IDs were introduced. Restrict this
+        // legacy input to our own origins so it cannot become an SSRF primitive.
+        materialUrl = input.materialUrl
+      } else {
+        throw new Error('megaplan: approval material requires a stable file ID or Botruntime URL')
+      }
+      const material = await downloadApprovalMaterial(materialUrl)
+      const actualSha256 = await sha256(material.bytes)
+      if (actualSha256 !== input.materialSha256.toLowerCase()) {
+        throw new Error(`megaplan: approval material SHA-256 mismatch`)
+      }
+      materialFile = await api.uploadFile(input.materialName, material.bytes, material.contentType)
+    } catch (error) {
+      // Everything before createNegotiationTask is safe to retry. Expire the
+      // installation lock immediately; a failed release still self-heals at the
+      // original claim TTL and must not hide the actionable source error.
+      await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {
+        claimId,
+        operationMarker,
+        status: 'claimed',
+      })
+      throw error
     }
-    const material = await downloadApprovalMaterial(materialUrl)
-    const actualSha256 = await sha256(material.bytes)
-    if (actualSha256 !== input.materialSha256.toLowerCase()) {
-      throw new Error(`megaplan: approval material SHA-256 mismatch`)
-    }
-    const materialFile = await api.uploadFile(input.materialName, material.bytes, material.contentType)
+    // Do not release the claim if this POST fails: the response is ambiguous and
+    // Megaplan may already have created the task. After the lease expires, the
+    // deterministic marker lookup recovers that task before any new POST.
     const task = await api.createNegotiationTask({
       ...input,
       name: `${input.name} [${operationMarker}]`,
@@ -62,13 +83,39 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
     })
     const item = task.negotiationItems?.[0]
     const output = { taskId: task.id, itemId: item?.id, versionId: item?.actualVersion?.id }
-    await client.setState({
-      ...claimRef,
-      payload: { claimId, status: 'completed', ...output },
-      expiry: APPROVAL_RESULT_EXPIRY_MS,
+    await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {
+      claimId,
+      operationMarker,
+      status: 'completed',
+      ...output,
     })
     return output
   })
+
+type ApprovalClaimRef = {
+  type: 'integration'
+  id: string
+  name: 'approvalOperation'
+}
+
+async function releaseApprovalClaim(
+  client: Client,
+  claimRef: ApprovalClaimRef,
+  claimId: string,
+  operationMarker: string,
+  payload: ApprovalOperationStatePayload,
+): Promise<void> {
+  try {
+    // GET renews an active idle lease. That closes the expiry race before the
+    // owner check and prevents an old worker from overwriting a successor claim.
+    const { state } = await client.getState(claimRef)
+    if (state.payload.claimId !== claimId || state.payload.operationMarker !== operationMarker) return
+    await client.setState({ ...claimRef, payload, expiry: APPROVAL_RELEASE_EXPIRY_MS })
+  } catch {
+    // Release is best-effort. A missing/expired state is already released; a
+    // transient read/write failure still self-heals at the original lease TTL.
+  }
+}
 
 export const getNegotiationDecision: IntegrationProps['actions']['getNegotiationDecision'] = async ({ ctx, input, client }) =>
   run(async () => {

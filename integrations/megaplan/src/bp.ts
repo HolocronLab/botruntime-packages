@@ -57,7 +57,7 @@ type Actions = {
 
 export type TMegaplan = {
   name: 'megaplan'
-  version: '0.2.0'
+  version: '0.2.1'
   configuration: Configuration
   configurations: Record<string, never>
   actions: Actions

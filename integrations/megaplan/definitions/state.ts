@@ -14,14 +14,16 @@ const megaplanAuth: StateDefinition = {
 
 const approvalOperationSchema = z.object({
   claimId: z.string().min(1),
+  operationMarker: z.string().min(1),
   status: z.enum(['claimed', 'completed']),
   taskId: z.string().optional(),
   itemId: z.string().optional(),
   versionId: z.string().optional(),
 })
 
-// One state identity per deterministic approval marker. getOrSetState is the
-// atomic claim; the short expiry recovers a worker that dies before task creation.
+// One state identity per integration installation. getOrSetState is the atomic
+// claim; operationMarker stays in the payload so unrelated approval requests
+// cannot bypass the same installation-wide creation lock.
 const approvalOperation: StateDefinition = {
   type: 'integration',
   schema: approvalOperationSchema,
