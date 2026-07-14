@@ -17,9 +17,9 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
     const parsed = new URL(request.url)
-    if (parsed.href === 'https://storage.example/material') {
-      expect(request.headers.get('authorization')).toBeNull()
-      expect(request.headers.get('x-bot-id')).toBeNull()
+    if (parsed.href === 'https://runtime.local/v1/files/download?key=claim-v1') {
+      expect(request.headers.get('authorization')).toBe('Bearer bp-token')
+      expect(request.headers.get('x-bot-id')).toBe('bot-1')
       return new Response(bytes, { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } })
     }
     expect(request.headers.get('authorization')).toBe('Bearer megaplan-token')
@@ -44,7 +44,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     setState: async () => ({}),
     getFile: async ({ id }: { id: string }) => {
       expect(id).toBe('BF-source-1')
-      return { file: { id, url: 'https://storage.example/material' } }
+      return { file: { id, url: 'https://runtime.local/v1/files/download?key=claim-v1' } }
     },
   }
   try {
@@ -61,6 +61,62 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     } as any)
     expect(output).toEqual({ taskId: 'T1', itemId: 'N1', versionId: 'V1' })
     expect(attachedFileId).toBe('F1')
+  } finally {
+    globalThis.fetch = originalFetch
+    process.env.BP_API_URL = originalApiUrl
+    process.env.BP_TOKEN = originalToken
+    process.env.BP_BOT_ID = originalBotId
+  }
+})
+
+test('create negotiation action accepts the canonical legacy materialUrl on a Botruntime origin', async () => {
+  const originalFetch = globalThis.fetch
+  const originalApiUrl = process.env.BP_API_URL
+  const originalToken = process.env.BP_TOKEN
+  const originalBotId = process.env.BP_BOT_ID
+  const bytes = new TextEncoder().encode('legacy-claim')
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+
+  process.env.BP_API_URL = 'https://runtime.local'
+  process.env.BP_TOKEN = 'bp-token'
+  process.env.BP_BOT_ID = 'bot-1'
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.pathname === '/v1/files/download') {
+      expect(request.headers.get('authorization')).toBe('Bearer bp-token')
+      expect(request.headers.get('x-bot-id')).toBe('bot-1')
+      return new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } })
+    }
+    if (parsed.pathname === '/api/file') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [{ contentType: 'File', id: 'F1' }] })
+    }
+    if (parsed.pathname === '/api/v3/task') {
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: { contentType: 'Task', id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V1' } }] },
+      })
+    }
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+
+  try {
+    const output = await createNegotiationTask({
+      ctx: {
+        integrationId: 'integration-1',
+        configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' },
+      },
+      input: {
+        name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
+        materialName: 'claim.docx', materialUrl: 'https://runtime.local/v1/files/download?key=claim-v1', materialSha256: sha256,
+      },
+      client: {
+        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        setState: async () => ({}),
+      },
+    } as any)
+    expect(output).toEqual({ taskId: 'T1', itemId: 'N1', versionId: 'V1' })
   } finally {
     globalThis.fetch = originalFetch
     process.env.BP_API_URL = originalApiUrl
@@ -161,7 +217,7 @@ test('approved document is copied without leaking credentials and returns a stab
       expect(request.headers.get('authorization')).toBe('Bearer bp-token')
       expect(request.headers.get('x-bot-id')).toBe('bot-1')
       const body = await request.json() as any
-      expect(body.accessPolicies).toEqual(['integrations'])
+      expect(body.accessPolicies).toBeUndefined()
       return Response.json({ file: {
         id: 'BF1', key: body.key,
         uploadUrl: 'https://storage.example/presigned',
@@ -196,8 +252,68 @@ test('approved document is copied without leaking credentials and returns a stab
         { id: 'Z1', status: 'ok', actorId: 'E2', actorName: 'Юрист 1' },
         { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Юрист 2' },
       ],
+      actorId: 'E3',
+      actorName: 'Юрист 2',
     })
     expect(output.fileSha256).toMatch(/^[a-f0-9]{64}$/)
+  } finally {
+    globalThis.fetch = originalFetch
+    process.env.BP_API_URL = originalApiUrl
+    process.env.BP_TOKEN = originalToken
+    process.env.BP_BOT_ID = originalBotId
+  }
+})
+
+test('approved document authenticates a same-origin Botruntime upload URL', async () => {
+  const originalFetch = globalThis.fetch
+  const originalApiUrl = process.env.BP_API_URL
+  const originalToken = process.env.BP_TOKEN
+  const originalBotId = process.env.BP_BOT_ID
+
+  process.env.BP_API_URL = 'https://runtime.local'
+  process.env.BP_TOKEN = 'bp-token'
+  process.env.BP_BOT_ID = 'bot-1'
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.pathname === '/api/v3/task/T1/negotiationItems') {
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: [{
+          id: 'N1',
+          actualVersion: {
+            id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/approved', name: 'approved.docx' },
+            visas: [{ id: 'Z1', status: 'ok', userCreated: { id: 'E2', name: 'Юрист' } }],
+          },
+        }],
+      })
+    }
+    if (parsed.pathname === '/api/file/approved') return new Response('approved-v2')
+    if (parsed.pathname === '/v1/files' && parsed.search === '') {
+      return Response.json({ file: {
+        id: 'BF1', key: 'megaplan/approvals/T1/V2/approved.docx',
+        uploadUrl: 'https://runtime.local/v1/files/upload?key=approved&token=t',
+        url: 'https://runtime.local/v1/files/download?key=approved',
+      } })
+    }
+    if (parsed.pathname === '/v1/files/upload') {
+      expect(request.headers.get('authorization')).toBe('Bearer bp-token')
+      expect(request.headers.get('x-bot-id')).toBe('bot-1')
+      return new Response(null, { status: 200 })
+    }
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+
+  try {
+    const output = await getNegotiationDecision({
+      ctx: { integrationId: 'integration-1', configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' } },
+      input: { taskId: 'T1' },
+      client: {
+        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        setState: async () => ({}),
+      },
+    } as any)
+    expect(output.approvedFileId).toBe('BF1')
   } finally {
     globalThis.fetch = originalFetch
     process.env.BP_API_URL = originalApiUrl

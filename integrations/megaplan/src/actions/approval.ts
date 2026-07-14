@@ -5,8 +5,19 @@ import { buildClient, run } from './shared'
 export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
   run(async () => {
     const api = buildClient(ctx, client)
-    const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
-    const material = await downloadApprovalMaterial(storedMaterial.url)
+    let materialUrl: string
+    if (input.materialFileId) {
+      const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
+      materialUrl = storedMaterial.url
+    } else if (input.materialUrl && isBotruntimeUrl(input.materialUrl)) {
+      // Compatibility with the canonical lawyer bot that persisted the Files
+      // download URL before stable file IDs were introduced. Restrict this
+      // legacy input to our own origins so it cannot become an SSRF primitive.
+      materialUrl = input.materialUrl
+    } else {
+      throw new Error('megaplan: approval material requires a stable file ID or Botruntime URL')
+    }
+    const material = await downloadApprovalMaterial(materialUrl)
     const actualSha256 = await sha256(material.bytes)
     if (actualSha256 !== input.materialSha256.toLowerCase()) {
       throw new Error(`megaplan: approval material SHA-256 mismatch`)
@@ -63,7 +74,7 @@ async function publishApprovedFile(
   const registered = await fetch(`${base}/v1/files`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ key, size: bytes.byteLength, contentType, accessPolicies: ['integrations'] }),
+    body: JSON.stringify({ key, size: bytes.byteLength, contentType }),
   })
   if (!registered.ok) throw new Error(`megaplan: register approved file -> ${registered.status}`)
   const payload = (await registered.json()) as { file?: { id?: string; key?: string; uploadUrl?: string; url?: string } }
@@ -72,7 +83,7 @@ async function publishApprovedFile(
   }
   const uploaded = await fetch(payload.file.uploadUrl, {
     method: 'PUT',
-    headers: { 'content-type': contentType },
+    headers: botruntimeHeadersForUrl(payload.file.uploadUrl, contentType),
     body: bytes,
   })
   if (!uploaded.ok) throw new Error(`megaplan: upload approved file -> ${uploaded.status}`)
@@ -88,9 +99,10 @@ async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Arra
   if (!isSafeHttpUrl(url)) {
     throw new Error('megaplan: Botruntime file did not resolve to a safe HTTP URL')
   }
-  // The Files API resolves a stable file ID to a short-lived storage URL. It
-  // may be cross-origin, so never forward Botruntime credentials to it.
-  const response = await fetch(url)
+  // The Files API can return either a same-origin, auth-gated URL (Botforge)
+  // or a cross-origin presigned storage URL. Credentials only go to a known
+  // Botruntime origin.
+  const response = await fetch(url, { headers: botruntimeHeadersForUrl(url) })
   if (!response.ok) throw new Error(`megaplan: download approval material -> ${response.status}`)
   const bytes = await readBytesCapped(response, MAX_APPROVAL_FILE_BYTES)
   if (bytes.byteLength === 0) throw new Error('megaplan: approval material is empty')
@@ -100,6 +112,35 @@ async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Arra
 function isSafeHttpUrl(url: string): boolean {
   try {
     return ['http:', 'https:'].includes(new URL(url).protocol)
+  } catch {
+    return false
+  }
+}
+
+function isBotruntimeUrl(url: string): boolean {
+  return botruntimeOrigins().some((origin) => sameOrigin(url, origin))
+}
+
+function botruntimeHeadersForUrl(url: string, contentType?: string): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (contentType) headers['content-type'] = contentType
+  if (!isBotruntimeUrl(url)) return headers
+  const token = process.env.BP_TOKEN
+  const botId = process.env.BP_BOT_ID
+  if (!token || !botId) throw new Error('megaplan: missing Botruntime file-store credentials')
+  headers.authorization = `Bearer ${token}`
+  headers['x-bot-id'] = botId
+  return headers
+}
+
+function botruntimeOrigins(): string[] {
+  return [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
+    .filter((value): value is string => Boolean(value))
+}
+
+function sameOrigin(url: string, base: string): boolean {
+  try {
+    return new URL(url).origin === new URL(base).origin
   } catch {
     return false
   }

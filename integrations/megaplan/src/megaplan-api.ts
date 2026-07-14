@@ -392,6 +392,8 @@ export class MegaplanApiClient {
     fileId?: string
     filePath?: string
     fileName?: string
+    actorId?: string
+    actorName?: string
     approverVisas: Array<{
       id?: string
       status?: 'ok' | 'bad' | 'not_rated'
@@ -412,6 +414,15 @@ export class MegaplanApiClient {
     const approved = rejected === undefined && items.every((item) => item.actualVersion?.status === 'ok')
     const selected = rejected ?? items[0]!
     const version = selected.actualVersion
+    const approverVisas = (version?.visas ?? []).map((visa) => ({
+      id: visa.id,
+      status: visa.status,
+      actorId: visa.userCreated?.id,
+      actorName: visa.userCreated?.name,
+    }))
+    const representativeVisa = [...approverVisas].reverse().find((visa) =>
+      rejected ? visa.status === 'bad' : visa.status === 'ok'
+    )
     return {
       status: rejected ? 'rejected' : approved ? 'approved' : 'pending',
       itemId: selected.id,
@@ -419,12 +430,9 @@ export class MegaplanApiClient {
       fileId: version?.attache?.id,
       filePath: version?.attache?.path,
       fileName: version?.attache?.name ?? version?.attache?.fileName,
-      approverVisas: (version?.visas ?? []).map((visa) => ({
-        id: visa.id,
-        status: visa.status,
-        actorId: visa.userCreated?.id,
-        actorName: visa.userCreated?.name,
-      })),
+      actorId: representativeVisa?.actorId,
+      actorName: representativeVisa?.actorName,
+      approverVisas,
     }
   }
 

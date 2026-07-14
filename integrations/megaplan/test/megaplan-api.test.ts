@@ -397,6 +397,8 @@ test('getNegotiationDecision reads the aggregate status and human visa from the 
       fileId: 'F2',
       filePath: '/attach/claim-v2.docx',
       fileName: 'claim-v2.docx',
+      actorId: 'E3',
+      actorName: 'Борис',
       approverVisas: [
         { id: 'Z1', status: 'ok', actorId: 'E2', actorName: 'Анна' },
         { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Борис' },

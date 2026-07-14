@@ -6,7 +6,8 @@ const createNegotiationTaskInput = z.object({
   approverIds: z.array(z.string().min(1)).min(1).title('ID согласователей'),
   dealIds: z.array(z.string().min(1)).default([]).title('ID сделок'),
   materialName: z.string().min(1).title('Название материала'),
-  materialFileId: z.string().min(1).title('ID неизменяемого файла Botruntime'),
+  materialFileId: z.string().min(1).optional().title('ID неизменяемого файла Botruntime'),
+  materialUrl: z.string().url().optional().title('URL файла Botruntime (совместимость)'),
   materialSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).title('SHA-256 материала'),
   statement: z.string().optional().title('Постановка задачи'),
 })
@@ -29,6 +30,8 @@ const getNegotiationDecisionOutput = z.object({
   approvedFileId: z.string().optional().describe('Стабильный ID серверной копии в Botruntime Files'),
   approvedFileKey: z.string().optional().describe('Стабильный ключ серверной копии в Botruntime Files'),
   fileSha256: z.string().optional(),
+  actorId: z.string().optional().describe('ID представителя последней терминальной визы (совместимость)'),
+  actorName: z.string().optional().describe('Имя представителя последней терминальной визы (совместимость)'),
   approverVisas: z.array(z.object({
     id: z.string().optional(),
     status: z.enum(['ok', 'bad', 'not_rated']).optional(),
