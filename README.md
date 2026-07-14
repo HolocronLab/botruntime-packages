@@ -15,6 +15,7 @@ public, reusable pieces live here.
 | `integrations/telegram` | Telegram channel integration (fork of `@botpress/telegram`), patched for the botruntime cloudapi. |
 | `integrations/megaplan` | Megaplan CRM integration. |
 | `integrations/yadisk` | Yandex.Disk storage integration. |
+| `integrations/yookassa` | YooKassa payments with API-reverified `payment.succeeded` events. |
 
 ### The runtime libraries (forked Botpress deps → `@holocronlab/botruntime-*`)
 
@@ -47,9 +48,9 @@ byte-exact TS client and the OpenAPI spec that drives the Go cloudapi. See
 - **Go side** (in the `botforge` repo): `packages/botruntime-api/oapi-codegen.yaml` +
   [`docs/handoff/go-cloudapi-serverinterface.md`](docs/handoff/go-cloudapi-serverinterface.md).
 
-Classic integration bundles are built with `brt build` and published to the
-botruntime catalog via `brt integrations publish`; the runtime-host pulls them
-by ref. Agent projects use `brt dev` for the tunnel loop and
+Classic integration bundles are built with `brt build` and published globally
+from the platform workspace via `brt deploy --visibility public`; the
+runtime-host pulls them by ref. Agent projects use `brt dev` for the tunnel loop and
 `brt deploy --adk` for production — standalone `brt build` is not their entry
 point.
 
