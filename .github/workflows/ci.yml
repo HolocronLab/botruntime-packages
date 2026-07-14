@@ -144,7 +144,11 @@ jobs:
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-sdk --exclude=@holocronlab/botruntime-client --write
           mv packages/botruntime-sdk/bun.lock "$RUNNER_TEMP/botruntime-sdk.source.bun.lock"
           cd packages/botruntime-sdk
-          bun install --no-save --ignore-scripts
+          # Existing sibling versions still live in GitHub Packages until the
+          # first npmjs release train completes. Keep PR contract CI on that
+          # authenticated bootstrap registry; published packages themselves
+          # remain configured for auth-free npmjs consumption.
+          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
           bun run build
 
       # Contract generation imports the complete CLI command tree. Build the
@@ -158,7 +162,7 @@ jobs:
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
-          bun install --no-save --ignore-scripts
+          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
           bun run build
 
       # Keep the freshly built ADK, client, and SDK as local dependencies.
@@ -176,7 +180,7 @@ jobs:
         # build-time botruntime-api dependency). --no-save resolves that local
         # graph without mutating the checked-in lock; contract generation below
         # still fails on any command/schema drift.
-        run: bun install --no-save --ignore-scripts
+        run: bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
