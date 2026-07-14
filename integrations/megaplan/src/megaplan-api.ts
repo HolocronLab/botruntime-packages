@@ -37,6 +37,7 @@ const MAX_ATTEMPTS = 3
 // maxBodyBytes — read cap: the API returns megabyte-size trace blobs in errors, an
 // unbounded read is pointless.
 const MAX_BODY_BYTES = 10 << 20
+export const MAX_APPROVAL_FILE_BYTES = 20 << 20
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>
 
@@ -423,18 +424,59 @@ export class MegaplanApiClient {
   async downloadFile(path: string): Promise<{ bytes: Uint8Array; contentType: string }> {
     if (!path.startsWith('/')) throw new Error('megaplan: file path must be relative to the account root')
     let reauthed = false
-    for (;;) {
-      const token = await this.accessToken()
-      const response = await this.fetchImpl(this.baseUrl + path, { headers: { authorization: `Bearer ${token}` } })
+    for (let attempt = 1; ;) {
+      let token: string
+      try {
+        token = await this.accessToken()
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0
+        if (canRetry('GET', status) && attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw err
+      }
+
+      let response: Response
+      try {
+        response = await this.fetchImpl(this.baseUrl + path, { headers: { authorization: `Bearer ${token}` } })
+      } catch (err) {
+        if (attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw new ApiError(0, [{ message: `GET file: ${(err as Error)?.message ?? String(err)}` }])
+      }
       if (response.status === 401 && !reauthed) {
         reauthed = true
         await this.clearToken(token)
         continue
       }
-      if (!response.ok) throw new ApiError(response.status, [{ message: `GET file -> ${response.status}` }])
-      return {
-        bytes: new Uint8Array(await response.arrayBuffer()),
-        contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+      if (!response.ok) {
+        if (canRetry('GET', response.status) && attempt < MAX_ATTEMPTS) {
+          if (response.body) await response.body.cancel().catch(() => undefined)
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        throw new ApiError(response.status, [{ message: `GET file -> ${response.status}` }])
+      }
+      try {
+        return {
+          bytes: await readBytesCapped(response, MAX_APPROVAL_FILE_BYTES),
+          contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+        }
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0
+        if (canRetry('GET', status) && attempt < MAX_ATTEMPTS) {
+          attempt++
+          await this.backoff(attempt)
+          continue
+        }
+        if (err instanceof ApiError) throw err
+        throw new ApiError(0, [{ message: `GET file body: ${(err as Error)?.message ?? String(err)}` }])
       }
     }
   }
@@ -688,6 +730,40 @@ async function readCapped(res: Response, max: number): Promise<string> {
     offset += take.byteLength
   }
   return new TextDecoder().decode(out)
+}
+
+export async function readBytesCapped(res: Response, max: number): Promise<Uint8Array> {
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > max) throw fileTooLarge(max)
+  if (res.body === null) return new Uint8Array()
+
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > max) throw fileTooLarge(max)
+      chunks.push(value)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+function fileTooLarge(max: number): ApiError {
+  const mib = max / (1 << 20)
+  return new ApiError(413, [{ message: `approval file exceeds the ${mib} MiB limit` }])
 }
 
 // parseApiError unwraps {"meta":{"errors":[{field,message,...}]}} and keeps ONLY

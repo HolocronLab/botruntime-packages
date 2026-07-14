@@ -347,6 +347,35 @@ test('uploadFile sends multipart files[] and returns the uploaded Megaplan file'
   })
 })
 
+test('downloadFile retries 429 and 5xx before returning bytes', async () => {
+  let n = 0
+  const env = makeEnv((_req, _body, url) => {
+    expect(url.pathname).toBe('/attach/approved.docx')
+    n++
+    if (n === 1) return new Response('', { status: 429 })
+    if (n === 2) return new Response('', { status: 503 })
+    return new Response('approved-v2', { headers: { 'content-type': 'application/docx' } })
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const file = await c.downloadFile('/attach/approved.docx')
+    expect(new TextDecoder().decode(file.bytes)).toBe('approved-v2')
+    expect(file.contentType).toBe('application/docx')
+    expect(env.apiCalls()).toBe(3)
+  })
+})
+
+test('downloadFile rejects oversized approved versions before buffering them', async () => {
+  const env = makeEnv(() => new Response('x', {
+    headers: { 'content-length': String((20 << 20) + 1) },
+  }))
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    await expect(c.downloadFile('/attach/approved.docx')).rejects.toThrow(/exceeds.*20 MiB/i)
+    expect(env.apiCalls()).toBe(1)
+  })
+})
+
 test('getNegotiationDecision reads the aggregate status and human visa from the actual version', async () => {
   const env = makeEnv((req, _body, url) => {
     expect(req.method).toBe('GET')

@@ -102,6 +102,29 @@ test('create negotiation action rejects unsafe URLs returned for a Botruntime fi
   }
 })
 
+test('create negotiation action rejects oversized Botruntime materials before buffering them', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response('x', {
+    headers: { 'content-length': String((20 << 20) + 1) },
+  })) as unknown as typeof fetch
+
+  try {
+    await expect(createNegotiationTask({
+      ctx: {
+        integrationId: 'integration-1',
+        configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' },
+      },
+      input: {
+        name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
+        materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: 'a'.repeat(64),
+      },
+      client: { getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }) },
+    } as any)).rejects.toThrow(/exceeds.*20 MiB/i)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('approved document is copied without leaking credentials and returns a stable file reference', async () => {
   const originalFetch = globalThis.fetch
   const originalApiUrl = process.env.BP_API_URL

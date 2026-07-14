@@ -1,4 +1,5 @@
 import type { IntegrationProps } from '../bp'
+import { MAX_APPROVAL_FILE_BYTES, readBytesCapped } from '../megaplan-api'
 import { buildClient, run } from './shared'
 
 export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
@@ -91,7 +92,7 @@ async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Arra
   // may be cross-origin, so never forward Botruntime credentials to it.
   const response = await fetch(url)
   if (!response.ok) throw new Error(`megaplan: download approval material -> ${response.status}`)
-  const bytes = new Uint8Array(await response.arrayBuffer())
+  const bytes = await readBytesCapped(response, MAX_APPROVAL_FILE_BYTES)
   if (bytes.byteLength === 0) throw new Error('megaplan: approval material is empty')
   return { bytes, contentType: response.headers.get('content-type') ?? 'application/octet-stream' }
 }
