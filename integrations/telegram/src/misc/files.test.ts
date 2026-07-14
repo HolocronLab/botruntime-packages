@@ -61,6 +61,16 @@ test('keeps an external public document as a URL and never sends Botruntime cred
   )
 })
 
+test('never authenticates or server-fetches a non-file route on the Botruntime origin', async () => {
+  globalThis.fetch = (() => {
+    throw new Error('non-file Botruntime routes must not be fetched by the integration')
+  }) as unknown as typeof fetch
+
+  await expect(
+    resolveTelegramDocument('https://runtime.internal/v1/admin/bots?dump=1', 'secrets.txt'),
+  ).resolves.toBe('https://runtime.internal/v1/admin/bots?dump=1')
+})
+
 test('never server-fetches a cross-origin DOCX', async () => {
   globalThis.fetch = (() => {
     throw new Error('cross-origin documents must not be fetched by the integration')

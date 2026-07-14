@@ -2,6 +2,9 @@ import type { IntegrationProps } from '../bp'
 import { MAX_APPROVAL_FILE_BYTES, readBytesCapped } from '../megaplan-api'
 import { buildClient, run } from './shared'
 
+const APPROVAL_CLAIM_EXPIRY_MS = 15 * 60 * 1000
+const APPROVAL_RESULT_EXPIRY_MS = 24 * 60 * 60 * 1000
+
 export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
   run(async () => {
     const api = buildClient(ctx, client)
@@ -10,11 +13,34 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
     if (existing) {
       return { taskId: existing.id, itemId: undefined, versionId: undefined }
     }
+    const claimId = crypto.randomUUID()
+    const claimRef = {
+      type: 'integration' as const,
+      id: `${ctx.integrationId}:${operationMarker}`,
+      name: 'approvalOperation' as const,
+    }
+    const { state: operation } = await client.getOrSetState({
+      ...claimRef,
+      payload: { claimId, status: 'claimed' },
+      expiry: APPROVAL_CLAIM_EXPIRY_MS,
+    })
+    if (operation.payload.status === 'completed' && operation.payload.taskId) {
+      return {
+        taskId: operation.payload.taskId,
+        itemId: operation.payload.itemId,
+        versionId: operation.payload.versionId,
+      }
+    }
+    if (operation.payload.claimId !== claimId) {
+      const recovered = await api.findNegotiationTask(operationMarker)
+      if (recovered) return { taskId: recovered.id, itemId: undefined, versionId: undefined }
+      throw new Error(`megaplan: approval operation ${operationMarker} is already in progress; retry later`)
+    }
     let materialUrl: string
     if (input.materialFileId) {
       const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
       materialUrl = storedMaterial.url
-    } else if (input.materialUrl && isBotruntimeUrl(input.materialUrl)) {
+    } else if (input.materialUrl && isBotruntimeFileDownloadUrl(input.materialUrl)) {
       // Compatibility with the canonical lawyer bot that persisted the Files
       // download URL before stable file IDs were introduced. Restrict this
       // legacy input to our own origins so it cannot become an SSRF primitive.
@@ -35,7 +61,13 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
       materialFile,
     })
     const item = task.negotiationItems?.[0]
-    return { taskId: task.id, itemId: item?.id, versionId: item?.actualVersion?.id }
+    const output = { taskId: task.id, itemId: item?.id, versionId: item?.actualVersion?.id }
+    await client.setState({
+      ...claimRef,
+      payload: { claimId, status: 'completed', ...output },
+      expiry: APPROVAL_RESULT_EXPIRY_MS,
+    })
+    return output
   })
 
 export const getNegotiationDecision: IntegrationProps['actions']['getNegotiationDecision'] = async ({ ctx, input, client }) =>
@@ -135,6 +167,9 @@ async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Arra
   if (!isSafeHttpUrl(url)) {
     throw new Error('megaplan: Botruntime file did not resolve to a safe HTTP URL')
   }
+  if (isBotruntimeOrigin(url) && !isBotruntimeFileDownloadUrl(url)) {
+    throw new Error('megaplan: Botruntime file URL must use the file-download endpoint')
+  }
   // The Files API can return either a same-origin, auth-gated URL (Botforge)
   // or a cross-origin presigned storage URL. Credentials only go to a known
   // Botruntime origin.
@@ -153,14 +188,35 @@ function isSafeHttpUrl(url: string): boolean {
   }
 }
 
-function isBotruntimeUrl(url: string): boolean {
+function isBotruntimeOrigin(url: string): boolean {
   return botruntimeOrigins().some((origin) => sameOrigin(url, origin))
+}
+
+function isBotruntimeFileDownloadUrl(url: string): boolean {
+  if (!isBotruntimeOrigin(url)) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.pathname === '/v1/files/download' && Boolean(parsed.searchParams.get('key')?.trim())
+  } catch {
+    return false
+  }
+}
+
+function isBotruntimeFileUploadUrl(url: string): boolean {
+  if (!isBotruntimeOrigin(url)) return false
+  try {
+    return new URL(url).pathname === '/v1/files/upload'
+  } catch {
+    return false
+  }
 }
 
 function botruntimeHeadersForUrl(url: string, contentType?: string): Record<string, string> {
   const headers: Record<string, string> = {}
   if (contentType) headers['content-type'] = contentType
-  if (!isBotruntimeUrl(url)) return headers
+  if (!isBotruntimeOrigin(url)) return headers
+  const expectedEndpoint = contentType ? isBotruntimeFileUploadUrl(url) : isBotruntimeFileDownloadUrl(url)
+  if (!expectedEndpoint) throw new Error('megaplan: Botruntime file URL uses an unexpected endpoint')
   const token = process.env.BP_TOKEN
   const botId = process.env.BP_BOT_ID
   if (!token || !botId) throw new Error('megaplan: missing Botruntime file-store credentials')

@@ -12,6 +12,22 @@ const megaplanAuth: StateDefinition = {
   schema: megaplanAuthSchema,
 }
 
-export const states = { megaplanAuth }
+const approvalOperationSchema = z.object({
+  claimId: z.string().min(1),
+  status: z.enum(['claimed', 'completed']),
+  taskId: z.string().optional(),
+  itemId: z.string().optional(),
+  versionId: z.string().optional(),
+})
 
-export type StatePayload = z.infer<typeof megaplanAuthSchema>
+// One state identity per deterministic approval marker. getOrSetState is the
+// atomic claim; the short expiry recovers a worker that dies before task creation.
+const approvalOperation: StateDefinition = {
+  type: 'integration',
+  schema: approvalOperationSchema,
+}
+
+export const states = { megaplanAuth, approvalOperation }
+
+export type MegaplanAuthStatePayload = z.infer<typeof megaplanAuthSchema>
+export type ApprovalOperationStatePayload = z.infer<typeof approvalOperationSchema>

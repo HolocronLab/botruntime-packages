@@ -32,11 +32,12 @@ export type TelegramDocument = string | { source: Buffer; filename: string }
 const MAX_TELEGRAM_DOCUMENT_BYTES = 20 << 20
 
 // Telegram's servers cannot fetch our protected file-store URLs because they do not have the
-// runtime bearer token. Fetch only URLs owned by this Botruntime deployment here, then hand the
-// bytes to Telegram. Public third-party URLs remain URLs so credentials can never cross origins.
+// runtime bearer token. Fetch only the canonical file-download route owned by this Botruntime
+// deployment, then hand the bytes to Telegram. Every other URL remains a URL, so credentials can
+// never reach another origin or an unrelated Botruntime API route.
 export async function resolveTelegramDocument(fileUrl: string, title?: string): Promise<TelegramDocument> {
   const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
-  const trusted = trustedBases.some((base) => sameOrigin(fileUrl, base))
+  const trusted = trustedBases.some((base) => isBotruntimeFileDownload(fileUrl, base))
   if (!trusted) return fileUrl
 
   const headers: Record<string, string> = {}
@@ -57,6 +58,16 @@ export async function resolveTelegramDocument(fileUrl: string, title?: string): 
     throw new Error('telegram: protected file download returned an empty document')
   }
   return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
+}
+
+function isBotruntimeFileDownload(url: string, base: string | undefined): boolean {
+  if (!sameOrigin(url, base)) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.pathname === '/v1/files/download' && Boolean(parsed.searchParams.get('key')?.trim())
+  } catch {
+    return false
+  }
 }
 
 async function readDocumentCapped(response: Response): Promise<Buffer> {

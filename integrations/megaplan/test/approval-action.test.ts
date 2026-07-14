@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test'
 import { createNegotiationTask, getNegotiationDecision } from '../src/actions/approval'
 
+const getOrSetTokenOrClaim = async ({ name, payload }: { name: string; payload: unknown }) => ({
+  state: { payload: name === 'megaplanAuth' ? { accessToken: 'megaplan-token' } : payload },
+})
+
 test('create negotiation action verifies bytes, uploads them and attaches the Megaplan file', async () => {
   const originalFetch = globalThis.fetch
   const originalApiUrl = process.env.BP_API_URL
@@ -43,7 +47,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   }) as typeof fetch
 
   const client = {
-    getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+    getOrSetState: getOrSetTokenOrClaim,
     setState: async () => ({}),
     getFile: async ({ id }: { id: string }) => {
       expect(id).toBe('BF-source-1')
@@ -69,6 +73,96 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     process.env.BP_API_URL = originalApiUrl
     process.env.BP_TOKEN = originalToken
     process.env.BP_BOT_ID = originalBotId
+  }
+})
+
+test('concurrent deliveries atomically claim an approval operation before Megaplan task creation', async () => {
+  const originalFetch = globalThis.fetch
+  const originalApiUrl = process.env.BP_API_URL
+  const originalToken = process.env.BP_TOKEN
+  const originalBotId = process.env.BP_BOT_ID
+  const bytes = new TextEncoder().encode('claim-v1')
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  let taskSearches = 0
+  let taskCreates = 0
+  let createdTask = false
+  let releaseInitialSearches!: () => void
+  const initialSearchesReady = new Promise<void>((resolve) => { releaseInitialSearches = resolve })
+
+  process.env.BP_API_URL = 'https://runtime.local'
+  process.env.BP_TOKEN = 'bp-token'
+  process.env.BP_BOT_ID = 'bot-1'
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.pathname === '/api/v3/task' && request.method === 'GET') {
+      taskSearches++
+      if (taskSearches <= 2) {
+        if (taskSearches === 2) releaseInitialSearches()
+        await initialSearchesReady
+        return Response.json({ meta: { status: 200, errors: [] }, data: [] })
+      }
+      const query = JSON.parse(decodeURIComponent(parsed.search.slice(1))) as { q: string }
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: createdTask
+          ? [{ contentType: 'Task', id: 'T1', name: `Approval [${query.q}]`, isNegotiation: true }]
+          : [],
+      })
+    }
+    if (parsed.pathname === '/v1/files/download') return new Response(bytes)
+    if (parsed.pathname === '/api/file') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [{ contentType: 'File', id: 'F1' }] })
+    }
+    if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
+      taskCreates++
+      createdTask = true
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: { contentType: 'Task', id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V1' } }] },
+      })
+    }
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+
+  let operationClaim: unknown
+  const client = {
+    getOrSetState: async ({ name, payload }: { name: string; payload: unknown }) => {
+      if (name === 'megaplanAuth') return { state: { payload: { accessToken: 'megaplan-token' } } }
+      operationClaim ??= payload
+      return { state: { payload: operationClaim } }
+    },
+    setState: async () => ({}),
+    getFile: async () => ({
+      file: { id: 'BF-source-1', url: 'https://runtime.local/v1/files/download?key=claim-v1' },
+    }),
+  }
+  const invoke = () => createNegotiationTask({
+    ctx: {
+      integrationId: 'integration-1',
+      configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' },
+    },
+    input: {
+      name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
+      materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256,
+    },
+    client,
+  } as any)
+
+  try {
+    const results = await Promise.allSettled([invoke(), invoke()])
+    expect(taskCreates).toBe(1)
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalApiUrl === undefined) delete process.env.BP_API_URL
+    else process.env.BP_API_URL = originalApiUrl
+    if (originalToken === undefined) delete process.env.BP_TOKEN
+    else process.env.BP_TOKEN = originalToken
+    if (originalBotId === undefined) delete process.env.BP_BOT_ID
+    else process.env.BP_BOT_ID = originalBotId
   }
 })
 
@@ -118,7 +212,7 @@ test('create negotiation action accepts the canonical legacy materialUrl on a Bo
         materialName: 'claim.docx', materialUrl: 'https://runtime.local/v1/files/download?key=claim-v1', materialSha256: sha256,
       },
       client: {
-        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        getOrSetState: getOrSetTokenOrClaim,
         setState: async () => ({}),
       },
     } as any)
@@ -169,7 +263,7 @@ test('create negotiation action reuses a task found by its deterministic operati
         materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256,
       },
       client: {
-        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        getOrSetState: getOrSetTokenOrClaim,
         setState: async () => ({}),
         getFile: async () => { throw new Error('source file expired') },
       },
@@ -213,7 +307,7 @@ test('approval recovery marker distinguishes changed task statements', async () 
       materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256, statement,
     },
     client: {
-      getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+      getOrSetState: getOrSetTokenOrClaim,
       setState: async () => ({}),
       getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }),
     },
@@ -257,7 +351,7 @@ test('create negotiation action rejects unsafe URLs returned for a Botruntime fi
         materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: 'a'.repeat(64),
       },
       client: {
-        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        getOrSetState: getOrSetTokenOrClaim,
         setState: async () => ({}),
         getFile: async () => ({ file: { id: 'BF-source-1', url: 'file:///etc/passwd' } }),
       },
@@ -291,7 +385,7 @@ test('create negotiation action rejects oversized Botruntime materials before bu
         materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: 'a'.repeat(64),
       },
       client: {
-        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        getOrSetState: getOrSetTokenOrClaim,
         setState: async () => ({}),
         getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }),
       },

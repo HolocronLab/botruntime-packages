@@ -5,7 +5,7 @@
 import type * as sdk from '@holocronlab/botruntime-sdk'
 import type { z } from '@holocronlab/botruntime-sdk'
 import type { configSchema } from '../definitions/common'
-import type { StatePayload } from '../definitions/state'
+import type { ApprovalOperationStatePayload, MegaplanAuthStatePayload } from '../definitions/state'
 import type {
   SearchContractorsInput,
   SearchContractorsOutput,
@@ -63,7 +63,10 @@ export type TMegaplan = {
   actions: Actions
   channels: Record<string, never>
   events: { entityCommand: EntityCommand }
-  states: { megaplanAuth: { type: 'integration'; payload: StatePayload } }
+  states: {
+    megaplanAuth: { type: 'integration'; payload: MegaplanAuthStatePayload }
+    approvalOperation: { type: 'integration'; payload: ApprovalOperationStatePayload }
+  }
   user: { tags: Record<string, string> }
   entities: Record<string, never>
 }
