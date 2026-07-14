@@ -26,6 +26,13 @@ const expectedPolicies = [
     webhookAuthMode: "shared_secret",
     sdkSpec: "^6.13.3",
   },
+  {
+    integration: "yookassa",
+    hosts: ["api.yookassa.ru"],
+    ingressRelayed: true,
+    webhookAuthMode: "provider_verified",
+    sdkSpec: "^6.13.3",
+  },
 ];
 
 for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec, brtSpec } of expectedPolicies) {

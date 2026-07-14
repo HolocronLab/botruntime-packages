@@ -1,0 +1,6 @@
+{
+  "fields": {
+    "shopId": { "type": "string", "required": true, "secret": false },
+    "secretKey": { "type": "string", "required": true, "secret": true }
+  }
+}
