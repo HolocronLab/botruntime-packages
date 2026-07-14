@@ -49,5 +49,9 @@ test('webhook emits entityCommand only after provider-boundary validation', asyn
 })
 
 test('definition declares Megaplan egress and relayed ingress', () => {
-  expect(definition.props.network).toEqual({ providerHosts: ['*.megaplan.ru'], ingressRelayed: true })
+  expect(definition.props.network).toEqual({
+    providerHosts: ['*.megaplan.ru'],
+    ingressRelayed: true,
+    webhookAuthMode: 'shared_secret',
+  })
 })
