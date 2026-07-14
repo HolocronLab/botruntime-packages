@@ -27836,6 +27836,25 @@
                     "maxLength": 200
                   },
                   "description": "Optional key-value attributes from the integration definition"
+                },
+                "providerHosts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Outbound host allowlist declared by the integration."
+                },
+                "ingressRelayed": {
+                  "type": "boolean",
+                  "description": "Whether inbound webhook traffic is relayed through the platform."
+                },
+                "webhookAuthMode": {
+                  "type": "string",
+                  "enum": [
+                    "shared_secret",
+                    "provider_verified"
+                  ],
+                  "description": "Authentication mode enforced for inbound webhooks."
                 }
               },
               "required": [
@@ -29073,6 +29092,25 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "providerHosts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Outbound host allowlist declared by the integration."
+                },
+                "ingressRelayed": {
+                  "type": "boolean",
+                  "description": "Whether inbound webhook traffic is relayed through the platform."
+                },
+                "webhookAuthMode": {
+                  "type": "string",
+                  "enum": [
+                    "shared_secret",
+                    "provider_verified"
+                  ],
+                  "description": "Authentication mode enforced for inbound webhooks."
                 }
               },
               "title": "validateIntegrationUpdateBody",

@@ -6,6 +6,20 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+export const requestBodyNames = [
+  "createIntegrationBody",
+  "updateIntegrationBody",
+  "validateIntegrationCreationBody",
+  "validateIntegrationUpdateBody",
+];
+
+export const clientOperationNames = [
+  "CreateIntegration",
+  "UpdateIntegration",
+  "ValidateIntegrationCreation",
+  "ValidateIntegrationUpdate",
+];
+
 const networkProperties = {
   providerHosts: {
     type: "array",
@@ -34,7 +48,7 @@ function appendProperties(properties, additions) {
 
 export function extendOpenApiDocument(document) {
   const requestBodies = document?.components?.requestBodies;
-  for (const bodyName of ["createIntegrationBody", "updateIntegrationBody"]) {
+  for (const bodyName of requestBodyNames) {
     const schema =
       requestBodies?.[bodyName]?.content?.["application/json"]?.schema;
     if (schema?.properties) {
@@ -100,7 +114,7 @@ function patchOpenApiFiles() {
   )) {
     const path = join(directory, file);
     const document = JSON.parse(readFileSync(path, "utf8"));
-    for (const bodyName of ["createIntegrationBody", "updateIntegrationBody"]) {
+    for (const bodyName of requestBodyNames) {
       if (document?.components?.requestBodies?.[bodyName]) found++;
     }
     extendOpenApiDocument(document);
@@ -112,7 +126,7 @@ function patchOpenApiFiles() {
 
 function patchClientFiles() {
   for (const section of ["public", "admin"]) {
-    for (const operationName of ["CreateIntegration", "UpdateIntegration"]) {
+    for (const operationName of clientOperationNames) {
       const filename = `${operationName.charAt(0).toLowerCase()}${operationName.slice(1)}.ts`;
       const path = join(
         root,

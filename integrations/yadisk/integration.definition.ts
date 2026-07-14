@@ -13,4 +13,9 @@ export default new IntegrationDefinition({
   icon: 'icon.svg',
   configuration,
   actions,
+  network: {
+    providerHosts: ['cloud-api.yandex.net'],
+    ingressRelayed: false,
+    webhookAuthMode: 'shared_secret',
+  },
 })

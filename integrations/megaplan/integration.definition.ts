@@ -14,6 +14,11 @@ export default new IntegrationDefinition({
   },
   actions,
   states,
+  network: {
+    providerHosts: ['*.megaplan.ru'],
+    ingressRelayed: false,
+    webhookAuthMode: 'shared_secret',
+  },
   __advanced: {
     useLegacyZuiTransformer: true,
   },
