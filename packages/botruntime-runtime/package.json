@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-runtime",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "description": "Lightweight runtime library for brt-built botruntime agents",
   "keywords": [
     "brt",
