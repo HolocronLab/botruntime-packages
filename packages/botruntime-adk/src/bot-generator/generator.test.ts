@@ -215,6 +215,26 @@ describe('BotGenerator config target isolation', () => {
     vi.spyOn(BotGenerator.prototype, 'emitDependencyArtifacts').mockResolvedValue(undefined)
   }
 
+  it('generateBotProject keeps the default generator output inside .adk/bot', async () => {
+    vi.spyOn(BotGenerator.prototype, 'generate').mockImplementation(async function () {
+      const actualOutputPath = (this as unknown as { outputPath: string }).outputPath
+      fs.mkdirSync(actualOutputPath, { recursive: true })
+      fs.writeFileSync(path.join(actualOutputPath, 'bot.definition.ts'), 'export default {}')
+    })
+    vi.spyOn(BotGenerator.prototype, 'generateAdkRuntime').mockResolvedValue(undefined)
+    vi.spyOn(BotGenerator.prototype, 'copyAssetsRuntime').mockResolvedValue(undefined)
+    vi.spyOn(BotGenerator.prototype, 'emitDependencyArtifacts').mockResolvedValue(undefined)
+
+    await generateBotProject({
+      projectPath,
+      adkCommand: 'adk-dev',
+      configTarget: { environment: 'dev', credentials: DEV_CONNECTION },
+    })
+
+    expect(fs.existsSync(path.join(projectPath, '.adk', 'bot', 'bot.definition.ts'))).toBe(true)
+    expect(fs.existsSync(path.join(projectPath, '.adk', 'bot.definition.ts'))).toBe(false)
+  })
+
   it('adk-dev embeds integration and plugin config only from the explicit dev target', async () => {
     const artifact = await generateDefinition('adk-dev', {
       environment: 'dev',
