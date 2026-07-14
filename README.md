@@ -16,6 +16,7 @@ public, reusable pieces live here.
 | `integrations/megaplan` | Megaplan CRM integration. |
 | `integrations/yadisk` | Yandex.Disk storage integration. |
 | `integrations/yookassa` | YooKassa payments with API-reverified `payment.succeeded` events. |
+| `integrations/pochta` | Russian Post shipment tracking through the official SOAP API. |
 
 ### The runtime libraries (forked Botpress deps → `@holocronlab/botruntime-*`)
 
