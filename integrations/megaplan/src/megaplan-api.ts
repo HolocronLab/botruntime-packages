@@ -334,6 +334,11 @@ export class MegaplanApiClient {
     return this.do<Task>('POST', '/api/v3/task', undefined, body)
   }
 
+  async findNegotiationTask(operationMarker: string): Promise<Task | undefined> {
+    const tasks = await this.do<Task[]>('GET', '/api/v3/task', { q: operationMarker, limit: 10 }, undefined)
+    return tasks.find((task) => task.isNegotiation === true && task.name?.includes(`[${operationMarker}]`))
+  }
+
   // Megaplan's file API is intentionally outside /api/v3. A file must be
   // uploaded first and then referenced by {contentType:"File",id} from the
   // entity/version being created. FormData owns the multipart boundary.

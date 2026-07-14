@@ -27,6 +27,52 @@ function cloudApi(): CloudApi {
   }
 }
 
+export type TelegramDocument = string | { source: Buffer; filename: string }
+
+// Telegram's servers cannot fetch our protected file-store URLs because they do not have the
+// runtime bearer token. Fetch only URLs owned by this Botruntime deployment here, then hand the
+// bytes to Telegram. Public third-party URLs remain URLs so credentials can never cross origins.
+export async function resolveTelegramDocument(fileUrl: string, title?: string): Promise<TelegramDocument> {
+  const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
+  if (!trustedBases.some((base) => sameOrigin(fileUrl, base))) return fileUrl
+
+  const token = process.env.BP_TOKEN
+  const botId = process.env.BP_BOT_ID
+  if (!token || !botId) {
+    throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
+  }
+
+  const response = await fetch(fileUrl, {
+    headers: { authorization: `Bearer ${token}`, 'x-bot-id': botId },
+  })
+  if (!response.ok) {
+    throw new Error(`telegram: protected file download -> ${response.status}`)
+  }
+  const source = Buffer.from(await response.arrayBuffer())
+  if (source.byteLength === 0) {
+    throw new Error('telegram: protected file download returned an empty document')
+  }
+  return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
+}
+
+function sameOrigin(url: string, base: string | undefined): boolean {
+  if (!base) return false
+  try {
+    return new URL(url).origin === new URL(base).origin
+  } catch {
+    return false
+  }
+}
+
+function filenameFromUrl(url: string): string {
+  try {
+    const name = new URL(url).pathname.split('/').filter(Boolean).at(-1)
+    return name ? decodeURIComponent(name) : 'document'
+  } catch {
+    return 'document'
+  }
+}
+
 // Download the bytes behind a (token-bearing, server-side-only) Telegram file URL, push them into
 // cloudapi, and return the token-free download URL the bot/platform will see.
 export async function ingestTelegramFileLink(fileLink: string, key: string, contentType: string): Promise<string> {

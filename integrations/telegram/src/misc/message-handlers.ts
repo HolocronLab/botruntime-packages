@@ -1,6 +1,7 @@
 import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { Markup, Telegraf, Telegram } from 'telegraf'
 import { getStoredBotToken } from '../botToken'
+import { resolveTelegramDocument, type TelegramDocument } from './files'
 import { makeTelegraf } from './telegraf'
 import { markdownHtmlToTelegramPayloads, stdMarkdownToTelegramHtml } from './markdown-to-telegram-html'
 import type { AckFunction, MessageHandlerProps, TelegramMessage } from './types'
@@ -13,16 +14,18 @@ const sendHtmlTextMessage = async (client: Telegraf, ack: AckFunction, chat: str
   await ackMessage(message, ack)
 }
 
-type SendMediaMethod = (chatId: number | string, media: string, extra?: { caption?: string }) => Promise<TelegramMessage>
+type SendMediaMethod = (chatId: number | string, media: TelegramDocument, extra?: { caption?: string }) => Promise<TelegramMessage>
 
 const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'file'>({
   props,
   url,
+  media,
   send,
   fallback,
 }: {
   props: MessageHandlerProps<T>
   url: string
+  media?: TelegramDocument
   send: (telegram: Telegram) => SendMediaMethod
   fallback?: () => Promise<void>
 }) => {
@@ -36,13 +39,16 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
   let message: TelegramMessage
   try {
     message = await sendFn
-      .call(telegraf.telegram, chat, url, opts)
+      .call(telegraf.telegram, chat, media ?? url, opts)
       .catch(mapToRuntimeErrorAndThrow(`Failed to ${sendFn.name}`))
   } catch (err) {
     if (fallback) {
       await fallback()
       return
     }
+    // A buffered document came from an authenticated Botruntime URL. Re-sending that URL as text
+    // would give the recipient a link they cannot open, so preserve the delivery failure instead.
+    if (media !== undefined && typeof media !== 'string') throw err
     logger
       .forBot()
       .warn(
@@ -100,7 +106,8 @@ export const handleVideoMessage = async (props: MessageHandlerProps<'video'>) =>
 }
 
 export const handleFileMessage = async (props: MessageHandlerProps<'file'>) => {
-  await sendContentOrFallback({ props, url: props.payload.fileUrl, send: (t) => t.sendDocument })
+  const media = await resolveTelegramDocument(props.payload.fileUrl, props.payload.title)
+  await sendContentOrFallback({ props, url: props.payload.fileUrl, media, send: (t) => t.sendDocument })
 }
 
 export const handleLocationMessage = async ({

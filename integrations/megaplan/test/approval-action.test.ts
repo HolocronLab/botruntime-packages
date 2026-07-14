@@ -28,7 +28,10 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
       expect(await (form.get('files[]') as File).text()).toBe('claim-v1')
       return Response.json({ meta: { status: 200, errors: [] }, data: [{ contentType: 'File', id: 'F1' }] })
     }
-    if (parsed.pathname === '/api/v3/task') {
+    if (parsed.pathname === '/api/v3/task' && request.method === 'GET') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [] })
+    }
+    if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
       const body = await request.json() as any
       attachedFileId = body.negotiationItems[0].actualVersion.attache.id
       return Response.json({
@@ -92,7 +95,10 @@ test('create negotiation action accepts the canonical legacy materialUrl on a Bo
     if (parsed.pathname === '/api/file') {
       return Response.json({ meta: { status: 200, errors: [] }, data: [{ contentType: 'File', id: 'F1' }] })
     }
-    if (parsed.pathname === '/api/v3/task') {
+    if (parsed.pathname === '/api/v3/task' && request.method === 'GET') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [] })
+    }
+    if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
       return Response.json({
         meta: { status: 200, errors: [] },
         data: { contentType: 'Task', id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V1' } }] },
@@ -122,6 +128,56 @@ test('create negotiation action accepts the canonical legacy materialUrl on a Bo
     process.env.BP_API_URL = originalApiUrl
     process.env.BP_TOKEN = originalToken
     process.env.BP_BOT_ID = originalBotId
+  }
+})
+
+test('create negotiation action reuses a task found by its deterministic operation marker', async () => {
+  const originalFetch = globalThis.fetch
+  const bytes = new TextEncoder().encode('claim-v1')
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  let creates = 0
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.href === 'https://storage.example/material') {
+      expect(request.headers.get('authorization')).toBeNull()
+      expect(request.headers.get('x-bot-id')).toBeNull()
+      return new Response(bytes)
+    }
+    if (parsed.pathname === '/api/v3/task' && request.method === 'GET') {
+      const query = JSON.parse(decodeURIComponent(parsed.search.slice(1))) as { q: string }
+      expect(query.q).toMatch(/^BF-[a-f0-9]{20}$/)
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: [{ contentType: 'Task', id: 'T-existing', name: `Согласовать претензию [${query.q}]`, isNegotiation: true }],
+      })
+    }
+    if (parsed.pathname === '/api/v3/task' && request.method === 'POST') creates++
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+
+  try {
+    const output = await createNegotiationTask({
+      ctx: {
+        integrationId: 'integration-1',
+        configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' },
+      },
+      input: {
+        name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
+        materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256,
+      },
+      client: {
+        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        setState: async () => ({}),
+        getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }),
+      },
+    } as any)
+    expect(output).toEqual({ taskId: 'T-existing', itemId: undefined, versionId: undefined })
+    expect(creates).toBe(0)
+  } finally {
+    globalThis.fetch = originalFetch
   }
 })
 
@@ -343,6 +399,43 @@ test('approved document without an attached actual version fails loudly', async 
       ctx: { integrationId: 'integration-1', configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' } },
       input: { taskId: 'T1' }, client,
     } as any)).rejects.toThrow(/no attached file/i)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('approved document with an empty attachment fails before file-store publication', async () => {
+  const originalFetch = globalThis.fetch
+  let fileStoreWrites = 0
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.pathname === '/api/v3/task/T1/negotiationItems') {
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: [{
+          id: 'N1',
+          actualVersion: {
+            id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/empty', name: 'empty.docx' },
+            visas: [{ status: 'ok', userCreated: { id: 'E2' } }],
+          },
+        }],
+      })
+    }
+    if (parsed.pathname === '/api/file/empty') return new Response(new Uint8Array())
+    if (parsed.pathname === '/v1/files') fileStoreWrites++
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+  try {
+    await expect(getNegotiationDecision({
+      ctx: { integrationId: 'integration-1', configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' } },
+      input: { taskId: 'T1' },
+      client: {
+        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        setState: async () => ({}),
+      },
+    } as any)).rejects.toThrow(/empty approved/i)
+    expect(fileStoreWrites).toBe(0)
   } finally {
     globalThis.fetch = originalFetch
   }

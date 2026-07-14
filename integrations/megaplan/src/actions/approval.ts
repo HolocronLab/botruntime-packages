@@ -22,8 +22,18 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
     if (actualSha256 !== input.materialSha256.toLowerCase()) {
       throw new Error(`megaplan: approval material SHA-256 mismatch`)
     }
+    const operationMarker = await approvalOperationMarker(input)
+    const existing = await api.findNegotiationTask(operationMarker)
+    if (existing) {
+      return { taskId: existing.id, itemId: undefined, versionId: undefined }
+    }
     const materialFile = await api.uploadFile(input.materialName, material.bytes, material.contentType)
-    const task = await api.createNegotiationTask({ ...input, materialFile })
+    const task = await api.createNegotiationTask({
+      ...input,
+      name: `${input.name} [${operationMarker}]`,
+      statement: [input.statement, `Botforge operation: ${operationMarker}`].filter(Boolean).join('\n\n'),
+      materialFile,
+    })
     const item = task.negotiationItems?.[0]
     return { taskId: task.id, itemId: item?.id, versionId: item?.actualVersion?.id }
   })
@@ -35,6 +45,7 @@ export const getNegotiationDecision: IntegrationProps['actions']['getNegotiation
     if (decision.status !== 'approved') return decision
     if (!decision.filePath) throw new Error('megaplan: approved actual version has no attached file')
     const file = await api.downloadFile(decision.filePath)
+    if (file.bytes.byteLength === 0) throw new Error('megaplan: empty approved attachment')
     const fileSha256 = await sha256(file.bytes)
     const approvedFile = await publishApprovedFile(
       input.taskId,
@@ -93,6 +104,26 @@ async function publishApprovedFile(
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer as ArrayBuffer)
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+async function approvalOperationMarker(input: {
+  name: string
+  responsibleId: string
+  approverIds: string[]
+  dealIds: string[]
+  materialName: string
+  materialSha256: string
+}): Promise<string> {
+  const canonical = JSON.stringify({
+    name: input.name,
+    responsibleId: input.responsibleId,
+    approverIds: [...input.approverIds].sort(),
+    dealIds: [...input.dealIds].sort(),
+    materialName: input.materialName,
+    materialSha256: input.materialSha256.toLowerCase(),
+  })
+  const digest = await sha256(new TextEncoder().encode(canonical))
+  return `BF-${digest.slice(0, 20)}`
 }
 
 async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Array; contentType: string }> {
