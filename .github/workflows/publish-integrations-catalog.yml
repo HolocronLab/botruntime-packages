@@ -20,6 +20,10 @@ on:
       workspace_id:
         description: "optional platform workspace override"
         required: false
+      workspace_handle:
+        description: "public handle of the platform workspace"
+        required: false
+        default: botruntime
 
 permissions:
   contents: read
@@ -86,6 +90,21 @@ jobs:
           test "${#definitions[@]}" -gt 0
           for definition in "${definitions[@]}"; do
             integration_dir="$(dirname "$definition")"
+            metadata="$(brt read --workDir "$integration_dir" --json)"
+            source_name="$(jq -r '.name' <<<"$metadata")"
+            version="$(jq -r '.version' <<<"$metadata")"
+            qualified_name="${{ inputs.workspace_handle }}/$source_name"
+            catalog="$(brt integrations list \
+              --json \
+              --owned \
+              --name "$qualified_name" \
+              --versionNumber "$version" \
+              --limit 10)"
+            decision="$(node scripts/catalog-publication-decision.mjs "$qualified_name" "$version" <<<"$catalog")"
+            if [[ "$decision" == "skip" ]]; then
+              echo "Already public: $qualified_name@$version"
+              continue
+            fi
             echo "Publishing $integration_dir as public"
             brt deploy \
               --workDir "$integration_dir" \

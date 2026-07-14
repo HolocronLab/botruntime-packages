@@ -64,7 +64,9 @@ jobs:
           node-version: "22"
 
       - name: Test private registry configuration for the runtime release train
-        run: node --test scripts/runtime-package-registry-config.test.mjs
+        run: |
+          node --test scripts/runtime-package-registry-config.test.mjs
+          node --test scripts/catalog-publication-decision.test.mjs
 
   codegen-extensions:
     runs-on: ubuntu-latest
