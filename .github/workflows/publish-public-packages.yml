@@ -70,6 +70,7 @@ jobs:
             fi
           }
 
+          published_specs=()
           for package in $PACKAGE_ORDER; do
             package_dir="packages/$package"
             echo "::group::Build and publish $package"
@@ -90,15 +91,24 @@ jobs:
               (cd "$package_dir" && npm publish --access public --ignore-scripts)
             fi
 
-            for attempt in $(seq 1 60); do
-              if npm view "$name@$version" version --userconfig=/dev/null --registry="$PUBLIC_NPM_REGISTRY" >/dev/null 2>&1; then
-                break
-              fi
-              if [ "$attempt" -eq 60 ]; then
-                echo "$name@$version did not become anonymously installable within 5 minutes" >&2
-                exit 1
-              fi
-              sleep 5
-            done
+            published_specs+=("$name@$version")
             echo "::endgroup::"
+          done
+
+          for attempt in $(seq 1 60); do
+            missing_specs=()
+            for spec in "${published_specs[@]}"; do
+              if ! npm view "$spec" version --userconfig=/dev/null --registry="$PUBLIC_NPM_REGISTRY" >/dev/null 2>&1; then
+                missing_specs+=("$spec")
+              fi
+            done
+            if [ "${#missing_specs[@]}" -eq 0 ]; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              printf 'Packages did not become anonymously installable within 5 minutes:\n' >&2
+              printf '  %s\n' "${missing_specs[@]}" >&2
+              exit 1
+            fi
+            sleep 5
           done
