@@ -9,6 +9,7 @@ const expectedPolicies = [
     ingressRelayed: true,
     webhookAuthMode: "shared_secret",
     sdkSpec: "^6.13.3",
+    brtSpec: "^0.5.5",
   },
   {
     integration: "megaplan",
@@ -16,6 +17,7 @@ const expectedPolicies = [
     ingressRelayed: false,
     webhookAuthMode: "shared_secret",
     sdkSpec: "6.13.3",
+    brtSpec: "0.5.5",
   },
   {
     integration: "yadisk",
@@ -26,7 +28,7 @@ const expectedPolicies = [
   },
 ];
 
-for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec } of expectedPolicies) {
+for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec, brtSpec } of expectedPolicies) {
   test(`${integration} declares its production network policy`, () => {
     const source = readFileSync(
       new URL(`../integrations/${integration}/integration.definition.ts`, import.meta.url),
@@ -45,7 +47,13 @@ for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec } of e
       readFileSync(new URL(`../integrations/${integration}/package.json`, import.meta.url), "utf8"),
     );
     assert.equal(packageJson.dependencies["@holocronlab/botruntime-sdk"], sdkSpec);
+    if (brtSpec) {
+      assert.equal(packageJson.devDependencies["@holocronlab/brt"], brtSpec);
+    }
     const lock = readFileSync(new URL(`../integrations/${integration}/bun.lock`, import.meta.url), "utf8");
     assert.match(lock, /@holocronlab\/botruntime-sdk@6\.13\.3/);
+    if (brtSpec) {
+      assert.match(lock, /@holocronlab\/brt@0\.5\.5/);
+    }
   });
 }

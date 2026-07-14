@@ -15,7 +15,7 @@
     "@holocronlab/botruntime-zui": "2.3.0"
   },
   "devDependencies": {
-    "@holocronlab/brt": "0.2.0",
+    "@holocronlab/brt": "0.5.5",
     "@types/bun": "^1.3.14",
     "typescript": "^5.9.3"
   }
