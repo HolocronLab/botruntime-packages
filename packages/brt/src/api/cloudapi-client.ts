@@ -118,6 +118,23 @@ export interface WorkspaceRegisterResponse {
   webhookUrl: string
 }
 
+export interface WorkspaceIntegrationInstallation {
+  id: string
+  name: string
+  version: string
+  ref: string
+  alias: string
+  enabled: boolean
+  status: string
+  statusReason: string
+  webhookId: string
+  registered: boolean
+}
+
+export interface WorkspaceIntegrationListResponse {
+  installations: WorkspaceIntegrationInstallation[]
+}
+
 // GET /v1/admin/bots/{id}/logs response shape, frozen from
 // packages/botruntime-api/openapi/openapi.json's getBotLogsResponse schema
 // (fields: timestamp/level/message required, workflowId/userId/conversationId
@@ -321,14 +338,18 @@ export class CloudapiClient {
     name: string,
     code: string,
     commands: BotCommand[] = [],
-    workspaceId?: string
+    workspaceId?: string,
+    recurringEvents: Record<
+      string,
+      { type: string; schedule: { cron: string }; payload: Record<string, unknown> }
+    > = {}
   ): Promise<unknown> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/bots/${botId}`,
       botId,
       workspaceId,
-      body: { name, code, type: 'adk', commands },
+      body: { name, code, type: 'adk', commands, recurringEvents },
       timeoutMs: BUNDLE_TIMEOUT_MS,
       idempotent: true,
     })
@@ -466,6 +487,17 @@ export class CloudapiClient {
     })
   }
 
+  public async listWorkspaceIntegrations(
+    workspaceId: string,
+    botId: string
+  ): Promise<WorkspaceIntegrationListResponse> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/integrations`,
+      idempotent: true,
+    })
+  }
+
   public async registerWorkspaceIntegration(
     workspaceId: string,
     botId: string,
@@ -543,11 +575,15 @@ export class CloudapiClient {
     })
   }
 
-  // ---- logs (admin, machine-key; idempotent GET) ---------------------------
+  // ---- logs (workspace PAT; idempotent GET) --------------------------------
   // timeStart is REQUIRED by the server; every other param is appended only
   // when defined so an absent filter is simply omitted from the query string
   // (never sent as the literal string "undefined").
-  public async getBotLogs(botId: string, params: GetBotLogsParams): Promise<BotLogsResponse> {
+  public async getWorkspaceBotLogs(
+    workspaceId: string,
+    botId: string,
+    params: GetBotLogsParams
+  ): Promise<BotLogsResponse> {
     const qs = new URLSearchParams({ timeStart: params.timeStart })
     if (params.timeEnd) qs.set('timeEnd', params.timeEnd)
     if (params.level) qs.set('level', params.level)
@@ -556,8 +592,9 @@ export class CloudapiClient {
     if (params.nextToken) qs.set('nextToken', params.nextToken)
     return this.raw({
       method: 'GET',
-      path: `/v1/admin/bots/${botId}/logs?${qs.toString()}`,
-      botId,
+      path:
+        `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}` +
+        `/bots/${encodeURIComponent(botId)}/logs?${qs.toString()}`,
       idempotent: true,
     })
   }

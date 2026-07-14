@@ -1,6 +1,5 @@
-# Publish @holocronlab/brt to GitHub Packages. Trigger: tag brt-v* (points at any
-# branch/sha) or manual dispatch. Consumers: npm install @holocronlab/brt (needs an
-# @holocronlab:registry=npm.pkg.github.com npmrc + a token).
+# Publish @holocronlab/brt publicly to npmjs. Trigger: tag brt-v* (points at any
+# branch/sha) or manual dispatch. Consumers do not need a registry token.
 name: publish-brt-package
 
 on:
@@ -12,11 +11,10 @@ on:
       ref:
         description: "branch/sha to publish brt from"
         required: false
-        default: fork-botpress-deps
+        default: main
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publish:
@@ -33,7 +31,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
+          registry-url: "https://registry.npmjs.org"
           scope: "@holocronlab"
 
       - name: Rewrite brt local file deps to published registry versions
@@ -43,21 +41,18 @@ jobs:
 
       - name: Install and typecheck brt from registry dependencies
         working-directory: packages/brt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bun install --no-save --ignore-scripts
           bun run typecheck
 
-      - name: Publish brt to GitHub Packages (skip if this version is already published)
+      - name: Publish brt publicly to npmjs (skip if this version is already published)
         working-directory: packages/brt
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/brt@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/brt@$VER already published — skipping (immutable registry)."
           else
-            npm publish
+            npm publish --access public
           fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

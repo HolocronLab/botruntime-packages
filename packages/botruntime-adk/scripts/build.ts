@@ -10,6 +10,9 @@ const pkg = JSON.parse(readFileSync(path.join(import.meta.dir, '..', 'package.js
   version: string
   dependencies?: Record<string, string>
 }
+const brtPkg = JSON.parse(readFileSync(path.join(import.meta.dir, '..', '..', 'brt', 'package.json'), 'utf-8')) as {
+  version: string
+}
 
 // Keep every declared runtime dependency external — this is a first-party-source
 // bundle (same-package .ts files are bundled together), not a vendored bundle of
@@ -28,7 +31,7 @@ const entrypoints = [
 // ambient consts in generators/utils.ts, commands/bp-cli.ts, agent0/runtime/process.ts.
 const define: Record<string, string> = {
   __RUNTIME_VERSION__: JSON.stringify(pkg.version),
-  __BP_CLI_VERSION__: JSON.stringify(pkg.dependencies?.['@holocronlab/brt']?.replace(/^[\^~]/, '') ?? '0.2.0'),
+  __BP_CLI_VERSION__: JSON.stringify(brtPkg.version),
   __OPENCODE_VERSION__: JSON.stringify(pkg.dependencies?.['opencode-ai'] ?? '1.15.10'),
 }
 

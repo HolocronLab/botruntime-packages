@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publish:
@@ -27,13 +26,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
+          registry-url: "https://registry.npmjs.org"
           scope: "@holocronlab"
 
       - name: Regenerate, test, and build botruntime-client
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bash scripts/regen.sh
           cd packages/botruntime-client
@@ -43,18 +39,16 @@ jobs:
       - name: Publish botruntime-client
         working-directory: packages/botruntime-client
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/botruntime-client@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/botruntime-client@$VER already published — skipping."
           else
-            npm publish
+            npm publish --access public
           fi
 
       - name: Wait until botruntime-client is installable
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="$(node -p "require('./packages/botruntime-client/package.json').version")"
           for attempt in $(seq 1 12); do
@@ -69,9 +63,6 @@ jobs:
           done
 
       - name: Resolve, test, and build botruntime-sdk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-sdk --write
           mv packages/botruntime-sdk/bun.lock "$RUNNER_TEMP/botruntime-sdk.source.bun.lock"
@@ -84,18 +75,16 @@ jobs:
       - name: Publish botruntime-sdk
         working-directory: packages/botruntime-sdk
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/botruntime-sdk@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/botruntime-sdk@$VER already published — skipping."
           else
-            npm publish
+            npm publish --access public
           fi
 
       - name: Wait until botruntime-sdk is installable
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="$(node -p "require('./packages/botruntime-sdk/package.json').version")"
           for attempt in $(seq 1 12); do
@@ -110,9 +99,6 @@ jobs:
           done
 
       - name: Resolve, test, and build botruntime-evals
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --write
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
@@ -125,18 +111,16 @@ jobs:
       - name: Publish botruntime-evals
         working-directory: packages/botruntime-evals
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/botruntime-evals@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/botruntime-evals@$VER already published — skipping."
           else
-            npm publish
+            npm publish --access public
           fi
 
       - name: Wait until botruntime-evals is installable
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="$(node -p "require('./packages/botruntime-evals/package.json').version")"
           for attempt in $(seq 1 12); do
@@ -151,9 +135,6 @@ jobs:
           done
 
       - name: Resolve, test, and build botruntime-runtime
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
@@ -166,18 +147,16 @@ jobs:
       - name: Publish botruntime-runtime
         working-directory: packages/botruntime-runtime
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/botruntime-runtime@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/botruntime-runtime@$VER already published — skipping."
           else
-            npm publish
+            npm publish --access public
           fi
 
       - name: Wait until botruntime-runtime is installable
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="$(node -p "require('./packages/botruntime-runtime/package.json').version")"
           for attempt in $(seq 1 12); do
@@ -192,9 +171,6 @@ jobs:
           done
 
       - name: Resolve, test, and build botruntime-adk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
@@ -207,11 +183,11 @@ jobs:
       - name: Publish botruntime-adk
         working-directory: packages/botruntime-adk
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/botruntime-adk@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/botruntime-adk@$VER already published — skipping."
           else
-            npm publish
+            npm publish --access public
           fi

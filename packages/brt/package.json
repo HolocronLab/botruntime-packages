@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/brt",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "private": false,
   "description": "brt — botruntime CLI. Full fork of @botpress/cli (MIT), rebranded and repointed at our cloudapi (botruntime.ru). Keeps the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow against our host.",
   "license": "MIT",
@@ -16,7 +16,8 @@
     "README.md"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "repository": {
     "type": "git",

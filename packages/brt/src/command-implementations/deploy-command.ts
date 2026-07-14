@@ -16,6 +16,7 @@ import type commandDefinitions from '../command-definitions'
 import type { CommandArgv } from '../typings'
 import * as declaredCommands from '../declared-commands'
 import * as errors from '../errors'
+import { pendingIntegrationRegistrationCommands } from '../integration-guidance'
 import * as tableSync from '../adk-table-sync'
 import * as tables from '../tables'
 import * as utils from '../utils'
@@ -795,6 +796,9 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
   private async _deployAdkBundle(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
+    // Load and validate recurring metadata before provisioning. The server
+    // synchronizes these durable schedules atomically with the deployed bot.
+    const recurringEvents = await adkBundle.loadAgentRecurringEvents(dir)
     const usesLocalTarget = Boolean(this.argv.local)
     // Target files are environment-isolated. A local deploy never reads or
     // writes agent.json; a production deploy never lets agent.local.json
@@ -1035,7 +1039,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // and gates owner|admin; the CLI no longer reads the per-bot key to deploy.
     const bot = new CloudapiClient(apiUrl, profile.token)
     cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId} (workspace ${workspaceId})`)
-    await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId)
+    await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId, recurringEvents)
 
     // 4. verify round-trip by sha256 (length alone would pass on a corrupt/raced copy)
     const internalToken = profile.internalToken
@@ -1067,7 +1071,14 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     this._writeAdkLastDeploy(dir, { botId, sha256: localHash, at: new Date().toISOString() })
 
     cloudInfo('deploy OK.')
-    cloudInfo('next: brt integrations install <name@version> --config-stdin   then   brt integrations register <webhookId>')
+    try {
+      const { installations } = await bot.listWorkspaceIntegrations(workspaceId, botId)
+      for (const command of pendingIntegrationRegistrationCommands(installations)) {
+        cloudInfo(`next: ${command}`)
+      }
+    } catch (thrown) {
+      cloudWarn(`integration registration status unavailable: ${thrown instanceof Error ? thrown.message : String(thrown)}`)
+    }
   }
 
   // _syncAdkTables — full, unconditional schema sync (Botpress parity) through

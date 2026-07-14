@@ -137,6 +137,18 @@
       ]
     },
     {
+      "path": "check",
+      "aliases": [],
+      "options": [
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
       "path": "config list",
       "aliases": [
         "ls"

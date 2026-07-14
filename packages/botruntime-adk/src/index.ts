@@ -97,6 +97,7 @@ export type {
 
 // Agent Init API
 export { AgentProjectGenerator } from './agent-init/index.js'
+export { BRT_COMPATIBILITY_RANGE } from './compatibility.js'
 export type { TemplateConfig, TemplateRegistry } from './agent-init/index.js'
 
 // Integration Management API

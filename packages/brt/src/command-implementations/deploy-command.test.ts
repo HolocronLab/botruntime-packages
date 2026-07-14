@@ -68,6 +68,8 @@ describe('DeployCommand ADK watch routing', () => {
 
   beforeEach(() => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-deploy-watch-'))
+    vi.spyOn(adkBundle, 'loadAgentRecurringEvents').mockResolvedValue({})
+    vi.spyOn(CloudapiClient.prototype, 'listWorkspaceIntegrations').mockResolvedValue({ installations: [] })
     vi.spyOn(adkBundle, 'loadAdkMigrationTools').mockResolvedValue({
       migrateFromConfig: vi.fn(async () => ({
         migrated: [],
@@ -355,7 +357,7 @@ describe('DeployCommand ADK watch routing', () => {
       {
         baseUrl: 'https://profile.example',
         apiKey: 'profile_pat',
-        args: ['42', '42', 'canonical bundle', [], 'ws_profile'],
+        args: ['42', '42', 'canonical bundle', [], 'ws_profile', {}],
       },
     ])
     expect(JSON.stringify(puts)).not.toContain('999')
@@ -485,7 +487,7 @@ describe('DeployCommand ADK watch routing', () => {
     await (command as any)._deployAdkBundle()
 
     expect(provisionSpy).not.toHaveBeenCalled()
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'argv-only bundle', [], 'ws_profile')
+    expect(putSpy).toHaveBeenCalledWith('42', '42', 'argv-only bundle', [], 'ws_profile', {})
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
     expect(fs.existsSync(path.join(workDir, 'agent.local.json'))).toBe(false)
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
@@ -610,7 +612,7 @@ describe('DeployCommand ADK watch routing', () => {
     await (command as any)._deployAdkBundle()
 
     expect(buildSpy).not.toHaveBeenCalled()
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'trusted override bundle', [], 'ws_profile')
+    expect(putSpy).toHaveBeenCalledWith('42', '42', 'trusted override bundle', [], 'ws_profile', {})
     expect(stderr.mock.calls.flat().join(' ')).toMatch(/provenance.*bypass|explicitly trusted/i)
     expect(fs.existsSync(`${overridePath}.provenance.json`)).toBe(false)
   })
@@ -706,7 +708,7 @@ describe('DeployCommand ADK watch routing', () => {
 
     await (command as any)._deployAdkBundle()
 
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'verified override bundle', [], 'ws_profile')
+    expect(putSpy).toHaveBeenCalledWith('42', '42', 'verified override bundle', [], 'ws_profile', {})
   })
 
   it('normal ADK build writes exact target provenance before upload without secrets', async () => {
@@ -829,7 +831,7 @@ describe('DeployCommand ADK watch routing', () => {
     await (command as any)._deployAdkBundle()
 
     expect(validateSpy).toHaveBeenCalledOnce()
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'verified bytes', [], 'ws_profile')
+    expect(putSpy).toHaveBeenCalledWith('42', '42', 'verified bytes', [], 'ws_profile', {})
     expect(fs.readFileSync(bundlePath, 'utf8')).toBe('raced replacement')
   })
 
@@ -894,7 +896,7 @@ describe('DeployCommand ADK watch routing', () => {
       {
         baseUrl: 'https://profile.example',
         apiKey: 'profile_pat',
-        args: ['42', '42', 'legacy bundle', [], '7'],
+        args: ['42', '42', 'legacy bundle', [], '7', {}],
       },
     ])
     expect(JSON.parse(fs.readFileSync(path.join(workDir, 'agent.json'), 'utf8'))).toEqual({
@@ -1014,7 +1016,7 @@ describe('DeployCommand ADK watch routing', () => {
       {
         baseUrl: 'http://local.example',
         apiKey: 'local_profile_pat',
-        args: ['202', '202', 'local bundle', [], 'ws_local'],
+        args: ['202', '202', 'local bundle', [], 'ws_local', {}],
       },
     ])
     expect(fs.readFileSync(path.join(workDir, 'agent.json'), 'utf8')).toBe(prodBytes)
@@ -1070,7 +1072,7 @@ describe('DeployCommand ADK watch routing', () => {
       {
         baseUrl: 'http://local.example',
         apiKey: 'local_profile_pat',
-        args: ['202', '202', 'fresh local bundle', [], '8'],
+        args: ['202', '202', 'fresh local bundle', [], '8', {}],
       },
     ])
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)

@@ -131,6 +131,7 @@ describe('AgentProject config target credential authority', () => {
 
   beforeEach(() => {
     projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'adk-config-target-authority-'))
+    fs.mkdirSync(path.join(projectPath, 'src'))
     fs.writeFileSync(path.join(projectPath, 'agent.config.ts'), 'export default { name: "authority-fixture" }')
     fs.writeFileSync(
       path.join(projectPath, 'agent.json'),

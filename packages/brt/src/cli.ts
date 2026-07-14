@@ -8,6 +8,7 @@ import * as tree from './command-tree'
 import * as errors from './errors'
 import { Logger } from './logger'
 import { registerYargs } from './register-yargs'
+import { CLI_VERSION } from './cli-version'
 
 const cli = yargs(hideBin(process.argv))
 
@@ -39,7 +40,7 @@ const commands = tree.zipTree(commandDefinitions, commandImplementations)
 registerYargs(cli, commands)
 
 void cli
-  .version()
+  .version(CLI_VERSION)
   .scriptName('brt')
   .demandCommand(1, "You didn't provide any command. Use the --help flag to see the list of available commands.")
   .recommendCommands()

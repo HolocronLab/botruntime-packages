@@ -3,6 +3,7 @@ import { GENERATED_HEADER, INDEX_FILE } from '../../consts'
 import { zuiSchemaToTypeScriptType, stringifySingleLine } from '../../generators'
 import { Module, ReExportTypeModule } from '../../module'
 import * as strings from '../../strings'
+import { normalizeCreation } from '../../creation-normalization'
 
 class MessageModule extends Module {
   public constructor(
@@ -52,7 +53,7 @@ class ChannelModule extends Module {
 
     const conversation = {
       tags: this._channel.conversation?.tags ?? {},
-      creation: this._channel.conversation?.creation ?? { enabled: false, requiredTags: [] },
+      creation: normalizeCreation(this._channel.conversation?.creation),
     }
 
     const message = {

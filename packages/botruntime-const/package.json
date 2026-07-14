@@ -2,7 +2,8 @@
   "name": "@holocronlab/botruntime-const",
   "version": "0.1.1",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "description": "Resource-id prefix map, branded id types, and limit configs used by botruntime (e.g. bot_, kb_, FileId, limitConfigs).",
   "main": "./dist/index.js",

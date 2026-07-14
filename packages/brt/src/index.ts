@@ -52,6 +52,7 @@ export default {
   add: commandImplementations.add,
   remove: commandImplementations.remove,
   dev: commandImplementations.dev,
+  check: commandImplementations.check,
   lint: commandImplementations.lint,
   chat: commandImplementations.chat,
   profiles: {

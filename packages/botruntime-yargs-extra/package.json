@@ -3,7 +3,8 @@
   "description": "Utils functions that leverage yargs.",
   "version": "0.0.21",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "author": "HolocronLab",
   "type": "commonjs",

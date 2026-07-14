@@ -1,7 +1,7 @@
 {
   "name": "@holocronlab/botruntime-adk",
   "description": "Core ADK library for building AI agents on botruntime.",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "type": "module",
   "source": "./src/index.ts",
   "main": "./dist/index.js",
@@ -31,7 +31,8 @@
     "README.md"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "scripts": {
     "build": "bun run clean && bun run build:types && bun run build:chat-bundle && bun run build:js",
@@ -52,7 +53,6 @@
     "@holocronlab/botruntime-zui": "^2.3.0",
     "@holocronlab/botruntime-jex": "file:../botruntime-jex",
     "@holocronlab/botruntime-analytics": "file:../botruntime-analytics",
-    "@holocronlab/brt": "^0.2.0",
     "@parcel/watcher": "^2.5.1",
     "debug": "^4.4.3",
     "dedent": "^1.7.1",

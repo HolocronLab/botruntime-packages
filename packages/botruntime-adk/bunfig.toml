@@ -1,2 +1,2 @@
-[install.scopes]
-"@holocronlab" = { token = "$GITHUB_TOKEN", url = "https://npm.pkg.github.com/" }
+[install]
+registry = "https://registry.npmjs.org"

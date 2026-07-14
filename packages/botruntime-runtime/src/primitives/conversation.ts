@@ -188,6 +188,7 @@ export namespace Typings {
     conversation: {
       readonly channel: Channels
       readonly id: string
+      tags: Record<string, string | undefined>
       send: (message: { type: string; payload?: unknown }) => Promise<void>
       startTyping: () => Promise<void>
       stopTyping: () => Promise<void>

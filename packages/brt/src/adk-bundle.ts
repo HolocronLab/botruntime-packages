@@ -8,6 +8,8 @@ import type * as adkLib from '@holocronlab/botruntime-adk'
 import type * as adkDependenciesLib from '@holocronlab/botruntime-adk/dependencies'
 import { cloudInfo } from './cloud-io'
 import * as errors from './errors'
+import { assertAdkCompatibility } from './adk-compatibility'
+import { CLI_VERSION } from './cli-version'
 
 // brt deploy --adk — build path for ADK "agent" projects (manifest:
 // agent.config.ts). Ф1: brt is now the SINGLE binary. It no longer shells out
@@ -55,6 +57,50 @@ export const AGENT_CONFIG_FILE = 'agent.config.ts'
 
 // Where the library generates the synthetic classic bot.
 export const AGENT_BOT_REL_PATH = path.join('.adk', 'bot')
+
+type WorkflowScheduleProject = {
+  workflows: Array<{
+    definition: {
+      name: string
+      schedule?: string
+      input?: { required?: string[]; type?: unknown }
+    }
+  }>
+}
+
+export interface RecurringEventManifestEntry {
+  type: 'workflowSchedule'
+  schedule: { cron: string }
+  payload: { workflow: string }
+}
+
+export type RecurringEventsManifest = Record<string, RecurringEventManifestEntry>
+
+export function buildRecurringEventsManifest(project: WorkflowScheduleProject): RecurringEventsManifest {
+  const manifest: RecurringEventsManifest = {}
+  for (const { definition } of project.workflows) {
+    if (!definition.schedule) continue
+    const required = definition.input?.required ?? []
+    if (required.length > 0) {
+      throw new errors.BotpressCLIError(
+        `Scheduled workflow "${definition.name}" receives input {} but its input schema requires: ${required.join(', ')}`
+      )
+    }
+    const eventName = `${definition.name}Schedule`.replaceAll(/[^a-zA-Z0-9]/g, '').toLowerCase()
+    manifest[eventName] = {
+      type: 'workflowSchedule',
+      schedule: { cron: definition.schedule },
+      payload: { workflow: definition.name },
+    }
+  }
+  return manifest
+}
+
+export async function loadAgentRecurringEvents(dir: string): Promise<RecurringEventsManifest> {
+  const { AgentProject } = await loadAdkProjectTools()
+  const project = await AgentProject.load(dir, { offline: true, noCache: true })
+  return buildRecurringEventsManifest(project)
+}
 
 // Where brt's native build drops the generated bot's single-file CJS bundle,
 // most-specific first. .adk/bot/.botpress/dist/index.cjs is what BuildCommand
@@ -164,7 +210,9 @@ export type AgentBotGenerationOptions = {
 async function loadAdkModule(): Promise<typeof adkLib> {
   const bun = (globalThis as unknown as { Bun: { resolveSync(id: string, parent: string): string } }).Bun
   const adkEntry = bun.resolveSync('@holocronlab/botruntime-adk', (import.meta as unknown as { dir: string }).dir)
-  return (await import(adkEntry)) as typeof adkLib
+  const loaded = (await import(adkEntry)) as typeof adkLib
+  assertAdkCompatibility(CLI_VERSION, loaded.BRT_COMPATIBILITY_RANGE)
+  return loaded
 }
 
 // loadAdkTableManager exposes just the two ADK exports the table-sync step
@@ -184,6 +232,20 @@ export async function loadAdkTableManager(): Promise<{
 }> {
   const { AgentProject, TableManager } = await loadAdkModule()
   return { AgentProject, TableManager }
+}
+
+export async function loadAdkProjectTools(): Promise<{
+  AgentProject: typeof adkLib.AgentProject
+}> {
+  const { AgentProject } = await loadAdkModule()
+  return { AgentProject }
+}
+
+export async function loadAdkProjectInitializer(): Promise<{
+  AgentProjectGenerator: typeof adkLib.AgentProjectGenerator
+}> {
+  const { AgentProjectGenerator } = await loadAdkModule()
+  return { AgentProjectGenerator }
 }
 
 export async function loadAdkDependencyTools(): Promise<

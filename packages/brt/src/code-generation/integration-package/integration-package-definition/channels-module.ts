@@ -4,6 +4,7 @@ import * as gen from '../../generators'
 import { Module, ReExportVariableModule } from '../../module'
 import * as strings from '../../strings'
 import * as types from './typings'
+import { normalizeCreation } from '../../creation-normalization'
 
 class MessageModule extends Module {
   public constructor(
@@ -60,7 +61,7 @@ class ChannelModule extends Module {
 
     const conversation = {
       tags: this._channel.conversation?.tags ?? {},
-      creation: this._channel.conversation?.creation ?? { enabled: false, requiredTags: [] },
+      creation: normalizeCreation(this._channel.conversation?.creation),
     }
 
     const message = {
