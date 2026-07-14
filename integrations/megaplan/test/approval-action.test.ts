@@ -171,7 +171,7 @@ test('create negotiation action reuses a task found by its deterministic operati
       client: {
         getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
         setState: async () => ({}),
-        getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }),
+        getFile: async () => { throw new Error('source file expired') },
       },
     } as any)
     expect(output).toEqual({ taskId: 'T-existing', itemId: undefined, versionId: undefined })
@@ -229,7 +229,7 @@ test('approval recovery marker distinguishes changed task statements', async () 
   }
 })
 
-test('create negotiation action rejects unsafe URLs returned for a Botruntime file before network access', async () => {
+test('create negotiation action rejects unsafe URLs returned for a Botruntime file before source access', async () => {
   const originalFetch = globalThis.fetch
   const originalApiUrl = process.env.BP_API_URL
   const originalPublicBase = process.env.CLOUDAPI_PUBLIC_BASE_URL
@@ -237,10 +237,14 @@ test('create negotiation action rejects unsafe URLs returned for a Botruntime fi
 
   process.env.BP_API_URL = 'https://runtime.local'
   delete process.env.CLOUDAPI_PUBLIC_BASE_URL
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    if (new URL(request.url).pathname === '/api/v3/task' && request.method === 'GET') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [] })
+    }
     calls++
     return new Response('must not be called')
-  }) as unknown as typeof fetch
+  }) as typeof fetch
 
   try {
     await expect(createNegotiationTask({
@@ -252,7 +256,11 @@ test('create negotiation action rejects unsafe URLs returned for a Botruntime fi
         name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
         materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: 'a'.repeat(64),
       },
-      client: { getFile: async () => ({ file: { id: 'BF-source-1', url: 'file:///etc/passwd' } }) },
+      client: {
+        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        setState: async () => ({}),
+        getFile: async () => ({ file: { id: 'BF-source-1', url: 'file:///etc/passwd' } }),
+      },
     } as any)).rejects.toThrow(/safe HTTP URL/i)
     expect(calls).toBe(0)
   } finally {
@@ -264,9 +272,13 @@ test('create negotiation action rejects unsafe URLs returned for a Botruntime fi
 
 test('create negotiation action rejects oversized Botruntime materials before buffering them', async () => {
   const originalFetch = globalThis.fetch
-  globalThis.fetch = (async () => new Response('x', {
-    headers: { 'content-length': String((20 << 20) + 1) },
-  })) as unknown as typeof fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    if (new URL(request.url).pathname === '/api/v3/task' && request.method === 'GET') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [] })
+    }
+    return new Response('x', { headers: { 'content-length': String((20 << 20) + 1) } })
+  }) as typeof fetch
 
   try {
     await expect(createNegotiationTask({
@@ -278,7 +290,11 @@ test('create negotiation action rejects oversized Botruntime materials before bu
         name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
         materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: 'a'.repeat(64),
       },
-      client: { getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }) },
+      client: {
+        getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+        setState: async () => ({}),
+        getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }),
+      },
     } as any)).rejects.toThrow(/exceeds.*20 MiB/i)
   } finally {
     globalThis.fetch = originalFetch
@@ -349,7 +365,7 @@ test('approved document is copied without leaking credentials and returns a stab
     } as any)
     expect(output).toMatchObject({
       status: 'approved',
-      fileUrl: 'https://storage.example/temporary-download',
+      fileUrl: 'https://runtime.local/v1/files/download?key=megaplan%2Fapprovals%2FT1%2FV2%2Fapproved.docx',
       approvedFileId: 'BF1',
       approvedFileKey: 'megaplan/approvals/T1/V2/approved.docx',
       approverVisas: [

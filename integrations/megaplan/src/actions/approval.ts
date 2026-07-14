@@ -5,6 +5,11 @@ import { buildClient, run } from './shared'
 export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
   run(async () => {
     const api = buildClient(ctx, client)
+    const operationMarker = await approvalOperationMarker(input)
+    const existing = await api.findNegotiationTask(operationMarker)
+    if (existing) {
+      return { taskId: existing.id, itemId: undefined, versionId: undefined }
+    }
     let materialUrl: string
     if (input.materialFileId) {
       const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
@@ -21,11 +26,6 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
     const actualSha256 = await sha256(material.bytes)
     if (actualSha256 !== input.materialSha256.toLowerCase()) {
       throw new Error(`megaplan: approval material SHA-256 mismatch`)
-    }
-    const operationMarker = await approvalOperationMarker(input)
-    const existing = await api.findNegotiationTask(operationMarker)
-    if (existing) {
-      return { taskId: existing.id, itemId: undefined, versionId: undefined }
     }
     const materialFile = await api.uploadFile(input.materialName, material.bytes, material.contentType)
     const task = await api.createNegotiationTask({
@@ -88,9 +88,9 @@ async function publishApprovedFile(
     body: JSON.stringify({ key, size: bytes.byteLength, contentType }),
   })
   if (!registered.ok) throw new Error(`megaplan: register approved file -> ${registered.status}`)
-  const payload = (await registered.json()) as { file?: { id?: string; key?: string; uploadUrl?: string; url?: string } }
-  if (!payload.file?.id || !payload.file.key || !payload.file.uploadUrl || !payload.file.url) {
-    throw new Error('megaplan: file store returned no stable file reference or upload/download URL')
+  const payload = (await registered.json()) as { file?: { id?: string; key?: string; uploadUrl?: string } }
+  if (!payload.file?.id || !payload.file.key || !payload.file.uploadUrl) {
+    throw new Error('megaplan: file store returned no stable file reference or upload URL')
   }
   const uploaded = await fetch(payload.file.uploadUrl, {
     method: 'PUT',
@@ -98,7 +98,10 @@ async function publishApprovedFile(
     body: bytes,
   })
   if (!uploaded.ok) throw new Error(`megaplan: upload approved file -> ${uploaded.status}`)
-  return { id: payload.file.id, key: payload.file.key, url: payload.file.url }
+  const downloadBase = process.env.CLOUDAPI_PUBLIC_BASE_URL?.replace(/\/+$/, '') || base
+  const downloadUrl = new URL('/v1/files/download', `${downloadBase}/`)
+  downloadUrl.searchParams.set('key', payload.file.key)
+  return { id: payload.file.id, key: payload.file.key, url: downloadUrl.toString() }
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {

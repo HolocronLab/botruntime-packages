@@ -29,52 +29,66 @@ function cloudApi(): CloudApi {
 
 export type TelegramDocument = string | { source: Buffer; filename: string }
 
+const MAX_TELEGRAM_DOCUMENT_BYTES = 20 << 20
+
 // Telegram's servers cannot fetch our protected file-store URLs because they do not have the
 // runtime bearer token. Fetch only URLs owned by this Botruntime deployment here, then hand the
 // bytes to Telegram. Public third-party URLs remain URLs so credentials can never cross origins.
 export async function resolveTelegramDocument(fileUrl: string, title?: string): Promise<TelegramDocument> {
   const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
   const trusted = trustedBases.some((base) => sameOrigin(fileUrl, base))
-  if (!trusted && telegramCanFetchDocument(fileUrl)) return fileUrl
+  if (!trusted) return fileUrl
 
   const headers: Record<string, string> = {}
-  if (trusted) {
-    const token = process.env.BP_TOKEN
-    const botId = process.env.BP_BOT_ID
-    if (!token || !botId) {
-      throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
-    }
-    headers.authorization = `Bearer ${token}`
-    headers['x-bot-id'] = botId
-  } else if (!isHttpUrl(fileUrl)) {
-    return fileUrl
+  const token = process.env.BP_TOKEN
+  const botId = process.env.BP_BOT_ID
+  if (!token || !botId) {
+    throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
   }
+  headers.authorization = `Bearer ${token}`
+  headers['x-bot-id'] = botId
 
   const response = await fetch(fileUrl, { headers })
   if (!response.ok) {
     throw new Error(`telegram: protected file download -> ${response.status}`)
   }
-  const source = Buffer.from(await response.arrayBuffer())
+  const source = await readDocumentCapped(response)
   if (source.byteLength === 0) {
     throw new Error('telegram: protected file download returned an empty document')
   }
   return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
 }
 
-function telegramCanFetchDocument(url: string): boolean {
+async function readDocumentCapped(response: Response): Promise<Buffer> {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_TELEGRAM_DOCUMENT_BYTES) throw documentTooLarge()
+  if (!response.body) return Buffer.alloc(0)
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
   try {
-    return /\.(gif|pdf|zip)$/i.test(new URL(url).pathname)
-  } catch {
-    return false
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > MAX_TELEGRAM_DOCUMENT_BYTES) throw documentTooLarge()
+      chunks.push(value)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
   }
+  const output = Buffer.allocUnsafe(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    output.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return output
 }
 
-function isHttpUrl(url: string): boolean {
-  try {
-    return ['http:', 'https:'].includes(new URL(url).protocol)
-  } catch {
-    return false
-  }
+function documentTooLarge(): Error {
+  return new Error('telegram: document exceeds the 20 MiB limit')
 }
 
 function sameOrigin(url: string, base: string | undefined): boolean {

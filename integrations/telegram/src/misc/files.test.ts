@@ -61,21 +61,38 @@ test('keeps an external public document as a URL and never sends Botruntime cred
   )
 })
 
-test('buffers a cross-origin DOCX without leaking Botruntime credentials', async () => {
-  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
-    expect(request.url).toBe('https://storage.example/presigned/approved.docx')
-    expect(request.headers.get('authorization')).toBeNull()
-    expect(request.headers.get('x-bot-id')).toBeNull()
-    return new Response('approved-claim')
-  }) as typeof fetch
+test('never server-fetches a cross-origin DOCX', async () => {
+  globalThis.fetch = (() => {
+    throw new Error('cross-origin documents must not be fetched by the integration')
+  }) as unknown as typeof fetch
 
-  const document = await resolveTelegramDocument(
-    'https://storage.example/presigned/approved.docx',
-    'approved.docx',
-  )
+  await expect(
+    resolveTelegramDocument('https://storage.example/presigned/approved.docx', 'approved.docx'),
+  ).resolves.toBe('https://storage.example/presigned/approved.docx')
+})
 
-  expect(document).toEqual({ source: Buffer.from('approved-claim'), filename: 'approved.docx' })
+test('rejects an oversized protected document before buffering it', async () => {
+  globalThis.fetch = (async () => new Response('x', {
+    headers: { 'content-length': String((20 << 20) + 1) },
+  })) as unknown as typeof fetch
+
+  await expect(
+    resolveTelegramDocument('https://runtime.internal/v1/files/download?key=huge.docx', 'huge.docx'),
+  ).rejects.toThrow(/exceeds.*20 MiB/i)
+})
+
+test('stops a protected document stream when it crosses the byte cap', async () => {
+  globalThis.fetch = (async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(20 << 20))
+      controller.enqueue(new Uint8Array(1))
+      controller.close()
+    },
+  }))) as unknown as typeof fetch
+
+  await expect(
+    resolveTelegramDocument('https://runtime.internal/v1/files/download?key=stream.docx', 'stream.docx'),
+  ).rejects.toThrow(/exceeds.*20 MiB/i)
 })
 
 test('fails loudly when a protected Botruntime document cannot be authenticated', async () => {

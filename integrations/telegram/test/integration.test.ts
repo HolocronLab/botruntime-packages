@@ -53,13 +53,16 @@ describe('host<->SDK envelope adapter', () => {
 
   it('re-nests the flat provider request so a real text reaches the env-configured @holocronlab/botruntime-client', async () => {
     const prev = process.env.BP_TOKEN
-    // No token -> the bundled @holocronlab/botruntime-client (self-configured from env, defaulting
-    // to OUR cloudapi at https://botruntime.ru) rejects with a real 401 from that server. Reaching
-    // THAT rejection proves the adapter bridged the envelope all the way into the real SDK ->
-    // webhook handler -> client call (not a parse/header 500 short-circuit). The call site wraps the
-    // client's raw ApiError as a RuntimeError (src/index.ts) so the SDK's handlerErrorToHttpResponse
-    // (6.13.0+) preserves the 4xx instead of reporting an unexpected 500.
+    const prevApiUrl = process.env.BP_API_URL
+    const api = Bun.serve({
+      port: 0,
+      fetch: () => Response.json({ error: 'missing or invalid Authorization bearer' }, { status: 401 }),
+    })
+    // A local deterministic 401 proves the adapter bridged the envelope all the way into the real
+    // SDK -> webhook handler -> env-configured client call, without depending on production network
+    // availability. The handler wraps the client ApiError so the SDK preserves the honest 4xx.
     delete process.env.BP_TOKEN
+    process.env.BP_API_URL = `http://127.0.0.1:${api.port}`
     try {
       const res = await call(
         'webhook_received',
@@ -70,8 +73,11 @@ describe('host<->SDK envelope adapter', () => {
       expect(res && res.status).toBe(400)
       expect(res && res.body).toMatch(/authenticat|authoriz/i)
     } finally {
+      await api.stop(true)
       if (prev === undefined) delete process.env.BP_TOKEN
       else process.env.BP_TOKEN = prev
+      if (prevApiUrl === undefined) delete process.env.BP_API_URL
+      else process.env.BP_API_URL = prevApiUrl
     }
   })
 })
