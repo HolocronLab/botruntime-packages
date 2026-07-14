@@ -7,8 +7,7 @@ import { resolveAppPath } from './paths'
 
 export type UploadInput = {
   path: string
-  fileUrl?: string
-  contentBase64?: string
+  contentBase64: string
   mimeType?: string
   overwrite?: boolean
 }
@@ -28,8 +27,9 @@ export async function createCaseFolder(
   })
 }
 
-// uploadDocument — залить документ. Источник байтов — ровно один из fileUrl /
-// contentBase64 (оба или ни одного — конфликт, fail-loud).
+// uploadDocument — залить уже авторизованные ботом байты документа. Интеграция
+// не принимает произвольный URL: динамический outbound не выражается статической
+// egress-политикой и создавал бы SSRF-поверхность.
 export async function uploadDocument(
   cfg: YadiskConfiguration,
   input: UploadInput,
@@ -80,20 +80,10 @@ export async function downloadDocument(
 }
 
 async function resolveBytes(input: UploadInput): Promise<Uint8Array> {
-  const hasUrl = Boolean(input.fileUrl)
-  const hasBase64 = Boolean(input.contentBase64)
-  if (hasUrl === hasBase64) {
-    throw new RuntimeError('uploadDocument: задайте ровно один источник — fileUrl или contentBase64')
+  if (!input.contentBase64) {
+    throw new RuntimeError('uploadDocument: задайте contentBase64')
   }
-  if (input.contentBase64) {
-    return decodeBase64(input.contentBase64)
-  }
-  // Источник тянем без авторизации: секреты (в т.ч. токен Telegram) в URL не кладём.
-  const res = await fetch(input.fileUrl as string)
-  if (!res.ok) {
-    throw new RuntimeError(`uploadDocument: источник недоступен, HTTP ${res.status}`)
-  }
-  return new Uint8Array(await res.arrayBuffer())
+  return decodeBase64(input.contentBase64)
 }
 
 async function runAction<T>(fn: () => Promise<T>): Promise<T> {

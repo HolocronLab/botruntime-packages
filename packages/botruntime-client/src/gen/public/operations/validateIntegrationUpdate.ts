@@ -334,6 +334,18 @@ export interface ValidateIntegrationUpdateRequestBody {
    */
   visibility?: "public" | "private" | "unlisted";
   layers?: string[];
+  /**
+   * Outbound host allowlist declared by the integration.
+   */
+  providerHosts?: string[];
+  /**
+   * Whether inbound webhook traffic is relayed through the platform.
+   */
+  ingressRelayed?: boolean;
+  /**
+   * Authentication mode enforced for inbound webhooks.
+   */
+  webhookAuthMode?: "shared_secret" | "provider_verified";
 }
 
 export type ValidateIntegrationUpdateInput = ValidateIntegrationUpdateRequestBody & ValidateIntegrationUpdateRequestHeaders & ValidateIntegrationUpdateRequestQuery & ValidateIntegrationUpdateRequestParams
@@ -351,7 +363,7 @@ export const parseReq = (input: ValidateIntegrationUpdateInput): ValidateIntegra
     headers: {  },
     query: {  },
     params: { 'id': input['id'] },
-    body: { 'configuration': input['configuration'], 'configurations': input['configurations'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'channels': input['channels'], 'maxExecutionTime': input['maxExecutionTime'], 'identifier': input['identifier'], 'actions': input['actions'], 'events': input['events'], 'states': input['states'], 'user': input['user'], 'entities': input['entities'], 'interfaces': input['interfaces'], 'attributes': input['attributes'], 'secrets': input['secrets'], 'code': input['code'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'url': input['url'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'] },
+    body: { 'configuration': input['configuration'], 'configurations': input['configurations'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'channels': input['channels'], 'maxExecutionTime': input['maxExecutionTime'], 'identifier': input['identifier'], 'actions': input['actions'], 'events': input['events'], 'states': input['states'], 'user': input['user'], 'entities': input['entities'], 'interfaces': input['interfaces'], 'attributes': input['attributes'], 'secrets': input['secrets'], 'code': input['code'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'url': input['url'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode'] },
   }
 }
 

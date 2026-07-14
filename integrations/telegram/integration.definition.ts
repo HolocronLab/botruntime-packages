@@ -64,6 +64,11 @@ export default new IntegrationDefinition({
   },
   actions: {},
   events: {},
+  network: {
+    providerHosts: ['api.telegram.org'],
+    ingressRelayed: true,
+    webhookAuthMode: 'shared_secret',
+  },
 
   user: {
     tags: {

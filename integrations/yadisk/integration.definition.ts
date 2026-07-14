@@ -7,10 +7,15 @@ import { configuration } from './definitions/configuration'
 export default new IntegrationDefinition({
   name: 'yadisk',
   title: 'Яндекс.Диск',
-  version: '0.1.0',
+  version: '0.2.0',
   description: 'Хранение документов дел на Яндекс.Диске: папки, загрузка, публичные ссылки.',
   readme: 'hub.md',
   icon: 'icon.svg',
   configuration,
   actions,
+  network: {
+    providerHosts: ['cloud-api.yandex.net', '*.disk.yandex.net', '*.disk.yandex.ru'],
+    ingressRelayed: false,
+    webhookAuthMode: 'shared_secret',
+  },
 })

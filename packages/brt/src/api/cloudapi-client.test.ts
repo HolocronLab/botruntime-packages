@@ -318,6 +318,7 @@ describe('CloudapiClient', () => {
     const network = {
       providerHosts: ['api.telegram.org'],
       ingressRelayed: true,
+      webhookAuthMode: 'provider_verified' as const,
     }
 
     await client.createIntegrationDefinition('telegram', '1.0.0', {}, 'ws_123', network)
@@ -329,6 +330,7 @@ describe('CloudapiClient', () => {
       configSchema: {},
       providerHosts: ['api.telegram.org'],
       ingressRelayed: true,
+      webhookAuthMode: 'provider_verified',
     })
     expect(JSON.parse(calls[1]!.init.body as string)).toEqual({
       name: 'telegram',
@@ -336,6 +338,7 @@ describe('CloudapiClient', () => {
       configSchema: {},
       providerHosts: ['api.telegram.org'],
       ingressRelayed: true,
+      webhookAuthMode: 'provider_verified',
     })
   })
 
@@ -383,7 +386,7 @@ describe('CloudapiClient', () => {
     }
   })
 
-  it('create/updateIntegrationDefinition omit egress network policy when none is passed', async () => {
+  it('create/updateIntegrationDefinition send secure defaults when network policy is omitted', async () => {
     stubFetch(
       () =>
         new Response(
@@ -404,8 +407,11 @@ describe('CloudapiClient', () => {
 
     for (const call of calls) {
       const body = JSON.parse(call.init.body as string)
-      expect(body).not.toHaveProperty('providerHosts')
-      expect(body).not.toHaveProperty('ingressRelayed')
+      expect(body).toMatchObject({
+        providerHosts: [],
+        ingressRelayed: false,
+        webhookAuthMode: 'shared_secret',
+      })
     }
   })
 

@@ -29,10 +29,10 @@ docx — претензии/иски) на Яндекс.Диске и возвр
 
 - `createCaseFolder({ path })` → `{ diskPath }` — идемпотентно создаёт папку дела и
   предков. Существующая папка (409) — не ошибка.
-- `uploadDocument({ path, fileUrl | contentBase64, mimeType?, overwrite? })` →
-  `{ diskPath }` — заливает документ (двухшаговый upload Диска). Источник байтов —
-  ровно один из `fileUrl` (тянем без авторизации, токены в URL не кладём) или
-  `contentBase64`.
+- `uploadDocument({ path, contentBase64, mimeType?, overwrite? })` →
+  `{ diskPath }` — заливает уже авторизованные ботом байты (двухшаговый upload
+  Диска). Произвольные URL не принимаются: бот скачивает файл через свой
+  авторизованный files API и передаёт содержимое в base64.
 - `getLink({ path })` → `{ publicUrl, diskPath }` — публикует ресурс и возвращает
   публичную ссылку (`https://yadi.sk/d/...`) и web deep-link в Диск фирмы
   (`disk:/Приложения/...`). Если после публикации ссылка не появилась, action
