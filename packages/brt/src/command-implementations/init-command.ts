@@ -9,6 +9,7 @@ import { Logger } from '../logger'
 import { ProjectTemplates } from '../project-templates'
 import * as utils from '../utils'
 import { GlobalCommand } from './global-command'
+import * as adkBundle from '../adk-bundle'
 
 const projectTypes = ['bot', 'integration', 'plugin'] as const
 type ProjectType = (typeof projectTypes)[number]
@@ -147,11 +148,22 @@ export class InitCommand extends GlobalCommand<InitCommandDefinition> {
 
   private _initBot = async (args: { workDir: string }) => {
     const { workDir } = args
-    const template = await this._getOrPromptForTemplate('bot')
-    const name = await this._getName('bot', template.defaultProjectName)
+    const requestedTemplate = this.argv.template ?? 'empty'
+    const template = requestedTemplate === 'empty' ? 'blank' : requestedTemplate
+    if (template !== 'blank' && template !== 'hello-world') {
+      throw new errors.BotpressCLIError(
+        `No bot template found for identifier "${requestedTemplate}" (available: empty, hello-world)`
+      )
+    }
+    const name = await this._getName('bot', template === 'hello-world' ? 'hello-world-bot' : 'empty-bot')
+    const destination = pathlib.join(workDir, utils.casing.to.kebabCase(name))
+    const destinationCanBeUsed = await this._checkIfDestinationCanBeUsed(destination)
+    if (!destinationCanBeUsed) throw new errors.AbortedOperationError()
+    await fs.promises.rm(destination, { recursive: true, force: true })
 
-    await this._copy({ srcDir: template.absolutePath, destDir: workDir, name, pkgJson: {} })
-    this.logger.success(`Bot project initialized in ${chalk.bold(pathlib.join(workDir, name))}`)
+    const { AgentProjectGenerator } = await adkBundle.loadAdkProjectInitializer()
+    await new AgentProjectGenerator(destination, 'bun', template).generate()
+    this.logger.success(`ADK bot project initialized in ${chalk.bold(destination)}`)
   }
 
   private _initIntegration = async (args: { workDir: string; workspaceHandle: string }) => {

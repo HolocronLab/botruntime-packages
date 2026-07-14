@@ -734,6 +734,10 @@ const lintSchema = {
   ...projectSchema,
 } satisfies CommandSchema
 
+const checkSchema = {
+  ...projectSchema,
+} satisfies CommandSchema
+
 const chatSchema = {
   ...globalSchema,
   ...credentialsSchema,
@@ -1005,6 +1009,7 @@ export const schemas = {
   add: addSchema,
   remove: removeSchema,
   dev: devSchema,
+  check: checkSchema,
   lint: lintSchema,
   chat: chatSchema,
   listProfiles: listProfilesSchema,

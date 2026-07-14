@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publish:
@@ -30,7 +29,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
+          registry-url: "https://registry.npmjs.org"
           scope: "@holocronlab"
 
       - name: Resolve local package dependencies to registry versions
@@ -40,23 +39,20 @@ jobs:
 
       - name: Install, test, and build botruntime-adk
         working-directory: packages/botruntime-adk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bun install --no-save --ignore-scripts
           bun run check:type
           bun run test
           bun run build
 
-      - name: Publish botruntime-adk to GitHub Packages
+      - name: Publish botruntime-adk publicly to npmjs
         working-directory: packages/botruntime-adk
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p "require('./package.json').version")"
           if npm view "@holocronlab/botruntime-adk@$VER" version >/dev/null 2>&1; then
             echo "@holocronlab/botruntime-adk@$VER already published — skipping (immutable registry)."
           else
-            npm publish
+            npm publish --access public
           fi

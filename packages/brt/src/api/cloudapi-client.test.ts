@@ -119,7 +119,13 @@ describe('CloudapiClient', () => {
     stubFetch(() => new Response('{}', { status: 200 }))
     const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
 
-    await client.putBundle('3', 'lawyer-bot', 'export default {}', [], 'ws_123')
+    await client.putBundle('3', 'lawyer-bot', 'export default {}', [], 'ws_123', {
+      dailyschedule: {
+        type: 'workflowSchedule',
+        schedule: { cron: '0 9 * * *' },
+        payload: { workflow: 'daily' },
+      },
+    })
 
     const [call] = calls
     expect(call!.url).toBe('https://cloud.example/v1/admin/bots/3')
@@ -128,6 +134,11 @@ describe('CloudapiClient', () => {
     expect(headers['authorization']).toBe('Bearer brt_pat_xxx')
     expect(headers['x-workspace-id']).toBe('ws_123')
     expect(headers['x-bot-id']).toBe('3')
+    expect(JSON.parse(String(call!.init.body))).toMatchObject({
+      recurringEvents: {
+        dailyschedule: { type: 'workflowSchedule', schedule: { cron: '0 9 * * *' } },
+      },
+    })
   })
 
   it('putBundle omits x-workspace-id when none is passed (legacy bot-key deploy)', async () => {
@@ -247,6 +258,31 @@ describe('CloudapiClient', () => {
     for (const call of calls) {
       expect((call.init.headers as Record<string, string>)['x-bot-id']).toBeUndefined()
     }
+  })
+
+  it('lists workspace integration registration state for post-deploy guidance', async () => {
+    stubFetch(() =>
+      Response.json({
+        installations: [
+          {
+            id: '7',
+            name: 'telegram',
+            version: '1.1.3',
+            alias: 'telegram',
+            status: 'registered',
+            webhookId: 'wh_ready',
+            registered: true,
+          },
+        ],
+      })
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await expect(client.listWorkspaceIntegrations('ws_123', '42')).resolves.toMatchObject({
+      installations: [{ webhookId: 'wh_ready', registered: true }],
+    })
+    expect(calls[0]?.url).toBe('https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations')
+    expect(calls[0]?.init.method).toBe('GET')
   })
 
   it('integration publish catalog calls send x-workspace-id under a workspace PAT', async () => {

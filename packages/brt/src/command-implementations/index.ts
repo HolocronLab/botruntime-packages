@@ -10,6 +10,7 @@ import * as bots from './bot-commands'
 import { BuildCommand } from './build-command'
 import { BundleCommand } from './bundle-command'
 import { ChatCommand } from './chat-command'
+import { CheckCommand } from './check-command'
 import * as cloudConfig from './cloud-config-commands'
 import { LinkCommand } from './cloud-link-command'
 import { DeployCommand } from './deploy-command'
@@ -89,6 +90,7 @@ export default {
   add: getHandler(AddCommand),
   remove: getHandler(RemoveCommand),
   dev: getHandler(DevCommand),
+  check: getHandler(CheckCommand),
   lint: getHandler(LintCommand),
   chat: getHandler(ChatCommand),
   profiles: {

@@ -123,6 +123,57 @@ function isBuiltinAction(name: string): boolean {
   return !!Object.values(BuiltInActions).find((x) => x.name === name)
 }
 
+const USER_PRIMITIVE_GROUPS = [
+  'conversations',
+  'knowledge',
+  'triggers',
+  'workflows',
+  'actions',
+  'tables',
+  'customComponents',
+  'tools',
+] as const
+
+async function hasDiscoverableSourceFiles(directory: string): Promise<boolean> {
+  let entries: import('fs').Dirent[]
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (await hasDiscoverableSourceFiles(entryPath)) return true
+      continue
+    }
+    if (!entry.isFile()) continue
+    if (!/\.[cm]?[jt]sx?$/.test(entry.name)) continue
+    if (/\.d\.[cm]?ts$/.test(entry.name) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) continue
+    return true
+  }
+  return false
+}
+
+function countUserPrimitives(project: AgentProject): number {
+  const record = project as unknown as Record<string, unknown>
+  return USER_PRIMITIVE_GROUPS.reduce((count, group) => {
+    const primitives = record[group]
+    if (!Array.isArray(primitives)) return count
+    return (
+      count +
+      primitives.filter(
+        (primitive) =>
+          !primitive ||
+          typeof primitive !== 'object' ||
+          (primitive as { path?: string }).path !== '<adk:builtin>'
+      ).length
+    )
+  }, 0)
+}
+
 /**
  * Generate a normalized import path for use in import statements
  * Converts Windows backslashes to forward slashes and removes .ts extension
@@ -202,7 +253,36 @@ export class BotGenerator {
     this.projectPromise ??= AgentProject.load(
       this.projectPath,
       projectLoadOptions(this.adkCommand, this.configTarget)
-    )
+    ).then(async (project) => {
+      const fatalWarningCodes = new Set(['IMPORT_ERROR', 'INVALID_PRIMITIVE_DEFINITION'])
+      const diagnostics = [
+        ...project.info.errors,
+        ...project.info.warnings.filter((warning) => fatalWarningCodes.has(warning.code)),
+      ]
+      if (diagnostics.length > 0) {
+        const lines = diagnostics.map((diagnostic) => {
+          const location = diagnostic.file ? ` (${diagnostic.file})` : ''
+          return `  - ${diagnostic.code}: ${diagnostic.message}${location}`
+        })
+        throw new AdkError({
+          code: 'PROJECT_DISCOVERY_FAILED',
+          message: `Primitive discovery failed:\n${lines.join('\n')}`,
+          expected: true,
+          details: { diagnostics },
+          suggestion: 'Fix every discovery error, then run `brt check` before building or deploying again.',
+        })
+      }
+      if ((await hasDiscoverableSourceFiles(path.join(this.projectPath, 'src'))) && countUserPrimitives(project) === 0) {
+        throw new AdkError({
+          code: 'PROJECT_DISCOVERY_EMPTY',
+          message: 'Primitive discovery found no user primitives even though the src directory contains source files.',
+          expected: true,
+          suggestion:
+            'Check primitive exports and constructor arguments, then run `brt check` before building or deploying again.',
+        })
+      }
+      return project
+    })
     return this.projectPromise
   }
 

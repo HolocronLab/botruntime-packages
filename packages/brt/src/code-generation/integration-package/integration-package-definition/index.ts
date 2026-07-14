@@ -10,6 +10,7 @@ import { EventsModule } from './events-module'
 import { InterfacesModule } from './interfaces-module'
 import { StatesModule } from './states-module'
 import * as types from './typings'
+import { normalizeCreation } from '../../creation-normalization'
 
 type IntegrationPackageModuleDependencies = {
   defaultConfigModule: DefaultConfigurationModule
@@ -96,7 +97,7 @@ export class IntegrationPackageDefinitionModule extends Module {
 
     const user = {
       tags: this._integration.user?.tags ?? {},
-      creation: this._integration.user?.creation ?? { enabled: false, requiredTags: [] },
+      creation: normalizeCreation(this._integration.user?.creation),
     }
 
     const integrationAttributes = this._integration.attributes

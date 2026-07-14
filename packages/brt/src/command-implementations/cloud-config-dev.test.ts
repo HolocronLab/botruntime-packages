@@ -96,7 +96,10 @@ describe('cloud config and secret dev routing', () => {
         const { pathname } = new URL(url)
         const method = init.method ?? 'GET'
 
-        if (method === 'GET' && pathname === `/v1/admin/bots/${PROD_BOT_ID}/logs`) {
+        if (
+          method === 'GET' &&
+          pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/logs`
+        ) {
           return Response.json({ logs: [] })
         }
 
@@ -715,13 +718,13 @@ describe('cloud config and secret dev routing', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe(
-      `${AGENT_PROD_API_URL}/v1/admin/bots/${PROD_BOT_ID}/logs?` +
+      `${AGENT_PROD_API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/logs?` +
         'timeStart=2026-07-09T00%3A00%3A00.000Z&timeEnd=2026-07-09T01%3A00%3A00.000Z'
     )
     expect(headers(calls[0]!)).toMatchObject({
       authorization: 'Bearer brt_pat_xxx',
-      'x-bot-id': PROD_BOT_ID,
     })
+    expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(fs.existsSync(path.join(workDir, 'bot.json'))).toBe(false)
   })
 })

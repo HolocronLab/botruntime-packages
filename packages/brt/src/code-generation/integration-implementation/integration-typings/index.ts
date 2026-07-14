@@ -9,6 +9,7 @@ import { ConfigurationsModule } from './configurations-module'
 import { EntitiesModule } from './entities-module'
 import { EventsModule } from './events-module'
 import { StatesModule } from './states-module'
+import { normalizeCreation } from '../../creation-normalization'
 
 type IntegrationTypingsModuleDependencies = {
   defaultConfigModule: DefaultConfigurationModule
@@ -88,7 +89,7 @@ export class IntegrationTypingsModule extends Module {
 
     const user = {
       tags: this._integration.user?.tags ?? {},
-      creation: this._integration.user?.creation ?? { enabled: false, requiredTags: [] },
+      creation: normalizeCreation(this._integration.user?.creation),
     }
 
     content += [

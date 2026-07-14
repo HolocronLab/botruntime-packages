@@ -1,0 +1,103 @@
+name: publish-all-public-packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch, tag, or SHA to publish the anonymous-consumer package catalog from"
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      # Dependency order. ADK builds before the CLI that loads it; local file:
+      # links are rewritten to immutable registry versions only after build.
+      PACKAGE_ORDER: >-
+        botruntime-analytics
+        botruntime-chat
+        botruntime-client
+        botruntime-cognitive
+        botruntime-const
+        botruntime-thicktoken
+        botruntime-zui
+        botruntime-zai
+        botruntime-evals
+        botruntime-jex
+        botruntime-llmz
+        botruntime-sdk
+        botruntime-runtime
+        botruntime-tunnel
+        botruntime-verel
+        botruntime-yargs-extra
+        botruntime-adk
+        brt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@holocronlab"
+
+      - name: Regenerate checked-in client sources
+        run: bash scripts/regen.sh
+
+      - name: Build, verify, and publish the complete public catalog
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_script_if_present() {
+            local package_dir="$1"
+            local script="$2"
+            if node -e "const p=require('./${package_dir}/package.json'); process.exit(p.scripts?.['${script}'] ? 0 : 1)"; then
+              (cd "$package_dir" && bun run "$script")
+            fi
+          }
+
+          for package in $PACKAGE_ORDER; do
+            package_dir="packages/$package"
+            echo "::group::Build and publish $package"
+
+            (cd "$package_dir" && bun install --ignore-scripts)
+            run_script_if_present "$package_dir" check:type
+            run_script_if_present "$package_dir" typecheck
+            run_script_if_present "$package_dir" test
+            run_script_if_present "$package_dir" build
+
+            node scripts/prepare-package-publish.mjs --package="$package_dir" --write
+            version="$(node -p "require('./${package_dir}/package.json').version")"
+            name="$(node -p "require('./${package_dir}/package.json').name")"
+
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version already published — skipping immutable version."
+            else
+              (cd "$package_dir" && npm publish --access public --ignore-scripts)
+            fi
+
+            for attempt in $(seq 1 12); do
+              if npm view "$name@$version" version >/dev/null 2>&1; then
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then
+                echo "$name@$version did not become anonymously installable" >&2
+                exit 1
+              fi
+              sleep 5
+            done
+            echo "::endgroup::"
+          done

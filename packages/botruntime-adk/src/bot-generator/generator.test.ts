@@ -124,6 +124,7 @@ describe('BotGenerator config target isolation', () => {
 
     const fakeProject = {
       path: projectPath,
+      info: { errors: [], warnings: [] },
       agentInfo: {
         devId: 'merged_dev_id',
         botId: 'merged_local_override_id',
@@ -214,6 +215,57 @@ describe('BotGenerator config target isolation', () => {
     vi.spyOn(BotGenerator.prototype, 'copyAssetsRuntime').mockResolvedValue(undefined)
     vi.spyOn(BotGenerator.prototype, 'emitDependencyArtifacts').mockResolvedValue(undefined)
   }
+
+  it('fails before generation when primitive discovery reports an invalid constructor', async () => {
+    projectMocks.load.mockResolvedValueOnce({
+      info: {
+        errors: [],
+        warnings: [
+          {
+            code: 'INVALID_PRIMITIVE_DEFINITION',
+            severity: 'warning',
+            message: "Invalid table name 'dailyChats'",
+            file: 'src/tables/index.ts',
+          },
+        ],
+      },
+    })
+
+    const generator = new BotGenerator({
+      projectPath,
+      outputPath,
+      adkCommand: 'adk-dev',
+      configTarget: { environment: 'dev', credentials: DEV_CONNECTION },
+    })
+
+    await expect(generator.loadProject()).rejects.toThrow(/dailyChats|primitive discovery/i)
+  })
+
+  it('fails before generation when a non-empty src tree discovers no user primitives', async () => {
+    fs.mkdirSync(path.join(projectPath, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(projectPath, 'src', 'helpers.ts'), 'export const answer = 42')
+    projectMocks.load.mockResolvedValueOnce({
+      path: projectPath,
+      info: { errors: [], warnings: [] },
+      conversations: [],
+      knowledge: [],
+      triggers: [],
+      workflows: [{ path: '<adk:builtin>' }],
+      actions: [{ path: '<adk:builtin>' }],
+      tables: [],
+      customComponents: [],
+      tools: [],
+    })
+
+    const generator = new BotGenerator({
+      projectPath,
+      outputPath,
+      adkCommand: 'adk-dev',
+      configTarget: { environment: 'dev', credentials: DEV_CONNECTION },
+    })
+
+    await expect(generator.loadProject()).rejects.toThrow(/no user primitives|empty bot/i)
+  })
 
   it('generateBotProject keeps the default generator output inside .adk/bot', async () => {
     vi.spyOn(BotGenerator.prototype, 'generate').mockImplementation(async function () {

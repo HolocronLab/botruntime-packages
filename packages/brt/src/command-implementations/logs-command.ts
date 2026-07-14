@@ -4,13 +4,9 @@ import { cloudInfo } from '../cloud-io'
 import * as errors from '../errors'
 import { CloudCommand } from './cloud-command'
 
-// brt logs — GET /v1/admin/bots/{id}/logs (bespoke cloudapi wire, admin/machine
-// key). Distinct from `brt config`/`brt secret`/`brt integrations install` —
-// those are per-bot-key operations (botCloudapiClient); logs is a machine-key
-// admin endpoint (machineCloudapiClient, same key `deploy --adk` uses to
-// provision), scoped to a bot only via the botId query/path param. botId
-// resolution still follows the shared CloudCommand convention: --bot-id
-// overrides the linked bot.json/bot.local.json.
+// brt logs — GET /v1/admin/workspaces/{workspaceId}/bots/{botId}/logs using the
+// selected workspace profile PAT. The legacy /v1/admin/bots/{id}/logs route is
+// bot-principal-only and must never receive a workspace PAT.
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const FOLLOW_POLL_MS = 5_000
@@ -38,7 +34,14 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
       let nextToken: string | undefined
       do {
         const res = await client
-          .getBotLogs(botId, { timeStart, timeEnd, level, messageContains, conversationId, nextToken })
+          .getWorkspaceBotLogs(profile.workspaceId, botId, {
+            timeStart,
+            timeEnd,
+            level,
+            messageContains,
+            conversationId,
+            nextToken,
+          })
           .catch((thrown) => {
             throw errors.BotpressCLIError.wrap(thrown, `could not fetch logs for bot ${botId}`)
           })

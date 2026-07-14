@@ -30,6 +30,46 @@ describe('isAgentProject', () => {
   })
 })
 
+describe('buildRecurringEventsManifest', () => {
+  it('returns no recurring events for manual workflows', () => {
+    expect(
+      adkBundle.buildRecurringEventsManifest({
+        workflows: [{ definition: { name: 'manualDigest' } }],
+      })
+    ).toEqual({})
+  })
+
+  it('maps scheduled workflows to workflowSchedule events', () => {
+    expect(
+      adkBundle.buildRecurringEventsManifest({
+        workflows: [{ definition: { name: 'Daily Digest', schedule: '0 9 * * *', input: { type: 'object' } } }],
+      })
+    ).toEqual({
+      dailydigestschedule: {
+        type: 'workflowSchedule',
+        schedule: { cron: '0 9 * * *' },
+        payload: { workflow: 'Daily Digest' },
+      },
+    })
+  })
+
+  it('rejects scheduled workflows whose input requires fields', () => {
+    expect(() =>
+      adkBundle.buildRecurringEventsManifest({
+        workflows: [
+          {
+            definition: {
+              name: 'dailyDigest',
+              schedule: '0 9 * * *',
+              input: { type: 'object', required: ['chatId'] },
+            },
+          },
+        ],
+      })
+    ).toThrow(/dailyDigest.*input.*chatId/i)
+  })
+})
+
 describe('isAgentSourceChange', () => {
   const dir = path.join(os.tmpdir(), 'brt-agent-source')
 
