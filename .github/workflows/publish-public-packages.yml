@@ -70,16 +70,22 @@ jobs:
             fi
           }
 
-          published_specs=()
           for package in $PACKAGE_ORDER; do
             package_dir="packages/$package"
-            echo "::group::Build and publish $package"
+            echo "::group::Build and verify $package"
 
             (cd "$package_dir" && bun install --ignore-scripts)
             run_script_if_present "$package_dir" check:type
             run_script_if_present "$package_dir" typecheck
             run_script_if_present "$package_dir" build
             run_script_if_present "$package_dir" test
+            echo "::endgroup::"
+          done
+
+          published_specs=()
+          for package in $PACKAGE_ORDER; do
+            package_dir="packages/$package"
+            echo "::group::Prepare and publish $package"
 
             node scripts/prepare-package-publish.mjs --package="$package_dir" --write
             version="$(node -p "require('./${package_dir}/package.json').version")"
