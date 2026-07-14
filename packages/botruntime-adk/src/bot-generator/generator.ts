@@ -2194,8 +2194,13 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
 }
 
 export async function generateBotProject(options: BotGeneratorOptions): Promise<void> {
-  const generator = new BotGenerator(options)
   const botPath = options.outputPath || path.join(options.projectPath, '.adk', 'bot')
+  // Keep one authoritative output path. BotGenerator historically defaulted to
+  // <project>/.adk while this orchestrator, dependency sync and brt all consumed
+  // <project>/.adk/bot, so generation succeeded into one tree and the caller
+  // failed looking in another. Explicit outputPath already worked; normalize the
+  // default before constructing the generator as well.
+  const generator = new BotGenerator({ ...options, outputPath: botPath })
 
   await generator.verifyServerTarget()
 
