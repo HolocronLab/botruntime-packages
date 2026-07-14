@@ -5,25 +5,28 @@ import test from "node:test";
 const expectedPolicies = [
   {
     integration: "telegram",
-    host: "api.telegram.org",
+    hosts: ["api.telegram.org"],
     ingressRelayed: true,
     webhookAuthMode: "shared_secret",
+    sdkSpec: "^6.13.3",
   },
   {
     integration: "megaplan",
-    host: "*.megaplan.ru",
+    hosts: ["*.megaplan.ru"],
     ingressRelayed: false,
     webhookAuthMode: "shared_secret",
+    sdkSpec: "6.13.3",
   },
   {
     integration: "yadisk",
-    host: "cloud-api.yandex.net",
+    hosts: ["cloud-api.yandex.net", "*.disk.yandex.net", "*.disk.yandex.ru"],
     ingressRelayed: false,
     webhookAuthMode: "shared_secret",
+    sdkSpec: "^6.13.3",
   },
 ];
 
-for (const { integration, host, ingressRelayed, webhookAuthMode } of expectedPolicies) {
+for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec } of expectedPolicies) {
   test(`${integration} declares its production network policy`, () => {
     const source = readFileSync(
       new URL(`../integrations/${integration}/integration.definition.ts`, import.meta.url),
@@ -32,8 +35,17 @@ for (const { integration, host, ingressRelayed, webhookAuthMode } of expectedPol
     const network = source.match(/\bnetwork:\s*\{(?<body>[\s\S]*?)\n\s*\},/u)?.groups?.body;
 
     assert.ok(network, `${integration} must declare network in its integration definition`);
-    assert.match(network, new RegExp(`providerHosts:\\s*\\[\\s*['\"]${host.replaceAll(".", "\\.").replace("*", "\\*")}['\"]\\s*\\]`));
+    for (const host of hosts) {
+      assert.match(network, new RegExp(`['\"]${host.replaceAll(".", "\\.").replace("*", "\\*")}['\"]`));
+    }
     assert.match(network, new RegExp(`ingressRelayed:\\s*${ingressRelayed}`));
     assert.match(network, new RegExp(`webhookAuthMode:\\s*['\"]${webhookAuthMode}['\"]`));
+
+    const packageJson = JSON.parse(
+      readFileSync(new URL(`../integrations/${integration}/package.json`, import.meta.url), "utf8"),
+    );
+    assert.equal(packageJson.dependencies["@holocronlab/botruntime-sdk"], sdkSpec);
+    const lock = readFileSync(new URL(`../integrations/${integration}/bun.lock`, import.meta.url), "utf8");
+    assert.match(lock, /@holocronlab\/botruntime-sdk@6\.13\.3/);
   });
 }

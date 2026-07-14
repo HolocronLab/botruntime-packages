@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@holocronlab/botruntime-client": "1.46.0",
-    "@holocronlab/botruntime-sdk": "6.13.0",
+    "@holocronlab/botruntime-sdk": "6.13.3",
     "@holocronlab/botruntime-zui": "2.3.0"
   },
   "devDependencies": {

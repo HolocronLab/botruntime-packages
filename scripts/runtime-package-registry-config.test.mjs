@@ -15,3 +15,14 @@ for (const packageName of ['botruntime-sdk', 'botruntime-evals', 'botruntime-run
     assert.equal(config, expectedScope)
   })
 }
+
+test('docs contract CI retains the checkout SDK until its bumped version is published', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  assert.match(workflow, /name: Build the current botruntime-sdk package/)
+  assert.match(
+    workflow,
+    /--exclude=@holocronlab\/botruntime-sdk/,
+    'BRT must not resolve the current checkout SDK from the registry during PR CI'
+  )
+})

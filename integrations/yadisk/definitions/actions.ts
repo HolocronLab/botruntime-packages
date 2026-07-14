@@ -20,12 +20,11 @@ export const actions = {
   },
   uploadDocument: {
     title: 'Загрузить документ',
-    description: 'Загружает документ (overwrite). Источник байтов — ровно один из fileUrl или contentBase64.',
+    description: 'Загружает уже авторизованные байты документа (base64, overwrite).',
     input: {
       schema: z.object({
         path: relativePath,
-        fileUrl: z.string().url().optional().describe('URL источника байтов (без секретов в URL)'),
-        contentBase64: z.string().optional().describe('Содержимое base64 (альтернатива fileUrl)'),
+        contentBase64: z.string().min(1).describe('Содержимое документа в base64'),
         mimeType: z.string().optional().describe('MIME-тип содержимого'),
         overwrite: z.boolean().default(true).describe('Перезаписать существующий файл'),
       }),

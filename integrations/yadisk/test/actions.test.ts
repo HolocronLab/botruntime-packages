@@ -9,14 +9,25 @@ const logger = { forBot: () => ({ info(msg: string) { logs.push(msg) }, warn(msg
 const cfg = { yadiskToken: 't', yadiskFolder: 'cases' }
 
 describe('uploadDocument: источник байтов', () => {
-  test('и fileUrl, и contentBase64 → fail-loud (без сети)', async () => {
-    await expect(
-      uploadDocument(cfg, { path: 'x.pdf', fileUrl: 'https://u', contentBase64: 'YQ==' }, logger),
-    ).rejects.toThrow(/ровно один/)
+  test('fileUrl отклоняется до сети: интеграция принимает только уже авторизованные байты', async () => {
+    const originalFetch = globalThis.fetch
+    let fetchCalled = false
+    globalThis.fetch = (async () => {
+      fetchCalled = true
+      throw new Error('network must not be called')
+    }) as unknown as typeof fetch
+    try {
+      await expect(uploadDocument(cfg, { path: 'x.pdf', fileUrl: 'https://u' } as any, logger)).rejects.toThrow(
+        /contentBase64/,
+      )
+      expect(fetchCalled).toBe(false)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
-  test('ни fileUrl, ни contentBase64 → fail-loud (без сети)', async () => {
-    await expect(uploadDocument(cfg, { path: 'x.pdf' }, logger)).rejects.toThrow(/ровно один/)
+  test('нет contentBase64 → fail-loud (без сети)', async () => {
+    await expect(uploadDocument(cfg, { path: 'x.pdf' } as any, logger)).rejects.toThrow(/contentBase64/)
   })
 
   test('битый contentBase64 → fail-loud до upload', async () => {
