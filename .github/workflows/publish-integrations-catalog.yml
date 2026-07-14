@@ -65,7 +65,7 @@ jobs:
           for definition in "${definitions[@]}"; do
             integration_dir="$(dirname "$definition")"
             echo "Installing $integration_dir"
-            (cd "$integration_dir" && bun --config "$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" install --frozen-lockfile --ignore-scripts)
+            (cd "$integration_dir" && bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --frozen-lockfile --ignore-scripts)
           done
 
       - name: Authenticate brt

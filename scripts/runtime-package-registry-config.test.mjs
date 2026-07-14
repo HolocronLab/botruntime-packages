@@ -45,7 +45,7 @@ test('global integration publication authenticates Bun against GitHub Packages',
   )
   assert.match(
     workflow,
-    /bun --config "\$GITHUB_WORKSPACE\/\.github\/bunfig\.github-packages\.toml" install --frozen-lockfile --ignore-scripts/,
-    'every integration install must use the authenticated scoped registry config'
+    /bun install --config="\$GITHUB_WORKSPACE\/\.github\/bunfig\.github-packages\.toml" --frozen-lockfile --ignore-scripts/,
+    'every integration install must pass the authenticated config as a Bun install option'
   )
 })
