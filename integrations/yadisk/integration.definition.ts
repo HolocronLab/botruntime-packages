@@ -7,7 +7,7 @@ import { configuration } from './definitions/configuration'
 export default new IntegrationDefinition({
   name: 'yadisk',
   title: 'Яндекс.Диск',
-  version: '0.2.0',
+  version: '0.2.1',
   description: 'Хранение документов дел на Яндекс.Диске: папки, загрузка, публичные ссылки.',
   readme: 'hub.md',
   icon: 'icon.svg',
