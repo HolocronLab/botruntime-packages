@@ -296,11 +296,10 @@ export class BotGenerator {
     // Create output directory
     await fs.mkdir(this.outputPath, { recursive: true })
 
-    // Generate bot files. The three bp_modules-gated artifacts (bot.definition.ts,
-    // integrations.ts, plugins.ts) are NOT emitted here: their existsSync gating is
+    // Generate bot files. The four bp_modules-gated artifacts (bot.definition.ts,
+    // integrations.ts, interfaces.ts, plugins.ts) are NOT emitted here: their existsSync gating is
     // only meaningful after the `bp add` syncs populate bp_modules, so they are
     // emitted exactly once, post-sync, via emitDependencyArtifacts().
-    await this.generateInterfacesDefinition()
     await this.generateIntegrationsTypes()
     await this.generatePluginsTypes()
     await this.generateInterfacesTypes()
@@ -320,8 +319,8 @@ export class BotGenerator {
   }
 
   /**
-   * Emit the three `bp_modules`-gated files (`bot.definition.ts`, `integrations.ts`,
-   * `plugins.ts`). Must run **after** the `bp add` syncs have populated `bp_modules`:
+   * Emit the four `bp_modules`-gated files (`bot.definition.ts`, `integrations.ts`,
+   * `interfaces.ts`, `plugins.ts`). Must run **after** the `bp add` syncs have populated `bp_modules`:
    * the existsSync gating in these emitters is only accurate post-sync (a clean/CI
    * build starts with an empty `bp_modules`, so a pre-sync emission would classify
    * every dependency `not_installed`). `generateBotProject` validates that every
@@ -336,6 +335,7 @@ export class BotGenerator {
     // the carriers.
     await this.generateBotDefinition()
     await this.generateIntegrationsDefinition()
+    await this.generateInterfacesDefinition()
     await this.generatePluginsDefinition()
   }
 
@@ -778,11 +778,20 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
     // Use hard-coded built-in interfaces
     const interfaces = BUILTIN_INTERFACES
 
-    // Generate imports for each interface
+    // Built-in interfaces are optional capabilities on botruntime. The catalog
+    // may not provide every Botpress compatibility interface; only import the
+    // modules that the preceding sync actually installed.
+    const moduleExists = (alias: string) =>
+      existsSync(path.join(this.outputPath, 'bp_modules', `interface_${pascalCase(alias)}`))
+
+    // Generate imports for each available interface
     const imports: string[] = []
     const interfaceDefs: string[] = []
 
     for (const alias of Object.keys(interfaces)) {
+      if (!moduleExists(alias)) {
+        continue
+      }
       const pascalAlias = pascalCase(alias)
       imports.push(`import interface_${pascalAlias} from "../bp_modules/interface_${pascalAlias}";`)
       interfaceDefs.push(`${pascalAlias}: interface_${pascalAlias}`)

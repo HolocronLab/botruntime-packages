@@ -235,6 +235,30 @@ describe('BotGenerator config target isolation', () => {
     expect(fs.existsSync(path.join(projectPath, '.adk', 'bot.definition.ts'))).toBe(false)
   })
 
+  it('emits imports only for built-in interfaces that synced into bp_modules', async () => {
+    fs.mkdirSync(path.join(outputPath, 'bp_modules', 'interface_TypingIndicator'), {
+      recursive: true,
+    })
+
+    const generator = new BotGenerator({
+      projectPath,
+      outputPath,
+      adkCommand: 'adk-dev',
+      configTarget: { environment: 'dev', credentials: DEV_CONNECTION },
+    })
+
+    await (
+      generator as unknown as {
+        generateInterfacesDefinition(): Promise<void>
+      }
+    ).generateInterfacesDefinition()
+
+    const artifact = fs.readFileSync(path.join(outputPath, 'src', 'interfaces.ts'), 'utf8')
+    expect(artifact).toContain('../bp_modules/interface_TypingIndicator')
+    expect(artifact).not.toContain('../bp_modules/interface_Llm')
+    expect(artifact).not.toContain('../bp_modules/interface_Listable')
+  })
+
   it('adk-dev embeds integration and plugin config only from the explicit dev target', async () => {
     const artifact = await generateDefinition('adk-dev', {
       environment: 'dev',
