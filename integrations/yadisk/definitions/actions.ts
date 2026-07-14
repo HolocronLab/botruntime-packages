@@ -6,8 +6,8 @@ import { z } from '@holocronlab/botruntime-sdk'
 const relativePath = z
   .string()
   .min(1)
-  .refine((v) => !/^[a-z]+:\//i.test(v), 'Путь должен быть относительным, без app:/ или disk:/')
-  .refine((v) => !v.split('/').some((s) => s.trim() === '.' || s.trim() === '..'), 'Сегменты . и .. запрещены')
+  .regex(/^(?![a-z]+:\/)/i, 'Путь должен быть относительным, без app:/ или disk:/')
+  .regex(/^(?!\s*\.\.?\s*(?:\/|$))(?!.*\/\s*\.\.?\s*(?:\/|$)).*$/, 'Сегменты . и .. запрещены')
   .describe('Путь относительно корневой папки, напр. lead-1/case-2/ddu/doc.jpg')
 const absoluteDiskPath = z.string().describe('Абсолютный путь app:/...')
 

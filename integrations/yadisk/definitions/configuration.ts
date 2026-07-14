@@ -2,8 +2,8 @@ import { z } from '@holocronlab/botruntime-sdk'
 
 const relativeFolder = z
   .string()
-  .refine((v) => v.trim() === '' || !/^[a-z]+:\//i.test(v), 'Папка должна быть относительной, без app:/ или disk:/')
-  .refine((v) => !v.split('/').some((s) => s.trim() === '.' || s.trim() === '..'), 'Сегменты . и .. запрещены')
+  .regex(/^(?!\s*[a-z]+:\/)/i, 'Папка должна быть относительной, без app:/ или disk:/')
+  .regex(/^(?!\s*\.\.?\s*(?:\/|$))(?!.*\/\s*\.\.?\s*(?:\/|$)).*$/, 'Сегменты . и .. запрещены')
 
 // Per-install конфиг. yadiskToken — .secret(): у Я.Диска нет общего вендорского
 // OAuth-приложения, токен у каждой фирмы свой → это per-install configuration,
