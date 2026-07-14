@@ -41,6 +41,16 @@ test('downloads a protected Botruntime document with runtime credentials before 
   expect(document).toEqual({ source: Buffer.from('approved-claim'), filename: 'approved.docx' })
 })
 
+test('uses the protected Botruntime file key as the Telegram filename when title is absent', async () => {
+  globalThis.fetch = (async () => new Response('approved-claim')) as unknown as typeof fetch
+
+  const document = await resolveTelegramDocument(
+    'https://botruntime.example/v1/files/download?key=cases%2F42%2Fclaim.docx',
+  )
+
+  expect(document).toEqual({ source: Buffer.from('approved-claim'), filename: 'claim.docx' })
+})
+
 test('keeps an external public document as a URL and never sends Botruntime credentials to it', async () => {
   globalThis.fetch = (() => {
     throw new Error('external URLs must be fetched by Telegram')

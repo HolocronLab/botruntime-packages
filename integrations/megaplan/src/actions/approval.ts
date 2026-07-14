@@ -113,6 +113,7 @@ async function approvalOperationMarker(input: {
   dealIds: string[]
   materialName: string
   materialSha256: string
+  statement?: string
 }): Promise<string> {
   const canonical = JSON.stringify({
     name: input.name,
@@ -121,6 +122,7 @@ async function approvalOperationMarker(input: {
     dealIds: [...input.dealIds].sort(),
     materialName: input.materialName,
     materialSha256: input.materialSha256.toLowerCase(),
+    statement: input.statement ?? '',
   })
   const digest = await sha256(new TextEncoder().encode(canonical))
   return `BF-${digest.slice(0, 20)}`

@@ -181,6 +181,54 @@ test('create negotiation action reuses a task found by its deterministic operati
   }
 })
 
+test('approval recovery marker distinguishes changed task statements', async () => {
+  const originalFetch = globalThis.fetch
+  const bytes = new TextEncoder().encode('claim-v1')
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  const markers: string[] = []
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.href === 'https://storage.example/material') return new Response(bytes)
+    if (parsed.pathname === '/api/v3/task' && request.method === 'GET') {
+      const query = JSON.parse(decodeURIComponent(parsed.search.slice(1))) as { q: string }
+      markers.push(query.q)
+      return Response.json({
+        meta: { status: 200, errors: [] },
+        data: [{ contentType: 'Task', id: `T-${markers.length}`, name: `Approval [${query.q}]`, isNegotiation: true }],
+      })
+    }
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+
+  const invoke = (statement: string) => createNegotiationTask({
+    ctx: {
+      integrationId: 'integration-1',
+      configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' },
+    },
+    input: {
+      name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
+      materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256, statement,
+    },
+    client: {
+      getOrSetState: async () => ({ state: { payload: { accessToken: 'megaplan-token' } } }),
+      setState: async () => ({}),
+      getFile: async () => ({ file: { id: 'BF-source-1', url: 'https://storage.example/material' } }),
+    },
+  } as any)
+
+  try {
+    await invoke('Проверить сумму и срок')
+    await invoke('Проверить только сумму')
+    expect(markers).toHaveLength(2)
+    expect(markers[0]).not.toBe(markers[1])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('create negotiation action rejects unsafe URLs returned for a Botruntime file before network access', async () => {
   const originalFetch = globalThis.fetch
   const originalApiUrl = process.env.BP_API_URL

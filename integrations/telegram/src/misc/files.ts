@@ -66,8 +66,12 @@ function sameOrigin(url: string, base: string | undefined): boolean {
 
 function filenameFromUrl(url: string): string {
   try {
-    const name = new URL(url).pathname.split('/').filter(Boolean).at(-1)
-    return name ? decodeURIComponent(name) : 'document'
+    const parsed = new URL(url)
+    const fileKey = parsed.searchParams.get('key')
+    const keyedName = fileKey?.split('/').filter(Boolean).at(-1)
+    if (keyedName) return keyedName
+    const pathName = parsed.pathname.split('/').filter(Boolean).at(-1)
+    return pathName ? decodeURIComponent(pathName) : 'document'
   } catch {
     return 'document'
   }
