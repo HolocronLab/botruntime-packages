@@ -57,7 +57,7 @@ jobs:
       - name: Install all integration dependencies
         shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
           definitions=(integrations/*/integration.definition.ts)
@@ -65,7 +65,7 @@ jobs:
           for definition in "${definitions[@]}"; do
             integration_dir="$(dirname "$definition")"
             echo "Installing $integration_dir"
-            (cd "$integration_dir" && bun install --frozen-lockfile --ignore-scripts)
+            (cd "$integration_dir" && bun --config "$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" install --frozen-lockfile --ignore-scripts)
           done
 
       - name: Authenticate brt
