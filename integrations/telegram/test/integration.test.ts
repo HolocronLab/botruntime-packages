@@ -28,6 +28,7 @@ describe('loader contract', () => {
   it('exports a handler function and a default with .handler (extractHandler probes both)', () => {
     expect(typeof mod.handler).toBe('function')
     expect(typeof (mod.default as { handler?: unknown }).handler).toBe('function')
+    expect((mod.default as { handler?: unknown }).handler).toBe(mod.handler)
   })
 })
 

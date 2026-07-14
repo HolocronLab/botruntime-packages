@@ -383,7 +383,7 @@ test('getNegotiationDecision reads the aggregate status and human visa from the 
     return json(
       200,
       wrap(
-        '[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","comment":"Проверено","timeCreated":"2026-07-14T09:10:11+03:00","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","comment":"Согласовано","timeCreated":"2026-07-14T10:11:12+03:00","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}}]'
+        '[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","comment":{"contentType":"Comment","id":"C1","content":"Проверено"},"timeCreated":"2026-07-14T09:10:11+03:00","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","comment":{"contentType":"Comment","id":"C2","content":"Согласовано"},"timeCreated":"2026-07-14T10:11:12+03:00","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}}]'
       )
     )
   })

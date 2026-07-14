@@ -51,5 +51,7 @@ const lambdaHandler = async (req: LambdaRequest) => {
   return sdkHandler({ ...req, headers, body })
 }
 
+Object.defineProperty(integration, 'handler', { value: lambdaHandler })
+
 export { lambdaHandler as handler }
 export default integration

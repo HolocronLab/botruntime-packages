@@ -34,17 +34,23 @@ export type TelegramDocument = string | { source: Buffer; filename: string }
 // bytes to Telegram. Public third-party URLs remain URLs so credentials can never cross origins.
 export async function resolveTelegramDocument(fileUrl: string, title?: string): Promise<TelegramDocument> {
   const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
-  if (!trustedBases.some((base) => sameOrigin(fileUrl, base))) return fileUrl
+  const trusted = trustedBases.some((base) => sameOrigin(fileUrl, base))
+  if (!trusted && telegramCanFetchDocument(fileUrl)) return fileUrl
 
-  const token = process.env.BP_TOKEN
-  const botId = process.env.BP_BOT_ID
-  if (!token || !botId) {
-    throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
+  const headers: Record<string, string> = {}
+  if (trusted) {
+    const token = process.env.BP_TOKEN
+    const botId = process.env.BP_BOT_ID
+    if (!token || !botId) {
+      throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
+    }
+    headers.authorization = `Bearer ${token}`
+    headers['x-bot-id'] = botId
+  } else if (!isHttpUrl(fileUrl)) {
+    return fileUrl
   }
 
-  const response = await fetch(fileUrl, {
-    headers: { authorization: `Bearer ${token}`, 'x-bot-id': botId },
-  })
+  const response = await fetch(fileUrl, { headers })
   if (!response.ok) {
     throw new Error(`telegram: protected file download -> ${response.status}`)
   }
@@ -53,6 +59,22 @@ export async function resolveTelegramDocument(fileUrl: string, title?: string): 
     throw new Error('telegram: protected file download returned an empty document')
   }
   return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
+}
+
+function telegramCanFetchDocument(url: string): boolean {
+  try {
+    return /\.(gif|pdf|zip)$/i.test(new URL(url).pathname)
+  } catch {
+    return false
+  }
+}
+
+function isHttpUrl(url: string): boolean {
+  try {
+    return ['http:', 'https:'].includes(new URL(url).protocol)
+  } catch {
+    return false
+  }
 }
 
 function sameOrigin(url: string, base: string | undefined): boolean {

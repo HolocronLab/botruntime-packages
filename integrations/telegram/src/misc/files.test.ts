@@ -61,6 +61,23 @@ test('keeps an external public document as a URL and never sends Botruntime cred
   )
 })
 
+test('buffers a cross-origin DOCX without leaking Botruntime credentials', async () => {
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    expect(request.url).toBe('https://storage.example/presigned/approved.docx')
+    expect(request.headers.get('authorization')).toBeNull()
+    expect(request.headers.get('x-bot-id')).toBeNull()
+    return new Response('approved-claim')
+  }) as typeof fetch
+
+  const document = await resolveTelegramDocument(
+    'https://storage.example/presigned/approved.docx',
+    'approved.docx',
+  )
+
+  expect(document).toEqual({ source: Buffer.from('approved-claim'), filename: 'approved.docx' })
+})
+
 test('fails loudly when a protected Botruntime document cannot be authenticated', async () => {
   delete process.env.BP_TOKEN
 

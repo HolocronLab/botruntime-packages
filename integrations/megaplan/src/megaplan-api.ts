@@ -426,7 +426,7 @@ export class MegaplanApiClient {
       status: visa.status,
       actorId: visa.userCreated?.id,
       actorName: visa.userCreated?.name,
-      comment: visa.comment,
+      comment: visa.comment?.content,
       timeCreated: visa.timeCreated,
     }))
     const representativeVisa = [...approverVisas].reverse().find((visa) =>

@@ -1,6 +1,11 @@
 import { expect, test } from 'bun:test'
 import definition from '../integration.definition'
+import integration, { handler } from '../src'
 import { parseEntityCommand, webhookHandler } from '../src/webhook'
+
+test('default export exposes the host envelope adapter', () => {
+  expect(integration.handler).toBe(handler)
+})
 
 test('provider command payload stays domain-neutral', () => {
   expect(
