@@ -258,8 +258,8 @@ test('approved document is copied without leaking credentials and returns a stab
           actualVersion: {
             id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/approved', name: 'approved.docx' },
             visas: [
-              { id: 'Z1', status: 'ok', userCreated: { id: 'E2', name: 'Юрист 1' } },
-              { id: 'Z2', status: 'ok', userCreated: { id: 'E3', name: 'Юрист 2' } },
+              { id: 'Z1', status: 'ok', comment: 'Проверено', timeCreated: '2026-07-14T09:10:11+03:00', userCreated: { id: 'E2', name: 'Юрист 1' } },
+              { id: 'Z2', status: 'ok', comment: 'Согласовано', timeCreated: '2026-07-14T10:11:12+03:00', userCreated: { id: 'E3', name: 'Юрист 2' } },
             ],
           },
         }],
@@ -305,8 +305,8 @@ test('approved document is copied without leaking credentials and returns a stab
       approvedFileId: 'BF1',
       approvedFileKey: 'megaplan/approvals/T1/V2/approved.docx',
       approverVisas: [
-        { id: 'Z1', status: 'ok', actorId: 'E2', actorName: 'Юрист 1' },
-        { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Юрист 2' },
+        { id: 'Z1', status: 'ok', actorId: 'E2', actorName: 'Юрист 1', comment: 'Проверено', timeCreated: '2026-07-14T09:10:11+03:00' },
+        { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Юрист 2', comment: 'Согласовано', timeCreated: '2026-07-14T10:11:12+03:00' },
       ],
       actorId: 'E3',
       actorName: 'Юрист 2',

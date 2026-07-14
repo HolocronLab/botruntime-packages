@@ -119,6 +119,8 @@ export type EmployeeRef = Ref & { name?: string }
 export type NegotiationVisa = {
   id?: string
   status?: 'ok' | 'bad' | 'not_rated'
+  comment?: string
+  timeCreated?: string
   userCreated?: EmployeeRef
 }
 export type NegotiationItemVersion = {

@@ -404,6 +404,8 @@ export class MegaplanApiClient {
       status?: 'ok' | 'bad' | 'not_rated'
       actorId?: string
       actorName?: string
+      comment?: string
+      timeCreated?: string
     }>
   }> {
     const items = await this.do<NegotiationItem[]>(
@@ -424,6 +426,8 @@ export class MegaplanApiClient {
       status: visa.status,
       actorId: visa.userCreated?.id,
       actorName: visa.userCreated?.name,
+      comment: visa.comment,
+      timeCreated: visa.timeCreated,
     }))
     const representativeVisa = [...approverVisas].reverse().find((visa) =>
       rejected ? visa.status === 'bad' : visa.status === 'ok'

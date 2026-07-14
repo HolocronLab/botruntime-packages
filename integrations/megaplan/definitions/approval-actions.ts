@@ -37,6 +37,8 @@ const getNegotiationDecisionOutput = z.object({
     status: z.enum(['ok', 'bad', 'not_rated']).optional(),
     actorId: z.string().optional(),
     actorName: z.string().optional(),
+    comment: z.string().optional().describe('Комментарий согласующего, включая причину отказа'),
+    timeCreated: z.string().optional().describe('Время создания визы по данным Megaplan'),
   })).describe('Полный список виз фактической версии'),
 })
 

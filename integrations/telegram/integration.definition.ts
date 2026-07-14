@@ -2,7 +2,7 @@ import { z, IntegrationDefinition } from '@holocronlab/botruntime-sdk'
 import typingIndicator from './bp_modules/typing-indicator'
 import { telegramMessageChannels } from './definitions/channels'
 
-// Ported from @botpresshub/telegram v1.0.9. Faithful to the donor definition: ONE channel,
+// Originally ported from @botpresshub/telegram v1.0.9. Faithful to the donor definition: ONE channel,
 // the legacy `botToken` config (we deliver the token per-install via ctx.configuration —
 // x-bp-configuration — so getStoredBotToken's legacy fallback is the live path here), the
 // `typingIndicatorEmoji` toggle, and the typing-indicator interface extension. Differences vs the
@@ -11,7 +11,7 @@ import { telegramMessageChannels } from './definitions/channels'
 //   - channels gain `contactRequest` (definitions/channels.ts) for the share-phone gap.
 export default new IntegrationDefinition({
   name: 'telegram',
-  version: '1.0.9',
+  version: '1.1.4',
   title: 'Telegram',
   description: 'Engage with your audience in real-time.',
   icon: 'icon.svg',
