@@ -7,8 +7,14 @@ import { adk } from '../library'
 import type { LifecycleState } from '../runtime/events'
 import { BUILT_IN_STATES, context, interfaceMappings, TrackedState, TrackedTags, trackPromise } from '../runtime/index'
 import { Merge } from '@holocronlab/botruntime-sdk/dist/utils/type-utils'
+import type { MessagePayloadFor, MessageTypeFor } from './conversation-message-types'
 
 type Channels = keyof ConversationDefinitions
+type ConversationMessageType<TChannel extends Channels> = MessageTypeFor<ConversationDefinitions, TChannel>
+type ConversationMessagePayload<
+  TChannel extends Channels,
+  TMessage extends ConversationMessageType<TChannel>,
+> = MessagePayloadFor<ConversationDefinitions, TChannel, TMessage>
 
 /**
  * Base class for conversation instances at runtime.
@@ -202,15 +208,15 @@ export class BaseConversationInstance<TChannel extends Channels = Channels> {
   /**
    * Send a message to this conversation
    */
-  async send<M extends keyof ConversationDefinitions[TChannel]['messages']>(message: {
+  async send<M extends ConversationMessageType<TChannel>>(message: {
     type: M
-    payload: ConversationDefinitions[TChannel]['messages'][M]
+    payload: ConversationMessagePayload<TChannel, M>
   }): Promise<
     Merge<
       Message,
       {
         type: M
-        payload: ConversationDefinitions[TChannel]['messages'][M]
+        payload: ConversationMessagePayload<TChannel, M>
       }
     >
   > {
@@ -231,13 +237,13 @@ export class BaseConversationInstance<TChannel extends Channels = Channels> {
         return (await trackPromise(
           chat.sendMessage({
             type: message.type as string,
-            payload: message.payload,
+            payload: message.payload as Record<string, unknown>,
           })
         )) as Merge<
           Message,
           {
             type: M
-            payload: ConversationDefinitions[TChannel]['messages'][M]
+            payload: ConversationMessagePayload<TChannel, M>
           }
         >
       }
@@ -256,7 +262,7 @@ export class BaseConversationInstance<TChannel extends Channels = Channels> {
         Message,
         {
           type: M
-          payload: ConversationDefinitions[TChannel]['messages'][M]
+          payload: ConversationMessagePayload<TChannel, M>
         }
       >
     } catch (err) {
