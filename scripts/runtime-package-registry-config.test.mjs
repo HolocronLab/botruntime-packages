@@ -26,3 +26,26 @@ test('docs contract CI retains the checkout SDK until its bumped version is publ
     'BRT must not resolve the current checkout SDK from the registry during PR CI'
   )
 })
+
+test('global integration publication authenticates Bun against GitHub Packages', () => {
+  const workflow = readFileSync(
+    new URL('../.github/workflows/publish-integrations-catalog.yml', import.meta.url),
+    'utf8'
+  )
+  const config = readFileSync(
+    new URL('../.github/bunfig.github-packages.toml', import.meta.url),
+    'utf8'
+  )
+
+  assert.equal(config, expectedScope)
+  assert.match(
+    workflow,
+    /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/,
+    'Bun expands $GITHUB_TOKEN from the step environment'
+  )
+  assert.match(
+    workflow,
+    /bun --config "\$GITHUB_WORKSPACE\/\.github\/bunfig\.github-packages\.toml" install --frozen-lockfile --ignore-scripts/,
+    'every integration install must use the authenticated scoped registry config'
+  )
+})
