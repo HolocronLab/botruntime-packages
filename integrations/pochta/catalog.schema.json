@@ -1,0 +1,6 @@
+{
+  "fields": {
+    "login": { "type": "string", "required": true, "secret": false },
+    "password": { "type": "string", "required": true, "secret": true }
+  }
+}
