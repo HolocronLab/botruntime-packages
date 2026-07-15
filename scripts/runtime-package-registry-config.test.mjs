@@ -126,16 +126,16 @@ test('global integration publication keeps its separate authenticated catalog re
   assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/)
 })
 
-test('the anonymous-consumer release train publishes every public package with the npm token', () => {
+test('the anonymous-consumer release train publishes every public package through OIDC', () => {
   const workflow = readFileSync(new URL('../.github/workflows/publish-public-packages.yml', import.meta.url), 'utf8')
-  assert.doesNotMatch(workflow, /id-token: write/)
+  assert.match(workflow, /id-token: write/)
   assert.match(workflow, /actions\/checkout@v6/)
   assert.match(workflow, /actions\/setup-node@v6/)
   assert.match(workflow, /node-version: ["']24["']/)
   assert.match(workflow, /package-manager-cache: false/)
+  assert.match(workflow, /npm install --global npm@11\.15\.0/)
   assert.match(workflow, /registry-url: ["']https:\/\/registry\.npmjs\.org["']/)
-  assert.match(workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/)
-  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN/)
+  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN|NODE_AUTH_TOKEN|NPM_TOKEN/)
   assert.match(workflow, /- ["']adk-v\*["']/)
   assert.match(workflow, /- ["']brt-v\*["']/)
 
