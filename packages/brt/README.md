@@ -73,14 +73,9 @@ The only functional cloud-base config is `src/consts.ts`
 mirrors the Botpress admin API, so a base-URL repoint is sufficient. Per-endpoint
 contract parity is owned by `api/` (the cloudapi server), not this CLI.
 
-## Install from GitHub Packages
+## Install from npmjs
 
 ```bash
-cat > ~/.npmrc <<'EOF'
-@holocronlab:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
-EOF
-
 bun add -g @holocronlab/brt
 brt login
 brt init my-bot && cd my-bot && brt build && brt deploy

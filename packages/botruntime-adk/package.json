@@ -45,12 +45,12 @@
     "prepublishOnly": "node -e \"['dist/index.js','dist/dependencies/index.js','dist/agent0/index.js','dist/commands/bp-cli.js'].forEach(f=>{if(!require('fs').existsSync(f)){console.error('FATAL: '+f+' missing — types-only build; run: bun run build:js');process.exit(1)}})\""
   },
   "dependencies": {
-    "@holocronlab/botruntime-sdk": "^6.13.1",
-    "@holocronlab/botruntime-client": "^1.46.0",
-    "@holocronlab/botruntime-chat": "^0.5.5",
-    "@holocronlab/botruntime-cognitive": "^0.6.1",
-    "@holocronlab/botruntime-runtime": "^2.0.2",
-    "@holocronlab/botruntime-zui": "^2.3.0",
+    "@holocronlab/botruntime-sdk": "file:../botruntime-sdk",
+    "@holocronlab/botruntime-client": "file:../botruntime-client",
+    "@holocronlab/botruntime-chat": "file:../botruntime-chat",
+    "@holocronlab/botruntime-cognitive": "file:../botruntime-cognitive",
+    "@holocronlab/botruntime-runtime": "file:../botruntime-runtime",
+    "@holocronlab/botruntime-zui": "file:../botruntime-zui",
     "@holocronlab/botruntime-jex": "file:../botruntime-jex",
     "@holocronlab/botruntime-analytics": "file:../botruntime-analytics",
     "@parcel/watcher": "^2.5.1",

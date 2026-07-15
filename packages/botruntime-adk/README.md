@@ -34,10 +34,10 @@ bun run build
 ```
 
 `prepublishOnly` verifies the required JavaScript entry points before release.
-The package is configured for GitHub Packages at `https://npm.pkg.github.com`
-and publishes `dist/`, `package.json`, and this README. The current source
-version is declared in `package.json`; a registry release should be verified in
-GitHub Packages rather than inferred from the repository alone.
+The package is published publicly through `https://registry.npmjs.org` and
+includes `dist/`, `package.json`, and this README. The current source version is
+declared in `package.json`; a registry release should be verified on npmjs
+rather than inferred from the repository alone.
 
 ## Developer documentation
 

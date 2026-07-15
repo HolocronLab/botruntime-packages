@@ -32,6 +32,21 @@ for (const packageName of ['botruntime-sdk', 'botruntime-evals', 'botruntime-run
   })
 }
 
+for (const packageName of ['botruntime-adk', 'brt']) {
+  test(`${packageName} resolves the current monorepo packages before public release`, () => {
+    const packageUrl = new URL(`../packages/${packageName}/package.json`, import.meta.url)
+    const manifest = JSON.parse(readFileSync(packageUrl, 'utf8'))
+    for (const [name, version] of Object.entries(manifest.dependencies)) {
+      if (name.startsWith('@holocronlab/')) {
+        assert.match(version, /^file:\.\.\//, `${name} must resolve from the current checkout`)
+      }
+    }
+
+    const lockfile = readFileSync(new URL(`../packages/${packageName}/bun.lock`, import.meta.url), 'utf8')
+    assert.doesNotMatch(lockfile, /npm\.pkg\.github\.com/)
+  })
+}
+
 for (const workflowName of [
   'publish-runtime-packages.yml',
   'publish-adk-package.yml',
