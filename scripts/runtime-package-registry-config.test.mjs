@@ -64,6 +64,17 @@ test('docs contract CI retains the checkout SDK until its bumped version is publ
   )
 })
 
+test('docs contract CI retains checkout analytics while building ADK', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  assert.match(workflow, /name: Build the current botruntime-adk package/)
+  assert.match(
+    workflow,
+    /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-analytics/,
+    'ADK must not resolve the current checkout analytics from the registry during PR CI'
+  )
+})
+
 test('global integration publication keeps its separate authenticated catalog registry', () => {
   const workflow = readFileSync(
     new URL('../.github/workflows/publish-integrations-catalog.yml', import.meta.url),
