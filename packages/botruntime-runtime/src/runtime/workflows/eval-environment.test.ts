@@ -44,6 +44,27 @@ describe('eval runtime environment', () => {
     })
   })
 
+  it('recognizes classic tunnel target coordinates when NODE_ENV is unset', () => {
+    expect(
+      resolveEvalExecutionEnvironment(
+        {
+          BP_API_URL: 'https://api.example',
+          BP_TOKEN: 'human-pat',
+          BP_WORKSPACE_ID: '9001',
+          BP_TARGET_BOT_ID: '42',
+        },
+        '04cc2591-b438-41b6-941c-46ae9f810eca',
+      ),
+    ).toEqual({
+      apiUrl: 'https://api.example',
+      token: 'human-pat',
+      runtimeBotId: '04cc2591-b438-41b6-941c-46ae9f810eca',
+      apiBotId: '42',
+      workspaceId: '9001',
+      development: true,
+    })
+  })
+
   it('supports BP-first ADK-compatible runtime coordinates', () => {
     expect(
       resolveEvalExecutionEnvironment(

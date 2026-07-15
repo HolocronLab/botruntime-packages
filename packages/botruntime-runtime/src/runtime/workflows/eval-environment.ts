@@ -20,9 +20,13 @@ export function resolveEvalExecutionEnvironment(
   if (!runtimeBotId)
     throw new Error('A runtime bot id is required to execute evals')
 
-  const development = env.NODE_ENV === 'development'
   const targetBotId = env.BP_TARGET_BOT_ID || env.ADK_TARGET_BOT_ID
   const workspaceId = env.BP_WORKSPACE_ID || env.ADK_WORKSPACE_ID
+  // Classic tunnel workers do not set NODE_ENV, but BRT always supplies the
+  // distinct numeric control target. Production workers never have a target
+  // override, so this coordinate is the authoritative dev marker.
+  const development =
+    env.NODE_ENV === 'development' || (env.NODE_ENV === undefined && targetBotId !== undefined)
   if (development && !targetBotId)
     throw new Error('A target bot id is required to execute development evals')
   if (development && !/^[1-9][0-9]*$/.test(targetBotId!))
