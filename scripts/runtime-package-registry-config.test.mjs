@@ -67,7 +67,11 @@ test('docs contract CI retains the checkout SDK until its bumped version is publ
 test('docs contract CI retains checkout analytics while building ADK', () => {
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
 
-  assert.match(workflow, /name: Build the current botruntime-adk package/)
+  const analyticsBuild = workflow.indexOf('name: Build the current botruntime-analytics package')
+  const adkBuild = workflow.indexOf('name: Build the current botruntime-adk package')
+
+  assert.notEqual(analyticsBuild, -1, 'CI must build the checkout analytics package before ADK')
+  assert.ok(analyticsBuild < adkBuild, 'checkout analytics must be built before ADK type-checks it')
   assert.match(
     workflow,
     /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-analytics/,
