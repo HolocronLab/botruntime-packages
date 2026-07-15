@@ -32,6 +32,7 @@ import { incrementRequestCount, getRequestMetrics } from '../../environment'
 import { WorkflowContinueEvent } from '../events'
 import { ulid } from 'ulid'
 import { getConfiguredDevRequestTimeoutMs } from '../../workers/request-timeout'
+import { runtimeClientWorkspaceId } from '../runtime-client-scope'
 
 export type { RawHttpRequest } from './http'
 
@@ -120,7 +121,7 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
           const vanillaClient = new Client({
             botId: parsed.bot.id,
-            ...(process.env.ADK_WORKSPACE_ID ? { workspaceId: process.env.ADK_WORKSPACE_ID } : {}),
+            workspaceId: runtimeClientWorkspaceId(process.env),
             headers: {
               'x-multiple-integrations': 'true',
             },

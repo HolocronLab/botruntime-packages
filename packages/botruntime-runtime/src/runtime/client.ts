@@ -1,6 +1,7 @@
 import { Client } from '@holocronlab/botruntime-client'
 import { context } from './context/context'
 import { getSingleton } from './singletons'
+import { runtimeClientWorkspaceId } from './runtime-client-scope'
 
 /**
  * Get the authenticated Botpress client.
@@ -64,12 +65,12 @@ function getStandaloneClient(): Client {
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
-    const workspaceId = process.env.ADK_WORKSPACE_ID || undefined
+    const workspaceId = runtimeClientWorkspaceId(process.env)
 
     return new Client({
       token,
       apiUrl,
-      ...(workspaceId ? { workspaceId } : {}),
+      workspaceId,
       botId,
     })
   })
