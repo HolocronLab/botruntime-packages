@@ -376,7 +376,7 @@ const cloudEvalRunsNextToken = {
 const cloudIntegrationRef = {
   type: 'string',
   description:
-    'Integration reference in name@version form; version is required and must be an exact SemVer (for example telegram@1.1.3)',
+    'Integration reference in name@version or namespace/name@version form; version is required and must be an exact SemVer (for example telegram@1.1.3 or botruntime/yookassa@0.1.0)',
   positional: true,
   idx: 0,
   demandOption: true,

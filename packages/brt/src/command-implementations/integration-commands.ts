@@ -228,7 +228,7 @@ export class DeleteIntegrationCommand extends GlobalCommand<DeleteIntegrationCom
 
 // ---------------------------------------------------------------------------
 
-const EXACT_INTEGRATION_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+const EXACT_INTEGRATION_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:-]*)?$/
 
 export function parseExactIntegrationRef(ref: string): { name: string; version: string } {
   const separator = ref.indexOf('@')
@@ -242,8 +242,8 @@ export function parseExactIntegrationRef(ref: string): { name: string; version: 
     canonicalVersion !== version
   ) {
     throw new errors.BotpressCLIError(
-      `invalid integration ref "${ref}" — expected name@version with an exact SemVer ` +
-        '(for example telegram@1.1.3); implicit, latest, and range versions are not supported'
+      `invalid integration ref "${ref}" — expected name@version or namespace/name@version with an exact SemVer ` +
+        '(for example telegram@1.1.3 or botruntime/yookassa@0.1.0); implicit, latest, and range versions are not supported'
     )
   }
   return { name, version }

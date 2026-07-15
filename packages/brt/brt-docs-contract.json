@@ -998,7 +998,7 @@
       },
       {
         "id": "explicit-integration-version",
-        "assertion": "brt integrations install requires canonical exact SemVer in name@version form",
+        "assertion": "brt integrations install requires canonical exact SemVer in name@version or namespace/name@version form",
         "documents": [
           "overview",
           "reference"
