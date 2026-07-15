@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-analytics",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Minimal fork of @botpress/analytics (MIT) — only the shared AdkError base error class used by botruntime-adk.",
   "type": "module",
   "source": "./src/index.ts",
