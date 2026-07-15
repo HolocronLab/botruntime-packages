@@ -106,7 +106,10 @@ export async function syncEvalManifest(input: {
       key: `eval-fixtures/${fixture.sha256}/${fixture.name}`,
       content: fixture.bytes,
       contentType: fixture.source.contentType,
-      accessPolicies: ['integrations'],
+      // Files are tenant-private by default. The hosted runtime reads them through
+      // the authenticated control-plane API; declaring an unenforced integration
+      // policy makes current platform versions reject the upload.
+      accessPolicies: [],
       tags: { source: 'adk', type: 'eval-fixture', schemaVersion: `${EVAL_MANIFEST_SCHEMA_VERSION}` },
       metadata: { fixtureId: fixture.id, sha256: fixture.sha256 },
     })
@@ -132,7 +135,7 @@ export async function syncEvalManifest(input: {
     key: 'evals/manifest.json',
     content,
     contentType: 'application/json',
-    accessPolicies: ['integrations'],
+    accessPolicies: [],
     tags: EVAL_MANIFEST_TAGS,
     metadata: { schemaVersion: EVAL_MANIFEST_SCHEMA_VERSION },
   })
