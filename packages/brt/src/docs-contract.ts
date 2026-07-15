@@ -119,7 +119,8 @@ const documentation: BrtDocsContract['documentation'] = {
     },
     {
       id: 'explicit-integration-version',
-      assertion: 'brt integrations install requires canonical exact SemVer in name@version form',
+      assertion:
+        'brt integrations install requires canonical exact SemVer in name@version or namespace/name@version form',
       documents: ['overview', 'reference'],
     },
     {
@@ -158,7 +159,7 @@ const documentation: BrtDocsContract['documentation'] = {
 }
 
 const exactIntegrationRefDescription =
-  'Integration reference in name@version form; version is required and must be an exact SemVer (for example telegram@1.1.3)'
+  'Integration reference in name@version or namespace/name@version form; version is required and must be an exact SemVer (for example telegram@1.1.3 or botruntime/yookassa@0.1.0)'
 
 const aliasesOf = (alias: string | string[] | undefined): string[] => {
   if (!alias) return []
@@ -245,7 +246,7 @@ export const validateDocsCriticalRequirements = (tree: DefinitionTree): void => 
   ) {
     throw new Error(
       'explicit-integration-version requires integrations install ref to be the required first positional ' +
-        'with the exact name@version SemVer schema description'
+        'with the exact name@version or namespace/name@version SemVer schema description'
     )
   }
 

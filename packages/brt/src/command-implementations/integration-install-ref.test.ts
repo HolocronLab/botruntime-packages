@@ -6,6 +6,10 @@ import { CloudIntegrationInstallCommand, parseExactIntegrationRef } from './inte
 describe('integrations install exact reference contract', () => {
   it('accepts a canonical exact SemVer and preserves it byte-for-byte', () => {
     expect(parseExactIntegrationRef('telegram@1.1.3')).toEqual({ name: 'telegram', version: '1.1.3' })
+    expect(parseExactIntegrationRef('botruntime/yookassa@0.1.0')).toEqual({
+      name: 'botruntime/yookassa',
+      version: '0.1.0',
+    })
     expect(parseExactIntegrationRef('telegram@1.2.3-beta.1')).toEqual({
       name: 'telegram',
       version: '1.2.3-beta.1',
@@ -23,10 +27,14 @@ describe('integrations install exact reference contract', () => {
     'telegram@v1.1.3',
     'telegram@1.1',
     'telegram@1.1.3@extra',
-    'telegram/private@1.1.3',
+    'botruntime/yookassa/private@1.1.3',
+    '/telegram@1.1.3',
+    'botruntime/@1.1.3',
     'telegram integration@1.1.3',
   ])('rejects non-exact integration reference %j', (ref) => {
-    expect(() => parseExactIntegrationRef(ref)).toThrow(/expected name@version with an exact SemVer/i)
+    expect(() => parseExactIntegrationRef(ref)).toThrow(
+      /expected name@version or namespace\/name@version with an exact SemVer/i
+    )
   })
 
   it.each(['telegram', 'telegram@latest', 'telegram@^1.1.0'])('fails before any network or project lookup for %j', async (ref) => {
@@ -46,14 +54,19 @@ describe('integrations install exact reference contract', () => {
       configStdin: false,
     } as any)
 
-    await expect(command.run()).rejects.toThrow(/expected name@version with an exact SemVer/i)
+    await expect(command.run()).rejects.toThrow(
+      /expected name@version or namespace\/name@version with an exact SemVer/i
+    )
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('publishes the requirement in the command schema used by help and docs', () => {
     const ref = (config.schemas.cloudIntegrationInstall as Record<string, unknown>)['ref']
     expect(ref).toMatchObject({ type: 'string', positional: true, demandOption: true })
-    expect((ref as { description: string }).description).toMatch(/name@version.*required.*exact SemVer/i)
+    expect((ref as { description: string }).description).toMatch(
+      /name@version.*namespace\/name@version.*required.*exact SemVer/i
+    )
     expect((ref as { description: string }).description).toContain('telegram@1.1.3')
+    expect((ref as { description: string }).description).toContain('botruntime/yookassa@0.1.0')
   })
 })
