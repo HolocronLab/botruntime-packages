@@ -22,6 +22,9 @@ import { adk } from '../adk'
 import { updateWorkflow } from '../../primitives/workflow-utils'
 import { Errors } from '../../errors'
 import ms from 'ms'
+import { executeWorkflowWithYieldGrace } from './workflow-execution'
+
+const WORKFLOW_ABORT_CLEANUP_GRACE_MS = 10_000
 
 export const setup = (bot: BotImplementation) => {
   // Register workflow execution handler
@@ -121,34 +124,21 @@ export const setup = (bot: BotImplementation) => {
 
           type Result = Awaited<ReturnType<typeof instance.handle>>
 
-          const result = await new Promise<Result>((resolve, reject) => {
-            const remainingTime = runtime.getRemainingExecutionTimeInMs()
-            const abortController = new AbortController()
-            let timeout = setTimeout(
-              () => {
+          const remainingTime = runtime.getRemainingExecutionTimeInMs()
+          const result = await executeWorkflowWithYieldGrace<Result>(
+            (signal) => instance.handle(signal, step),
+            {
+              abortAfterMs: Math.max(remainingTime - 15_000, 100),
+              cleanupGraceMs: WORKFLOW_ABORT_CLEANUP_GRACE_MS,
+              continuation: { status: 'continue' },
+              onAbort: () => {
                 console.warn(
                   `[workflow:${workflow.name}] sandbox time exhausted, yielding ${workflow.id} to continue in a later execution (remaining sandbox time: ${runtime.getRemainingExecutionTimeInMs()}ms)`
                 )
-                abortController.abort()
                 clearInterval(interval)
-                resolve({ status: 'continue' })
               },
-              Math.max(remainingTime - 15_000, 100)
-            )
-
-            instance
-              .handle(abortController.signal, step)
-              .then((res) => {
-                clearInterval(interval)
-                clearTimeout(timeout)
-                resolve(res)
-              })
-              .catch((err) => {
-                clearInterval(interval)
-                clearTimeout(timeout)
-                reject(err)
-              })
-          })
+            }
+          ).finally(() => clearInterval(interval))
 
           if (result.status === 'continue') {
             s.setAttribute('workflow.status.final', 'continue')
