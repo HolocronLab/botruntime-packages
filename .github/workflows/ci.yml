@@ -157,13 +157,13 @@ jobs:
       - name: Build the current botruntime-evals package
         working-directory: packages/botruntime-evals
         run: |
-          bun install --frozen-lockfile --ignore-scripts
+          bun install --no-save --ignore-scripts
           bun run build
 
       - name: Build the current botruntime-runtime package
         working-directory: packages/botruntime-runtime
         run: |
-          bun install --frozen-lockfile --ignore-scripts
+          bun install --no-save --ignore-scripts
           bun run build
 
       # Contract generation imports the complete CLI command tree. Build the

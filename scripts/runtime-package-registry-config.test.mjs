@@ -84,10 +84,14 @@ test('docs contract CI builds every bumped local package before ADK and BRT', ()
 
   const evalsBuild = workflow.indexOf('name: Build the current botruntime-evals package')
   const runtimeBuild = workflow.indexOf('name: Build the current botruntime-runtime package')
+  const analyticsBuild = workflow.indexOf('name: Build the current botruntime-analytics package')
   const adkBuild = workflow.indexOf('name: Build the current botruntime-adk package')
   const brtInstall = workflow.indexOf('name: Install brt contract-generator dependencies')
 
   assert.ok(evalsBuild >= 0 && runtimeBuild > evalsBuild && adkBuild > runtimeBuild && brtInstall > adkBuild)
+  const localReleaseBuilds = workflow.slice(evalsBuild, analyticsBuild)
+  assert.equal((localReleaseBuilds.match(/bun install --no-save --ignore-scripts/g) ?? []).length, 2)
+  assert.doesNotMatch(localReleaseBuilds, /bun install --frozen-lockfile/)
   assert.match(
     workflow,
     /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-sdk/
