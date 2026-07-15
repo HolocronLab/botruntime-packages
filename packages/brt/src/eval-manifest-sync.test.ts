@@ -44,10 +44,11 @@ describe('hosted eval manifest sync', () => {
     expect(uploads[0]).toMatchObject({
       key: expect.stringMatching(/^eval-fixtures\/[a-f0-9]{64}\/D\.pdf$/),
       contentType: 'application/pdf',
-      accessPolicies: ['integrations'],
+      accessPolicies: [],
       metadata: { fixtureId: 'ddu', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
     })
     const manifestUpload = uploads[1]!
+    expect(manifestUpload).toMatchObject({ accessPolicies: [] })
     const manifest = JSON.parse(Buffer.from(manifestUpload.content as Buffer).toString('utf8'))
     expect(manifest).toMatchObject({
       schemaVersion: 1,
