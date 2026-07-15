@@ -14,7 +14,7 @@ import { Client } from '@holocronlab/botruntime-client'
 import { context } from '../library'
 import { BuiltInActions } from './actions/index'
 import { Autonomous } from './autonomous'
-import { runtimeClientWorkspaceId } from './runtime-client-scope'
+import { runtimeClientCoordinates } from './runtime-client-scope'
 
 /**
  * Get or create a standalone cognitive client for use outside execution context
@@ -35,14 +35,13 @@ function getStandaloneCognitive(): Cognitive {
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
-    const workspaceId = runtimeClientWorkspaceId(process.env, botId)
+    const coordinates = runtimeClientCoordinates(process.env, botId)
 
     // Create a vanilla client
     const vanillaClient = new Client({
       token,
       apiUrl,
-      workspaceId,
-      botId,
+      ...coordinates,
     })
 
     // Wrap it in BotSpecificClient as required by Cognitive

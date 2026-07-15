@@ -53,6 +53,21 @@ describe('CloudapiClient', () => {
     expect(headers['content-type']).toBeUndefined()
   })
 
+  it('checks hosted eval tunnel readiness with the opaque runtime bot id', async () => {
+    stubFetch(() => new Response(JSON.stringify({ ready: true }), { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+    await client.requireEvalBotReady('runtime-bot-id')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://cloud.example/v1/evals/bot/runtime-bot-id/ready')
+    expect(calls[0]!.init.method).toBe('GET')
+    expect(calls[0]!.init.headers).toMatchObject({
+      authorization: 'Bearer my-key',
+      'x-bot-id': 'runtime-bot-id',
+    })
+  })
+
   it('sends content-type and a JSON body for PUT-with-body calls', async () => {
     stubFetch(() => new Response('{}', { status: 200 }))
     const client = new CloudapiClient('https://cloud.example', 'my-key')

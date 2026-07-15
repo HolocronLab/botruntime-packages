@@ -164,6 +164,7 @@ export class EvalRunsCommand extends EvalCloudCommand<EvalRunsCommandDefinition>
       )
     }
 
+    this.logger.debug('Resolving hosted eval target')
     const target = await this.resolveEvalTarget()
     if (runId !== undefined) {
       const detail = parseEvalRunDetail(await target.client.getEvalRun(runId, target.runtimeHeader))
@@ -228,14 +229,21 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       this.argv.type === undefined
         ? undefined
         : requireEnum(this.argv.type, ['capability', 'regression'] as const, '--type')
+    this.logger.debug('Resolving hosted eval target')
     const target = await this.resolveEvalTarget()
+    if ('runtimeBotId' in target) {
+      this.logger.debug('Checking development tunnel readiness')
+      await target.client.requireEvalBotReady(target.runtimeBotId)
+    }
+    this.logger.debug('Preparing hosted eval manifest and attachment fixtures')
     const apiBotId = target.output.environment === 'development' ? target.output.targetBotId : target.output.botId
-    await prepareHostedEvalManifest({
+    const manifest = await prepareHostedEvalManifest({
       projectDir: this.projectDir,
       botId: apiBotId,
       workspaceId: target.output.workspaceId,
       client: target.client.sdkClient(apiBotId, target.output.workspaceId),
     })
+    this.logger.debug(`Hosted eval manifest ready (${manifest.manifestFileId})`)
 
     const filter = {
       ...(name !== undefined ? { names: [name] } : {}),
@@ -245,6 +253,7 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
     const input = {
       ...(Object.keys(filter).length > 0 ? { filter } : {}),
       runType: 'manual',
+      evalManifestId: manifest.manifestFileId,
       ...(judgeModel !== undefined ? { judgeModel } : {}),
     }
     const attempts = await runWithConcurrency(
@@ -291,6 +300,7 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
     detail: EvalRunDetail
     summary: RepeatedEvalAttempt
   }> {
+    this.logger.debug('Creating hosted eval workflow')
     const created = parseWorkflowResponse(
       await target.client.createEvalWorkflow(
         {
@@ -302,6 +312,7 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
         target.runtimeHeader
       )
     )
+    this.logger.debug(`Hosted eval workflow created (${created.id})`)
 
     const deadline = Date.now() + timeout
     while (Date.now() <= deadline) {

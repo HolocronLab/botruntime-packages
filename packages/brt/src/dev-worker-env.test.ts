@@ -10,11 +10,13 @@ describe('dev worker environment', () => {
       token: 'pat-secret',
       workspaceId: '9001',
       target: { runtimeBotId: 'dev_runtime:abc', targetBotId: '42' },
+      spanIngestUrl: 'http://127.0.0.1:38123',
     })
 
     expect(env).toEqual({
       PATH: '/bin',
       NODE_ENV: 'development',
+      ADK_RUNTIME_MODE: 'development',
       BP_API_URL: 'https://api.example',
       ADK_API_URL: 'https://api.example',
       BP_TOKEN: 'pat-secret',
@@ -25,8 +27,8 @@ describe('dev worker environment', () => {
       ADK_TARGET_BOT_ID: '42',
       BP_WORKSPACE_ID: '9001',
       ADK_WORKSPACE_ID: '9001',
+      ADK_SPAN_INGEST_URL: 'http://127.0.0.1:38123',
     })
-    expect(env).not.toHaveProperty('ADK_SPAN_INGEST_URL')
   })
 
   it('fails closed for incomplete, numeric-runtime, or non-numeric target coordinates', () => {
@@ -68,7 +70,8 @@ describe('dev worker environment', () => {
       api,
       'https://tunnel.example/dev_runtime',
       { PATH: '/bin' },
-      8075
+      8075,
+      'http://127.0.0.1:38123'
     )
     await Promise.resolve()
     expect(ensureTarget).toHaveBeenCalledOnce()
@@ -84,6 +87,7 @@ describe('dev worker environment', () => {
     expect(spawnWorker).toHaveBeenCalledWith(
       expect.objectContaining({
         NODE_ENV: 'development',
+        ADK_RUNTIME_MODE: 'development',
         BP_BOT_ID: 'dev_runtime',
         ADK_BOT_ID: 'dev_runtime',
         BP_TARGET_BOT_ID: '42',
@@ -93,6 +97,6 @@ describe('dev worker environment', () => {
       }),
       8075
     )
-    expect(spawnWorker.mock.calls[0]![0]).not.toHaveProperty('ADK_SPAN_INGEST_URL')
+    expect(spawnWorker.mock.calls[0]![0]).toHaveProperty('ADK_SPAN_INGEST_URL', 'http://127.0.0.1:38123')
   })
 })

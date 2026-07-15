@@ -22,12 +22,13 @@ import {
   VortexEvalStore,
   validateHostedEvalDefinitions,
 } from '@holocronlab/botruntime-evals/stores/vortex'
-import { VortexSpanSource } from '@holocronlab/botruntime-evals/spans'
+import { LocalSpanSource, VortexSpanSource, type SpanSource } from '@holocronlab/botruntime-evals/spans'
 import { Client } from '@holocronlab/botruntime-client'
 import { resolveEvalExecutionEnvironment } from './eval-environment'
 import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
 import { PlatformEvalControl } from './eval-control'
+import { fetchEvalManifestFile } from './eval-file-fetch'
 
 async function loadEvalManifest(client: Client): Promise<{
   evals: EvalDefinition[]
@@ -42,7 +43,7 @@ async function loadEvalManifest(client: Client): Promise<{
   }
 
   const file = files[0]!
-  const res = await fetch(file.url)
+  const res = await fetchEvalManifestFile(file.url, client)
   if (!res.ok) {
     throw new Error(`Failed to fetch eval manifest: ${res.status}`)
   }
@@ -57,7 +58,7 @@ async function loadEvalManifest(client: Client): Promise<{
 
   return {
     evals: manifest.evals,
-    fileId: file.id,
+    fileId: manifest.manifestId ?? file.id,
     chatWebhookId: manifest.chatWebhookId,
     fixtures: manifest.fixtures ?? {},
   }
@@ -76,6 +77,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       })
       .optional(),
     runType: z.enum(['scheduled', 'manual']).optional().default('scheduled'),
+    evalManifestId: z.string().optional(),
     idleTimeout: z.number().optional(),
     /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
     judgePassThreshold: z.number().optional(),
@@ -99,22 +101,27 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     const { apiUrl, token, runtimeBotId, apiBotId, workspaceId, development } =
       resolveEvalExecutionEnvironment(process.env, context.get('botId'))
     const botId = apiBotId
-    const sdkClient = development
+    const sdkClient: Client = development
       ? new Client({ apiUrl, token, botId: apiBotId, workspaceId })
-      : runtimeClient
+      : (runtimeClient as unknown as Client)
     // Dev callback routing is attested by the opaque runtime id. Adding the
     // workspace header would switch PAT auth to the numeric deploy path and
     // incorrectly interpret the runtime id as an API bot id. Empty workspaceId
     // deliberately suppresses the SDK's BP_WORKSPACE_ID environment fallback.
-    const chatSdkClient = development
+    const chatSdkClient: Client = development
       ? new Client({ apiUrl, token, botId: runtimeBotId, workspaceId: '' })
-      : runtimeClient
-    const chatClient = createNativeEvalChatClient(chatSdkClient)
+      : (runtimeClient as unknown as Client)
+    // File dependencies can cause Bun to materialize the same client package
+    // twice while developing the monorepo. The public Client contract is the
+    // same; erase only that duplicate nominal identity at the eval boundary.
+    const evalSdkClient = sdkClient as unknown as EvalRunnerConfig['client']
+    const evalChatSdkClient = chatSdkClient as unknown as EvalRunnerConfig['client']
+    const chatClient = createNativeEvalChatClient(evalChatSdkClient)
     const vortexUrl = apiUrl
 
     const {
       evals: definitions,
-      fileId: evalManifestId,
+      fileId: loadedManifestId,
       fixtures,
     } = await step('load-manifest', () => loadEvalManifest(sdkClient))
 
@@ -123,6 +130,11 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
         'No eval manifest found. Upload eval definitions via the files API before running the eval workflow.',
       )
     }
+
+    if (input.evalManifestId && loadedManifestId && input.evalManifestId !== loadedManifestId) {
+      throw new Error('The synchronized eval manifest does not match the loaded eval manifest.')
+    }
+    const evalManifestId = input.evalManifestId ?? loadedManifestId
 
     const filter = input.filter
       ? {
@@ -142,29 +154,26 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       : undefined
     validateEvalControlCapabilities(filteredDefinitions, evalControl)
 
-    const createSpanSource = () =>
-      new VortexSpanSource(
-        development
-          ? {
-              mode: 'bot',
-              url: vortexUrl,
-              token,
-              development: true,
-              runtimeBotId,
-            }
-          : {
-              mode: 'bot',
-              url: vortexUrl,
-              token,
-              development: false,
-            },
-      )
+    const localSpanIngestUrl = process.env.ADK_SPAN_INGEST_URL
+    if (development && !localSpanIngestUrl) {
+      throw new Error('Hosted development evals require the brt dev local span ingest server.')
+    }
+
+    const createSpanSource = (): SpanSource =>
+      development
+        ? new LocalSpanSource(localSpanIngestUrl!)
+        : new VortexSpanSource({
+            mode: 'bot',
+            url: vortexUrl,
+            token,
+            development: false,
+          })
 
     await step('preflight-eval-reader', async () => {
       const source = createSpanSource()
       try {
         validateEvalCapabilities(filteredDefinitions, source.capabilities)
-        await source.assertReadable()
+        await source.assertReadable?.()
       } finally {
         source.disconnect()
       }
@@ -175,7 +184,9 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       token,
       development,
       ...(evalManifestId ? { evalManifestId } : {}),
-      botId,
+      // Eval API routes are keyed by the callback/runtime identity. The
+      // numeric apiBotId above is only for tenant storage/admin SDK calls.
+      botId: runtimeBotId,
     })
 
     // Create the Vortex run BEFORE running the suite so it is visible and
@@ -198,7 +209,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     )
 
     const config: EvalRunnerConfig = {
-      client: sdkClient,
+      client: evalSdkClient,
       botId,
       definitions: filteredDefinitions,
       chatClient,

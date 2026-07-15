@@ -32,7 +32,7 @@ import { incrementRequestCount, getRequestMetrics } from '../../environment'
 import { WorkflowContinueEvent } from '../events'
 import { ulid } from 'ulid'
 import { getConfiguredDevRequestTimeoutMs } from '../../workers/request-timeout'
-import { runtimeClientWorkspaceId } from '../runtime-client-scope'
+import { runtimeClientCoordinates } from '../runtime-client-scope'
 
 export type { RawHttpRequest } from './http'
 
@@ -120,13 +120,11 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
           }
 
           const vanillaClient = new Client({
-            botId: parsed.bot.id,
-            workspaceId: runtimeClientWorkspaceId(process.env, parsed.bot.id),
+            ...runtimeClientCoordinates(process.env, parsed.bot.id),
             headers: {
               'x-multiple-integrations': 'true',
             },
           })
-
           // oxlint-disable-next-line no-explicit-any -- SDK type mismatch between Client and BotSpecificClient constructor
           const client = new sdk.BotSpecificClient(vanillaClient as any)
 
@@ -232,9 +230,10 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
   // oxlint-disable-next-line no-explicit-any -- Handler type is dynamic, varies by handler registration
   const wrapHandler = (handler: any) => {
     const wrapped = async (props: HandlerProps) => {
+      const scopedClient =
+        context.get('client', { optional: true }) ?? (props.client as unknown as InternalClient<any>)
       const contextData: Partial<BotContext> = {
-        // oxlint-disable-next-line no-explicit-any -- SDK InternalClient generic requires any
-        client: props.client as unknown as InternalClient<any>,
+        client: scopedClient,
         logger: props.logger,
         event: props.event,
       }
@@ -243,7 +242,7 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
       if (props.event?.conversationId && !('conversation' in props)) {
         loaders.push(
-          props.client
+          scopedClient
             .getConversation({
               id: props.event.conversationId,
             })
@@ -259,7 +258,7 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
       // @ts-ignore
       if (props.event?.workflowId && !('workflow' in props)) {
         loaders.push(
-          props.client
+          scopedClient
             .getWorkflow({
               // @ts-ignore
               id: props.event.workflowId,
@@ -275,7 +274,7 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
       if (props.event?.userId && !('user' in props)) {
         loaders.push(
-          props.client
+          scopedClient
             .getUser({
               id: props.event.userId,
             })

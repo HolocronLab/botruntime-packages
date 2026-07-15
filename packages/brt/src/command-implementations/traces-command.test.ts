@@ -7,7 +7,6 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { TracesCommand } from './traces-command'
 
-vi.mock('latest-version', () => ({ default: vi.fn(async () => '0.5.3') }))
 
 const API_URL = 'https://cloud.example'
 const WORKSPACE_ID = '42'

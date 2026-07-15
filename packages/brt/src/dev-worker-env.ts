@@ -9,6 +9,7 @@ export type DevWorkerEnvironmentOptions = {
   token: string
   workspaceId: string
   target: DevBotTarget
+  spanIngestUrl?: string
 }
 
 /**
@@ -39,6 +40,7 @@ export function buildDevWorkerEnvironment(options: DevWorkerEnvironmentOptions):
   return {
     ...inherited,
     NODE_ENV: 'development',
+    ADK_RUNTIME_MODE: 'development',
     BP_API_URL: apiUrl,
     ADK_API_URL: apiUrl,
     BP_TOKEN: options.token,
@@ -49,5 +51,6 @@ export function buildDevWorkerEnvironment(options: DevWorkerEnvironmentOptions):
     ADK_TARGET_BOT_ID: options.target.targetBotId,
     BP_WORKSPACE_ID: options.workspaceId,
     ADK_WORKSPACE_ID: options.workspaceId,
+    ...(options.spanIngestUrl ? { ADK_SPAN_INGEST_URL: options.spanIngestUrl } : {}),
   }
 }

@@ -30,7 +30,6 @@
         "esbuild": "^0.25.10",
         "handlebars": "^4.7.8",
         "jsonpath-plus": "^10.3.0",
-        "latest-version": "5.1.0",
         "lodash": "^4.17.21",
         "prettier": "^3.4.2",
         "prompts": "^2.4.2",
@@ -749,7 +748,6 @@
 
     "kleur": ["kleur@3.0.3", "", {}, "sha512-eTIzlVOSUR+JxdDFepEYcBMtZ9Qqdef+rnzWdRZuMbOywu5tO2w2N7rqjoANZ5k9vywhL6Br1VRjUIgTQx4E8w=="],
 
-    "latest-version": ["latest-version@5.1.0", "", { "dependencies": { "package-json": "^6.3.0" } }, "sha512-weT+r0kTkRQdCdYCNtkMwWXQTMEswKrFBkm4ckQOMVhhqhIMI1UT2hMj+1iigIhgSZm5gTmrRXBNoGUgaTY1xA=="],
 
     "leven": ["leven@3.1.0", "", {}, "sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A=="],
 
