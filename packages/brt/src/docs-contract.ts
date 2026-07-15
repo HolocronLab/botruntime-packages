@@ -56,21 +56,20 @@ const documentation: BrtDocsContract['documentation'] = {
   ],
   criticalOptions: {
     chat: ['chatApiUrl', 'protocol'],
-    deploy: ['adk', 'allowDestructiveTableChanges', 'local', 'noBuild', 'watch'],
-    dev: ['check', 'json', 'local', 'port', 'watch'],
-    'integrations install': ['alias', 'configFile', 'configStdin', 'dev', 'local'],
+    deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'watch'],
+    dev: ['check', 'json', 'port', 'watch'],
+    'integrations install': ['alias', 'configFile', 'configStdin', 'dev'],
     'integrations publish': ['apiUrl', 'configSchemaFile', 'name', 'noBuild', 'noBundle', 'versionNumber'],
-    'integrations register': ['dev', 'local'],
-    link: ['apiUrl', 'botId', 'keyStdin', 'local', 'workspaceId'],
+    'integrations register': ['dev'],
+    link: ['apiUrl', 'botId', 'keyStdin', 'workspaceId'],
     login: ['apiUrl', 'device', 'token', 'workspaceId'],
-    logs: ['botId', 'conversationId', 'follow', 'limit', 'local'],
+    logs: ['botId', 'conversationId', 'follow', 'limit'],
     traces: [
       'action',
       'conversationId',
       'dev',
       'error',
       'limit',
-      'local',
       'name',
       'nextToken',
       'since',
@@ -80,13 +79,13 @@ const documentation: BrtDocsContract['documentation'] = {
       'until',
       'workflow',
     ],
-    'conversations list': ['dev', 'limit', 'local', 'nextToken', 'since'],
-    'conversations show': ['dev', 'local'],
-    eval: ['dev', 'judgeModel', 'local', 'maxConcurrency', 'minPassRate', 'repeat', 'tag', 'timeout', 'type'],
-    'eval run': ['dev', 'judgeModel', 'local', 'maxConcurrency', 'minPassRate', 'repeat', 'tag', 'timeout', 'type'],
-    'eval runs': ['dev', 'latest', 'limit', 'local', 'nextToken', 'status', 'verbose'],
-    'config set': ['dev', 'local', 'valueFile'],
-    'secret set': ['dev', 'local', 'valueFile'],
+    'conversations list': ['dev', 'limit', 'nextToken', 'since'],
+    'conversations show': ['dev'],
+    eval: ['dev', 'judgeModel', 'maxConcurrency', 'minPassRate', 'repeat', 'tag', 'timeout', 'type'],
+    'eval run': ['dev', 'judgeModel', 'maxConcurrency', 'minPassRate', 'repeat', 'tag', 'timeout', 'type'],
+    'eval runs': ['dev', 'latest', 'limit', 'nextToken', 'status', 'verbose'],
+    'config set': ['dev', 'valueFile'],
+    'secret set': ['dev', 'valueFile'],
   },
   criticalUsages: {
     'integrations install': ['<name@version>'],
@@ -111,6 +110,11 @@ const documentation: BrtDocsContract['documentation'] = {
     {
       id: 'cloud-authoritative-dependencies',
       assertion: 'brt dev and brt deploy --adk reconcile dependencies with the authoritative selected Cloud target',
+      documents: ['overview', 'reference'],
+    },
+    {
+      id: 'cloud-only-endpoint',
+      assertion: 'brt uses the botruntime cloud endpoint by default; optional URL overrides are for proxies and platform development, not a self-hosted product',
       documents: ['overview', 'reference'],
     },
     {
@@ -172,7 +176,10 @@ const commandInventory = (tree: DefinitionTree): CommandInventoryEntry[] => {
           commands.push({
             path: path.join(' '),
             aliases: aliasesOf(node.default.alias),
-            options: Object.keys(node.default.schema).toSorted(),
+            options: Object.entries(node.default.schema)
+              .filter(([, option]) => !('hidden' in option && option.hidden === true))
+              .map(([name]) => name)
+              .toSorted(),
           })
         }
         visit(node.subcommands, path)
@@ -182,7 +189,10 @@ const commandInventory = (tree: DefinitionTree): CommandInventoryEntry[] => {
       commands.push({
         path: path.join(' '),
         aliases: aliasesOf(node.alias),
-        options: Object.keys(node.schema).toSorted(),
+        options: Object.entries(node.schema)
+          .filter(([, option]) => !('hidden' in option && option.hidden === true))
+          .map(([name]) => name)
+          .toSorted(),
       })
     }
   }

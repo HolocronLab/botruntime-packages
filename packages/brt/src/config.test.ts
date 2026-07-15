@@ -33,7 +33,17 @@ describe('config schemas', () => {
     expect(schemas.dev.adk).toMatchObject({ hidden: true, deprecated: true })
   })
 
-  it('exposes only the transport implemented by the self-hosted Chat integration', () => {
+  it('uses the cloud endpoint by default and keeps an explicit advanced login override', () => {
+    expect(schemas.login.apiUrl).toMatchObject({ default: 'https://botruntime.ru' })
+  })
+
+  it('keeps the internal stack override out of public help', () => {
+    expect(schemas.cloudProject.local).toMatchObject({ hidden: true })
+    expect(schemas.deploy.local).toMatchObject({ hidden: true })
+    expect(schemas.dev.local).toMatchObject({ hidden: true })
+  })
+
+  it('exposes only the transport implemented by the bundled Chat integration', () => {
     expect(schemas.chat.protocol).toMatchObject({ choices: ['polling'], default: 'polling' })
   })
 })
