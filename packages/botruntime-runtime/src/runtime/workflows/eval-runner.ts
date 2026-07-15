@@ -29,6 +29,7 @@ import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
 import { PlatformEvalControl } from './eval-control'
 import { fetchEvalManifestFile } from './eval-file-fetch'
+import { resolveHostedEvalIdleTimeout } from './eval-runner-policy'
 
 async function loadEvalManifest(client: Client): Promise<{
   evals: EvalDefinition[]
@@ -220,7 +221,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       createSpanSource,
       sourcePreflighted: true,
       evalOptions: {
-        idleTimeout: input.idleTimeout ?? 300_000,
+        idleTimeout: resolveHostedEvalIdleTimeout(input.idleTimeout),
         ...(input.judgePassThreshold !== undefined
           ? { judgePassThreshold: input.judgePassThreshold }
           : {}),
@@ -233,12 +234,17 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       // replay identical writes, while the outer lifecycle safely terminalizes
       // an execution that cannot be reconciled.
       onProgress: (event) => hostedLifecycle.onProgress(event),
+      checkpointEval: async ({ definition, index, execute }) => {
+        const report = await step(`run-eval-${index}-${definition.name}`, execute)
+        hostedLifecycle.rememberCompletedReport(report)
+        return report
+      },
       signal,
     }
 
     let report: EvalRunReport
     try {
-      report = await step('run-evals', () => runEvalSuite(config))
+      report = await runEvalSuite(config)
     } catch (error) {
       return hostedLifecycle.terminalizeFailure(error, step)
     }

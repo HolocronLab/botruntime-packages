@@ -1,4 +1,5 @@
 export const DEFAULT_DEV_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
+export const MAX_DEV_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
 
 export function parsePositiveInt(value: string | undefined, fallback: number): number {
   const normalized = value?.trim()
@@ -12,5 +13,5 @@ export function parsePositiveInt(value: string | undefined, fallback: number): n
 export function getConfiguredDevRequestTimeoutMs(
   value: string | undefined = process.env.ADK_DEV_REQUEST_TIMEOUT_MS
 ): number {
-  return parsePositiveInt(value, DEFAULT_DEV_REQUEST_TIMEOUT_MS)
+  return Math.min(parsePositiveInt(value, DEFAULT_DEV_REQUEST_TIMEOUT_MS), MAX_DEV_REQUEST_TIMEOUT_MS)
 }

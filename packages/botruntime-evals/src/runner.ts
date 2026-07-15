@@ -848,36 +848,42 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
     if (config.signal?.aborted) break
 
     const evalDef = evals[i]!
-    await config.onProgress?.({
-      type: 'eval_start',
-      evalName: evalDef.name,
-      index: i,
-      totalTurns: evalDef.conversation.length,
-    })
+    const execute = async (): Promise<EvalReport> => {
+      await config.onProgress?.({
+        type: 'eval_start',
+        evalName: evalDef.name,
+        index: i,
+        totalTurns: evalDef.conversation.length,
+      })
 
-    const report = await runEval(evalDef, connection, {
-      devServerUrl,
-      devServerHeaders,
-      evalIndex: i,
-      ...(config.evalOptions?.idleTimeout !== undefined ? { idleTimeout: config.evalOptions.idleTimeout } : {}),
-      ...(config.evalOptions?.judgePassThreshold !== undefined
-        ? { judgePassThreshold: config.evalOptions.judgePassThreshold }
-        : {}),
-      ...(config.onProgress !== undefined ? { onProgress: config.onProgress } : {}),
-      ...(config.signal !== undefined ? { signal: config.signal } : {}),
-      ...(config.chatClient !== undefined ? { chatClient: config.chatClient } : {}),
-      ...(config.logger !== undefined ? { logger: config.logger } : {}),
-      ...(config.onException !== undefined ? { onException: config.onException } : {}),
-      ...(config.createSpanSource !== undefined ? { spanSource: config.createSpanSource() } : {}),
-      ...(config.chatWebhookId !== undefined ? { chatWebhookId: config.chatWebhookId } : {}),
-      ...(config.chatBaseUrl !== undefined ? { chatBaseUrl: config.chatBaseUrl } : {}),
-      ...(config.resolveFixture !== undefined ? { resolveFixture: config.resolveFixture } : {}),
-      ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
-      sourcePreflighted: true,
-    })
+      const report = await runEval(evalDef, connection, {
+        devServerUrl,
+        devServerHeaders,
+        evalIndex: i,
+        ...(config.evalOptions?.idleTimeout !== undefined ? { idleTimeout: config.evalOptions.idleTimeout } : {}),
+        ...(config.evalOptions?.judgePassThreshold !== undefined
+          ? { judgePassThreshold: config.evalOptions.judgePassThreshold }
+          : {}),
+        ...(config.onProgress !== undefined ? { onProgress: config.onProgress } : {}),
+        ...(config.signal !== undefined ? { signal: config.signal } : {}),
+        ...(config.chatClient !== undefined ? { chatClient: config.chatClient } : {}),
+        ...(config.logger !== undefined ? { logger: config.logger } : {}),
+        ...(config.onException !== undefined ? { onException: config.onException } : {}),
+        ...(config.createSpanSource !== undefined ? { spanSource: config.createSpanSource() } : {}),
+        ...(config.chatWebhookId !== undefined ? { chatWebhookId: config.chatWebhookId } : {}),
+        ...(config.chatBaseUrl !== undefined ? { chatBaseUrl: config.chatBaseUrl } : {}),
+        ...(config.resolveFixture !== undefined ? { resolveFixture: config.resolveFixture } : {}),
+        ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
+        sourcePreflighted: true,
+      })
+      await config.onProgress?.({ type: 'eval_complete', evalName: evalDef.name, index: i, report })
+      return report
+    }
+
+    const report = config.checkpointEval
+      ? await config.checkpointEval({ definition: evalDef, index: i, execute })
+      : await execute()
     reports.push(report)
-
-    await config.onProgress?.({ type: 'eval_complete', evalName: evalDef.name, index: i, report })
   }
 
   const runReport: EvalRunReport = {

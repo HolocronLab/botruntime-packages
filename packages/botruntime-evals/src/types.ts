@@ -230,6 +230,15 @@ export interface EvalRunnerConfig {
     context: { botId: string; evalName: string; turnIndex: number }
   ) => Promise<import('./attachments').ResolvedEvalFixture>
   evalControl?: EvalControl
+  /**
+   * Durable hosts can checkpoint one whole eval, including its progress writes.
+   * Replaying a checkpoint returns the cached report without repeating chat or persistence side effects.
+   */
+  checkpointEval?: (input: {
+    definition: _EvalDefinition
+    index: number
+    execute: () => Promise<EvalReport>
+  }) => Promise<EvalReport>
 }
 
 export interface EvalControl {
