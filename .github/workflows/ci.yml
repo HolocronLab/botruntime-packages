@@ -155,15 +155,25 @@ jobs:
       # checkout copies so docs-contract CI never depends on versions that do
       # not exist in a registry until this PR has merged and published.
       - name: Build the current botruntime-evals package
-        working-directory: packages/botruntime-evals
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bun install --no-save --ignore-scripts
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --write
+          mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
+          cd packages/botruntime-evals
+          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
           bun run build
 
       - name: Build the current botruntime-runtime package
-        working-directory: packages/botruntime-runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bun install --no-save --ignore-scripts
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-sdk --write
+          mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
+          cd packages/botruntime-runtime
+          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
           bun run build
 
       # Contract generation imports the complete CLI command tree. Build the

@@ -90,8 +90,17 @@ test('docs contract CI builds every bumped local package before ADK and BRT', ()
 
   assert.ok(evalsBuild >= 0 && runtimeBuild > evalsBuild && adkBuild > runtimeBuild && brtInstall > adkBuild)
   const localReleaseBuilds = workflow.slice(evalsBuild, analyticsBuild)
-  assert.equal((localReleaseBuilds.match(/bun install --no-save --ignore-scripts/g) ?? []).length, 2)
+  assert.equal((localReleaseBuilds.match(/bun install [^\n]*--no-save --ignore-scripts/g) ?? []).length, 2)
   assert.doesNotMatch(localReleaseBuilds, /bun install --frozen-lockfile/)
+  assert.match(
+    localReleaseBuilds,
+    /--package=packages\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client/
+  )
+  assert.match(
+    localReleaseBuilds,
+    /--package=packages\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-sdk/
+  )
+  assert.equal((localReleaseBuilds.match(/bunfig\.github-packages\.toml/g) ?? []).length, 2)
   assert.match(
     workflow,
     /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-sdk/
