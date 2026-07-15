@@ -1,6 +1,10 @@
 name: publish-all-public-packages
 
 on:
+  push:
+    tags:
+      - "adk-v*"
+      - "brt-v*"
   workflow_dispatch:
     inputs:
       ref:
@@ -10,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -37,7 +42,7 @@ jobs:
         botruntime-adk
         brt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
@@ -45,18 +50,21 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
           scope: "@holocronlab"
+          package-manager-cache: false
+
+      - name: Install the npm CLI with trusted publishing support
+        run: npm install --global npm@11.15.0
 
       - name: Regenerate checked-in client sources
         run: bash scripts/regen.sh
 
       - name: Build, verify, and publish the complete public catalog
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PUBLIC_NPM_REGISTRY: "https://registry.npmjs.org"
         shell: bash
         run: |
