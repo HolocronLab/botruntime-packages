@@ -50,7 +50,7 @@ describe('AgentProjectGenerator static templates', () => {
       deploy: 'brt deploy --adk',
     })
     expect(packageJson.dependencies).toHaveProperty('@holocronlab/botruntime-runtime')
-    expect(packageJson.devDependencies).toHaveProperty('@holocronlab/brt')
+    expect(packageJson.devDependencies).toHaveProperty('@holocronlab/brt', '^0.6.0')
     expect(config).toMatch(/from ["']@holocronlab\/botruntime-runtime["']/)
     expect(readme).toContain('brt dev')
     expect(readme).toContain('brt deploy --adk')

@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const INVALID_COMMAND_GUIDANCE =
-  /\b(?:adk\s+(?:add|build|chat|deploy|dev|eval|integrations|login)|brt\s+(?:eval\b|models\b|chat\s+--single\b|integrations\s+add\b|deploy\b(?!\s+--adk\b)))/gi
+  /\b(?:adk\s+(?:add|build|chat|deploy|dev|eval|integrations|login)|brt\s+(?:models\b|chat\s+--single\b|integrations\s+add\b|deploy\b(?!\s+--adk\b)))/gi
 
 function shippedTextFiles(root: string): string[] {
   return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {

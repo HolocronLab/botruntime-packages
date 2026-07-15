@@ -7,25 +7,37 @@ import type {
   EvalRunnerConfig,
   EvalRunReport,
 } from '@holocronlab/botruntime-evals'
-import { EVAL_MANIFEST_TAGS, EVAL_MANIFEST_SCHEMA_VERSION } from '@holocronlab/botruntime-evals'
-import { runEvalSuite, validateEvalCapabilities } from '@holocronlab/botruntime-evals/runner'
+import {
+  EVAL_MANIFEST_TAGS,
+  EVAL_MANIFEST_SCHEMA_VERSION,
+} from '@holocronlab/botruntime-evals'
+import {
+  runEvalSuite,
+  validateEvalCapabilities,
+  validateEvalControlCapabilities,
+} from '@holocronlab/botruntime-evals/runner'
 import { filterEvals } from '@holocronlab/botruntime-evals/loader'
 import {
   VortexEvalStore,
   validateHostedEvalDefinitions,
 } from '@holocronlab/botruntime-evals/stores/vortex'
 import { VortexSpanSource } from '@holocronlab/botruntime-evals/spans'
-import type { Client } from '@holocronlab/botruntime-client'
+import { Client } from '@holocronlab/botruntime-client'
 import { resolveEvalExecutionEnvironment } from './eval-environment'
 import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
+import { createHostedFixtureResolver } from './eval-fixtures'
+import { PlatformEvalControl } from './eval-control'
 
-async function loadEvalManifest(
-  client: Client
-): Promise<{ evals: EvalDefinition[]; fileId: string | undefined; chatWebhookId: string | undefined }> {
+async function loadEvalManifest(client: Client): Promise<{
+  evals: EvalDefinition[]
+  fileId: string | undefined
+  chatWebhookId: string | undefined
+  fixtures: NonNullable<EvalManifest['fixtures']>
+}> {
   const { files } = await client.listFiles({ tags: EVAL_MANIFEST_TAGS })
 
   if (files.length === 0) {
-    return { evals: [], fileId: undefined, chatWebhookId: undefined }
+    return { evals: [], fileId: undefined, chatWebhookId: undefined, fixtures: {} }
   }
 
   const file = files[0]!
@@ -38,11 +50,16 @@ async function loadEvalManifest(
 
   if (manifest.schemaVersion !== EVAL_MANIFEST_SCHEMA_VERSION) {
     throw new Error(
-      `Eval manifest schema version ${manifest.schemaVersion} is not supported (expected ${EVAL_MANIFEST_SCHEMA_VERSION}). Redeploy the bot to update the manifest.`
+      `Eval manifest schema version ${manifest.schemaVersion} is not supported (expected ${EVAL_MANIFEST_SCHEMA_VERSION}). Redeploy the bot to update the manifest.`,
     )
   }
 
-  return { evals: manifest.evals, fileId: file.id, chatWebhookId: manifest.chatWebhookId }
+  return {
+    evals: manifest.evals,
+    fileId: file.id,
+    chatWebhookId: manifest.chatWebhookId,
+    fixtures: manifest.fixtures ?? {},
+  }
 }
 
 export const EvalRunnerWorkflow = new BaseWorkflow({
@@ -76,8 +93,10 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
   timeout: '60m',
 
   handler: async ({ input, step, signal, workflow, client }) => {
-    const sdkClient = client._inner
-    const chatModule = (await import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat' as string)) as {
+    const runtimeClient = client._inner
+    const chatModule = (await import(
+      /* webpackIgnore: true */ '@holocronlab/botruntime-chat' as string
+    )) as {
       Client?: import('@holocronlab/botruntime-evals').ChatClient
       default?: { Client?: import('@holocronlab/botruntime-evals').ChatClient }
     }
@@ -87,23 +106,25 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       throw new Error('Chat client is required to run evals.')
     }
 
-    const { apiUrl, token, runtimeBotId, development } = resolveEvalExecutionEnvironment(
-      process.env,
-      context.get('botId')
-    )
-    const botId = runtimeBotId
+    const { apiUrl, token, runtimeBotId, apiBotId, workspaceId, development } =
+      resolveEvalExecutionEnvironment(process.env, context.get('botId'))
+    const botId = apiBotId
+    const sdkClient = development
+      ? new Client({ apiUrl, token, botId: apiBotId, workspaceId })
+      : runtimeClient
     const vortexUrl = apiUrl
-    const chatBaseUrl = apiUrl.replace('://api.', '://chat.')
+    const chatBaseUrl = apiUrl
 
     const {
       evals: definitions,
       fileId: evalManifestId,
       chatWebhookId,
+      fixtures,
     } = await step('load-manifest', () => loadEvalManifest(sdkClient))
 
     if (definitions.length === 0) {
       throw new Error(
-        'No eval manifest found. Upload eval definitions via the files API before running the eval workflow.'
+        'No eval manifest found. Upload eval definitions via the files API before running the eval workflow.',
       )
     }
 
@@ -120,6 +141,10 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       throw new Error('No eval definitions matched the requested filter.')
     }
     validateHostedEvalDefinitions(filteredDefinitions)
+    const evalControl = development
+      ? new PlatformEvalControl({ apiUrl, token, runtimeBotId, workspaceId: workspaceId! })
+      : undefined
+    validateEvalControlCapabilities(filteredDefinitions, evalControl)
 
     const createSpanSource = () =>
       new VortexSpanSource(
@@ -136,7 +161,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
               url: vortexUrl,
               token,
               development: false,
-            }
+            },
       )
 
     await step('preflight-eval-reader', async () => {
@@ -166,10 +191,15 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       evalStore.createRun(input.runType ?? 'scheduled', {
         workflowId: workflow.id,
         definitions: filteredDefinitions,
-      })
+      }),
     )
 
-    const hostedLifecycle = new HostedEvalLifecycle(evalStore, vortexRunId, filteredDefinitions, signal)
+    const hostedLifecycle = new HostedEvalLifecycle(
+      evalStore,
+      vortexRunId,
+      filteredDefinitions,
+      signal,
+    )
 
     const config: EvalRunnerConfig = {
       client: sdkClient,
@@ -178,12 +208,20 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       chatClient,
       ...(chatWebhookId ? { chatWebhookId } : {}),
       chatBaseUrl,
+      ...(Object.keys(fixtures).length > 0
+        ? { resolveFixture: createHostedFixtureResolver(fixtures, sdkClient) }
+        : {}),
+      ...(evalControl ? { evalControl } : {}),
       createSpanSource,
       sourcePreflighted: true,
       evalOptions: {
         idleTimeout: input.idleTimeout ?? 300_000,
-        ...(input.judgePassThreshold !== undefined ? { judgePassThreshold: input.judgePassThreshold } : {}),
-        ...(input.judgeModel !== undefined ? { judgeModel: input.judgeModel } : {}),
+        ...(input.judgePassThreshold !== undefined
+          ? { judgePassThreshold: input.judgePassThreshold }
+          : {}),
+        ...(input.judgeModel !== undefined
+          ? { judgeModel: input.judgeModel }
+          : {}),
       },
       // Ingest into Vortex as the suite runs so the dev console can stream live
       // progress. Failures are never swallowed: the final reconciliation can
@@ -211,7 +249,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     // error here is ambiguous (the server may already be terminal); retrying
     // with a different terminal verdict could create a divergent 409.
     await step('complete-run', () =>
-      evalStore.markRunComplete(vortexRunId, completion)
+      evalStore.markRunComplete(vortexRunId, completion),
     )
 
     return {

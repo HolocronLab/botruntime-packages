@@ -2,8 +2,7 @@ import * as consts from './consts'
 import { ProjectTemplates } from './project-templates'
 import type { CommandOption, CommandSchema } from './typings'
 
-// @holocronlab/botruntime-chat 0.5.5 does not export this union; it selects the transport internally.
-type ServerEventsProtocol = 'sse' | 'websocket'
+type ServerEventsProtocol = 'polling'
 
 // command options
 
@@ -320,6 +319,26 @@ const cloudEvalTimeout = {
   type: 'number',
   description: 'Maximum hosted workflow wait in milliseconds (1000-3600000)',
   default: 3_600_000,
+} satisfies CommandOption
+
+const cloudEvalRepeat = {
+  type: 'number',
+  description: 'Run the selected eval suite repeatedly (1-100)',
+  default: 1,
+} satisfies CommandOption
+
+const cloudEvalMaxConcurrency = {
+  type: 'number',
+  alias: 'max-concurrency',
+  description: 'Maximum concurrent repeated hosted runs (1-10)',
+  default: 1,
+} satisfies CommandOption
+
+const cloudEvalMinPassRate = {
+  type: 'number',
+  alias: 'min-pass-rate',
+  description: 'Required aggregate repeated-run pass rate (0-1)',
+  default: 1,
 } satisfies CommandOption
 
 const cloudEvalRunId = {
@@ -752,9 +771,9 @@ const chatSchema = {
     description: 'The bot ID to chat with',
   },
   protocol: {
-    choices: ['sse', 'websocket'] satisfies ReadonlyArray<ServerEventsProtocol>,
-    default: 'sse' as const,
-    description: 'The protocol to use for long lived connections',
+    choices: ['polling'] satisfies ReadonlyArray<ServerEventsProtocol>,
+    default: 'polling' as const,
+    description: 'The Chat response transport',
   },
 } satisfies CommandSchema
 
@@ -917,6 +936,9 @@ const evalRunSchema = {
   type: cloudEvalType,
   judgeModel: cloudEvalJudgeModel,
   timeout: cloudEvalTimeout,
+  repeat: cloudEvalRepeat,
+  maxConcurrency: cloudEvalMaxConcurrency,
+  minPassRate: cloudEvalMinPassRate,
 } satisfies CommandSchema
 
 const evalRunsSchema = {

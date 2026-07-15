@@ -1421,6 +1421,60 @@ var maxBodyLength = _100mb;
 var maxContentLength = _100mb;
 var defaultTimeout = 6e4;
 var _createAuthClient = Symbol("_createAuthClient");
+var PollingSignalListener = class extends EventEmitter {
+  _client;
+  _conversationId;
+  _userKey;
+  _timer;
+  _seen = /* @__PURE__ */ new Set();
+  _status = "disconnected";
+  constructor(client, conversationId, userKey) {
+    super();
+    this._client = client;
+    this._conversationId = conversationId;
+    this._userKey = userKey;
+  }
+  static listen = async (client, conversationId, userKey) => {
+    const listener = new PollingSignalListener(client, conversationId, userKey);
+    await listener.connect();
+    return listener;
+  };
+  get status() {
+    return this._status;
+  }
+  connect = async () => {
+    if (this._status === "connected") return;
+    const initial = await this._client.listMessages({
+      conversationId: this._conversationId,
+      "x-user-key": this._userKey
+    });
+    for (const message of initial.messages) this._seen.add(message.id);
+    this._status = "connected";
+    this._timer = setInterval(() => void this._poll(), 500);
+  };
+  disconnect = async () => {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = void 0;
+    this._status = "disconnected";
+  };
+  _poll = async () => {
+    if (this._status !== "connected") return;
+    try {
+      const result = await this._client.listMessages({
+        conversationId: this._conversationId,
+        "x-user-key": this._userKey
+      });
+      const fresh = result.messages.filter((message) => !this._seen.has(message.id)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+      for (const message of fresh) {
+        this._seen.add(message.id);
+        this.emit("message_created", message);
+      }
+    } catch (error) {
+      await this.disconnect();
+      this.emit("error", error instanceof Error ? error : new Error(String(error)));
+    }
+  };
+};
 var Client2 = class _Client {
   constructor(props) {
     this.props = props;
@@ -1494,13 +1548,7 @@ var Client2 = class _Client {
     };
   }
   listenConversation = async ({ id, "x-user-key": userKey }) => {
-    const signalListener = await SignalListener.listen({
-      url: this._apiUrl,
-      conversationId: id,
-      userKey,
-      debug: this.props.debug ?? false
-    });
-    return signalListener;
+    return PollingSignalListener.listen(this, id, userKey);
   };
   _call = async (operation, args) => {
     try {

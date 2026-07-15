@@ -45,10 +45,38 @@ export interface TurnAssertions {
   state?: StateAssertion[]
   workflow?: WorkflowAssertion[]
   timing?: TimingAssertion[]
+  deliveredTo?: string | string[]
+  notDeliveredTo?: string | string[]
+  conversationMode?: { target: string; equals: string; property?: string }
 }
 
 export interface ConversationTurn {
   user?: string
+  /** Preferred actor-neutral spelling. `user` remains supported for compatibility. */
+  message?: string
+  /** Named synthetic actor. Omit or use `client` for the primary Chat participant. */
+  actor?: string
+  /** Route this turn to a linked platform conversation. */
+  target?: { relation: string }
+  /** Send multiple same-target inputs concurrently to exercise race/idempotency paths. */
+  parallel?: Array<{
+    message?: string
+    event?: { payload: Record<string, unknown> }
+  }>
+  /** Test-only platform controls, available only on isolated development targets. */
+  control?: {
+    advanceClock?: { milliseconds: number; runDueWorkflows?: boolean }
+    faults?: Array<{
+      point: string
+      failAfter?: number
+      times?: number
+      status?: 429 | 503
+      mode?: 'error' | 'lost_ack'
+    }>
+    clearFaults?: boolean
+  }
+  /** Optional files uploaded by the host and delivered through the ordinary chat message path. */
+  attachments?: import('./attachments').EvalAttachment[]
   event?: { payload: Record<string, unknown> }
   expectSilence?: boolean
   assert?: TurnAssertions
@@ -75,6 +103,13 @@ export interface EvalSetup {
     trigger: string
     input?: Record<string, unknown>
   }
+  relations?: Record<string, ConversationRelationSelector>
+}
+
+export interface ConversationRelationSelector {
+  tags: Record<string, string>
+  integration?: string
+  channel?: string
 }
 
 export interface EvalDefinition {
@@ -83,6 +118,8 @@ export interface EvalDefinition {
   tags?: string[]
   type?: 'capability' | 'regression'
   setup?: EvalSetup
+  /** Local fixture catalog. Hosts upload these files and remove paths from the hosted manifest. */
+  fixtures?: Record<string, EvalFixtureSource>
   conversation: ConversationTurn[]
   outcome?: OutcomeAssertions
   options?: {
@@ -92,12 +129,20 @@ export interface EvalDefinition {
   }
 }
 
+export interface EvalFixtureSource {
+  /** Path relative to the agent project root. */
+  path: string
+  contentType: string
+  name?: string
+}
+
 export class Eval implements EvalDefinition {
   readonly name: string
   readonly description?: string
   readonly tags?: string[]
   readonly type?: 'capability' | 'regression'
   readonly setup?: EvalSetup
+  readonly fixtures?: Record<string, EvalFixtureSource>
   readonly conversation: ConversationTurn[]
   readonly outcome?: OutcomeAssertions
   readonly options?: {
@@ -113,6 +158,7 @@ export class Eval implements EvalDefinition {
     if (def.tags !== undefined) this.tags = def.tags
     if (def.type !== undefined) this.type = def.type
     if (def.setup !== undefined) this.setup = def.setup
+    if (def.fixtures !== undefined) this.fixtures = def.fixtures
     if (def.outcome !== undefined) this.outcome = def.outcome
     if (def.options !== undefined) this.options = def.options
   }

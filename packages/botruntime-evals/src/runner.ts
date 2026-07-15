@@ -36,6 +36,8 @@ import { loadEvalsFromDir, filterEvals } from './loader'
 import { EvalRunnerError } from './errors'
 import { isAdkError } from './internal/adk-error'
 import { randomUUID } from 'crypto'
+import { buildAttachmentPayload, fixtureReportLabel } from './attachments'
+import { ActorRouter } from './actor-routing'
 
 /**
  * Run a single eval against a bot.
@@ -75,6 +77,10 @@ const BUILT_IN_STATES = {
   bot: 'botState',
 } as const
 
+function normalizeTargets(value: string | string[] | undefined): string[] {
+  return value === undefined ? [] : Array.isArray(value) ? value : [value]
+}
+
 function unsupportedObservation(evalDef: EvalDefinition, location: string, capability: string): never {
   throw new EvalRunnerError({
     code: 'EVAL_OBSERVATION_UNSUPPORTED',
@@ -107,6 +113,22 @@ export function validateEvalCapabilities(
     if (!capabilities.stateMutations && (evalDef.outcome?.state?.length ?? 0) > 0) {
       unsupportedObservation(evalDef, 'outcome', 'state assertions')
     }
+  }
+}
+
+export function validateEvalControlCapabilities(
+  evals: EvalDefinition[],
+  control: EvalRunnerConfig['evalControl']
+): void {
+  const controlled = evals.find((definition) =>
+    definition.conversation.some((turn) => turn.control !== undefined || turn.parallel !== undefined)
+  )
+  if (controlled && !control) {
+    throw new EvalRunnerError({
+      code: 'EVAL_OBSERVATION_UNSUPPORTED',
+      message: `Eval "${controlled.name}" requires isolated eval control for virtual time, faults, or parallel input.`,
+      expected: true,
+    })
   }
 }
 
@@ -241,6 +263,8 @@ export async function runEval(
     spanSource?: SpanSource
     chatWebhookId?: string
     chatBaseUrl?: string
+    resolveFixture?: EvalRunnerConfig['resolveFixture']
+    evalControl?: EvalRunnerConfig['evalControl']
     /** @internal The suite already authenticated this source kind before starting evals. */
     sourcePreflighted?: boolean
   } = {}
@@ -253,6 +277,7 @@ export async function runEval(
   const collector: SpanSource = options.spanSource ?? new LocalSpanSource(devServerUrl, devServerHeaders)
 
   validateEvalCapabilities([evalDef], collector.capabilities)
+  validateEvalControlCapabilities([evalDef], options.evalControl)
   if (!options.sourcePreflighted) {
     if (options.spanSource) {
       await assertSpanSourceReadable(collector)
@@ -273,6 +298,7 @@ export async function runEval(
   const turns: TurnReport[] = []
   let outcomeAssertions: GraderResult[] = []
   let session: ChatSession | undefined
+  let controlsUsed = false
 
   try {
     session = new ChatSession(
@@ -322,6 +348,12 @@ export async function runEval(
         message: 'Cannot run conversation eval without a conversationId — no chat session or setup created one.',
       })
     }
+    let collectorConversationId = conversationId
+    let actorRouter = new ActorRouter(connection.client, {
+      primaryConversationId: conversationId,
+      primaryUserId: session.userId,
+      relations: evalDef.setup?.relations ?? {},
+    })
 
     for (let i = 0; i < evalDef.conversation.length; i++) {
       // Bail mid-eval the moment the caller signals abort, so a long
@@ -329,6 +361,12 @@ export async function runEval(
       if (options.signal?.aborted) break
 
       const turn = evalDef.conversation[i]!
+      const turnMessage = turn.message ?? turn.user
+      const actor = turn.actor ?? 'client'
+      const target = turn.target?.relation ?? 'client'
+      const directActorTurn = actor !== 'client' || turn.target !== undefined
+      const parallel = turn.parallel ?? []
+      const hasInput = Boolean(turnMessage || turn.event || turn.attachments?.length || parallel.length)
 
       const turnConfigError = (message: string) =>
         new EvalRunnerError({
@@ -341,14 +379,47 @@ export async function runEval(
       if (turn.expectSilence && turn.assert?.response) {
         throw turnConfigError(`'expectSilence' and 'assert.response' are mutually exclusive.`)
       }
-      if (turn.user && turn.event) {
-        throw turnConfigError(`'user' and 'event' are mutually exclusive.`)
+      if (turn.user && turn.message) {
+        throw turnConfigError(`'user' and 'message' are aliases and cannot both be set.`)
       }
-      if (!turn.user && !turn.event) {
-        throw turnConfigError(`must have either 'user' or 'event'.`)
+      if (turn.event && (turnMessage || turn.attachments?.length || turn.actor || turn.target)) {
+        throw turnConfigError(`message, attachments, actor, target, and event are mutually exclusive.`)
+      }
+      if (!hasInput && !turn.control) {
+        throw turnConfigError(`must have input or a control operation.`)
+      }
+      if (directActorTurn && !turn.target) {
+        throw turnConfigError(`actor '${actor}' requires target.relation.`)
+      }
+      if (parallel.length > 0 && (turnMessage || turn.event || turn.attachments?.length || directActorTurn)) {
+        throw turnConfigError(`'parallel' cannot be combined with other turn input or relation routing.`)
+      }
+      if (parallel.some((item) => Boolean(item.message) === Boolean(item.event))) {
+        throw turnConfigError(`each parallel input must have exactly one of 'message' or 'event'.`)
+      }
+      if (parallel.some((item) => item.event) && parallel.some((item) => item.message)) {
+        throw turnConfigError(`parallel inputs must be all messages or all events.`)
       }
 
-      const turnLabel = turn.event ? '[event]' : turn.user!
+      const resolvedFixtures = await Promise.all(
+        (turn.attachments ?? []).map(async ({ fixture }) => {
+          if (!options.resolveFixture) {
+            throw turnConfigError(`attachment fixture '${fixture}' cannot be resolved by this host.`)
+          }
+          return options.resolveFixture(fixture, {
+            botId: connection.botId,
+            evalName: evalDef.name,
+            turnIndex: i,
+          })
+        })
+      )
+      const turnLabel = turn.event
+        ? '[event]'
+        : parallel.length > 0
+          ? `[parallel:${parallel.length}]`
+          : !hasInput
+            ? '[control]'
+            : `${directActorTurn ? `[${actor}->${target}] ` : ''}${fixtureReportLabel(turnMessage, resolvedFixtures)}`
       await emitEvalProgress(options.onProgress, {
         type: 'turn_start',
         evalName: evalDef.name,
@@ -362,26 +433,76 @@ export async function runEval(
       if (turn.newConversation && i > 0) {
         const newConversationId = await session.newConversation()
         await collector.repoint({ conversationId: newConversationId })
+        collectorConversationId = newConversationId
+        actorRouter = new ActorRouter(connection.client, {
+          primaryConversationId: newConversationId,
+          primaryUserId: session.userId,
+          relations: evalDef.setup?.relations ?? {},
+        })
+      }
+
+      const activeConversationId = directActorTurn
+        ? await actorRouter.conversationId(target)
+        : await session.ensureConversation()
+      if (activeConversationId !== collectorConversationId) {
+        await collector.repoint({ conversationId: activeConversationId })
+        collectorConversationId = activeConversationId
+      }
+      const deliveredTo = normalizeTargets(turn.assert?.deliveredTo)
+      const notDeliveredTo = normalizeTargets(turn.assert?.notDeliveredTo)
+      const observedTargets = [
+        ...(directActorTurn ? [target] : []),
+        ...deliveredTo,
+        ...notDeliveredTo,
+      ]
+      if (observedTargets.length > 0) {
+        await actorRouter.startDeliveryObservation(observedTargets)
       }
 
       // Mark turn boundary, emit message, wait for handler completion via traces
       collector.startTurn()
-      session.startTurn()
+      if (hasInput && !directActorTurn) session.startTurn()
+
+      if (turn.control) {
+        controlsUsed = true
+        if (turn.control.clearFaults) await options.evalControl!.clearFaults()
+        if (turn.control.faults?.length) await options.evalControl!.configureFaults(turn.control.faults)
+        if (turn.control.advanceClock) await options.evalControl!.advanceClock(turn.control.advanceClock)
+      }
 
       if (turn.event) {
         await session.sendEvent(turn.event.payload)
+      } else if (parallel.length > 0) {
+        await Promise.all(
+          parallel.map((item) =>
+            item.event ? session!.sendEvent(item.event.payload) : session!.sendMessage(item.message!)
+          )
+        )
+      } else if (directActorTurn) {
+        await actorRouter.send({
+          actor,
+          relation: target,
+          ...(resolvedFixtures.length > 0
+            ? { payload: buildAttachmentPayload(turnMessage, resolvedFixtures) }
+            : { message: turnMessage! }),
+        })
+      } else if (resolvedFixtures.length > 0) {
+        await session.sendPayload(buildAttachmentPayload(turnMessage, resolvedFixtures))
       } else {
-        await session.sendMessage(turn.user!)
+        await session.sendMessage(turnMessage!)
       }
 
       try {
         // A user-message turn completes via handler.conversation; an event turn
         // via handler.event. Scoping the wait keeps async noise (e.g. a workflow
         // callback's silent handler.event) from releasing the turn early.
-        await session.raceWithListenerError(
-          collector.waitForTurnComplete({
+        const completion = hasInput
+          ? collector.waitForTurnComplete({
             timeout: idleTimeout,
-            acceptSpanNames: turn.event ? new Set(['handler.event']) : new Set(['handler.conversation']),
+            acceptSpanNames:
+              turn.event || parallel.some((item) => item.event)
+                ? new Set(['handler.event'])
+                : new Set(['handler.conversation']),
             // Long quiet window: a tool-started workflow and its callback only run
             // AFTER the handler closes; sending the next message into that window
             // can get it absorbed by their transcript saves and silently skipped.
@@ -391,7 +512,8 @@ export async function runEval(
             ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
             ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
           })
-        )
+          : Promise.resolve()
+        await (directActorTurn || !hasInput ? completion : session.raceWithListenerError(completion))
       } catch (err) {
         // If the wait was aborted, exit the turn loop cleanly rather than
         // surfacing an error on the eval — Stop is a user action, not a
@@ -409,14 +531,12 @@ export async function runEval(
           const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
           if (!expectsPositive) continue
           const wfSignal = wfAssert.completed ? 'completed' : 'entered'
-          await session
-            .raceWithListenerError(
-              collector.waitForWorkflow(wfAssert.name, {
+          const workflowWait = collector.waitForWorkflow(wfAssert.name, {
                 signal: wfSignal,
                 timeout: idleTimeout,
                 ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
               })
-            )
+          await (directActorTurn ? workflowWait : session.raceWithListenerError(workflowWait))
             .catch((error) => {
               if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
               // Timeout is OK — the grader will report the failure
@@ -426,13 +546,20 @@ export async function runEval(
 
       // Transform turn spans into grader-friendly data
       let turnData = transformSpans(collector.getTurnSpans())
-      let responseMessages = session.getTurnResponses()
+      let responseMessages = !hasInput
+        ? []
+        : directActorTurn
+        ? await actorRouter.responsesFor(target)
+        : session.getTurnResponses()
 
       // The chat signal can land just after the trace completion snapshot.
-      if (!turn.expectSilence && responseMessages.length === 0 && turnData.handlerDuration > 0) {
+      if (hasInput && !turn.expectSilence && responseMessages.length === 0 && turnData.handlerDuration > 0) {
         for (let waited = 0; waited < 600 && responseMessages.length === 0; waited += 150) {
-          await session.raceWithListenerError(new Promise<void>((resolve) => setTimeout(resolve, 150)))
-          responseMessages = session.getTurnResponses()
+          const delay = new Promise<void>((resolve) => setTimeout(resolve, 150))
+          await (directActorTurn ? delay : session.raceWithListenerError(delay))
+          responseMessages = directActorTurn
+            ? await actorRouter.responsesFor(target)
+            : session.getTurnResponses()
           if (turn.event) turnData = transformSpans(collector.getTurnSpans())
         }
       }
@@ -442,7 +569,7 @@ export async function runEval(
 
       const evalStart = Date.now()
       let assertions: GraderResult[] = []
-      const noResponse = !turn.expectSilence && responseMessages.length === 0
+      const noResponse = hasInput && !turn.expectSilence && responseMessages.length === 0
 
       if (noResponse) {
         // A missing response is a graded outcome, not an exceptional state —
@@ -457,7 +584,7 @@ export async function runEval(
         })
       }
 
-      if (turn.expectSilence) {
+      if (turn.expectSilence && hasInput) {
         const wasSilent = responseMessages.length === 0
         assertions.push({
           assertion: 'no_response',
@@ -510,12 +637,25 @@ export async function runEval(
         assertions.push(...timingResults)
       }
 
+      const conversationMode = turn.assert?.conversationMode
+      if (deliveredTo.length > 0 || notDeliveredTo.length > 0 || conversationMode) {
+        assertions.push(
+          ...(await actorRouter.gradeDelivery({
+            deliveredTo,
+            notDeliveredTo,
+            ...(conversationMode ? { conversationMode } : {}),
+          }))
+        )
+      }
+
       const turnPass = assertions.every((a) => a.pass)
 
       const evalDuration = Date.now() - evalStart
 
       const turnReport: TurnReport = {
         turnIndex: i,
+        ...(actor !== 'client' ? { actor } : {}),
+        ...(target !== 'client' ? { target } : {}),
         userMessage: turnLabel,
         botResponse,
         assertions,
@@ -621,6 +761,11 @@ export async function runEval(
       ...(evalErr ? { errorCode: evalErr.code } : {}),
     }
   } finally {
+    if (controlsUsed) {
+      await options.evalControl?.clearFaults().catch((error) => {
+        logger.warn(`Eval control cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }
     collector.disconnect()
     await session?.disconnect().catch((error) => {
       logger.warn(`Chat response listener cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -658,6 +803,8 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
       ...(filter !== undefined ? { filter } : {}),
     }
   }
+
+  validateEvalControlCapabilities(evals, config.evalControl)
 
   if (config.createSpanSource) {
     const preflightSource = config.createSpanSource()
@@ -724,6 +871,8 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
       ...(config.createSpanSource !== undefined ? { spanSource: config.createSpanSource() } : {}),
       ...(config.chatWebhookId !== undefined ? { chatWebhookId: config.chatWebhookId } : {}),
       ...(config.chatBaseUrl !== undefined ? { chatBaseUrl: config.chatBaseUrl } : {}),
+      ...(config.resolveFixture !== undefined ? { resolveFixture: config.resolveFixture } : {}),
+      ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
       sourcePreflighted: true,
     })
     reports.push(report)

@@ -14,11 +14,7 @@ import { isEqual } from 'lodash'
 import * as pathlib from 'path'
 import * as uuid from 'uuid'
 import * as apiUtils from '../api'
-import {
-  CloudapiClient,
-  type DevBotReadinessBot,
-  type DevBotReadinessIntegration,
-} from '../api/cloudapi-client'
+import { CloudapiClient, type DevBotReadinessBot, type DevBotReadinessIntegration } from '../api/cloudapi-client'
 import * as agentLink from '../adk-agent-link'
 import * as adkBundle from '../adk-bundle'
 import * as adkDevId from '../adk-dev-id'
@@ -111,8 +107,7 @@ function parseReadinessItems(
   ] as const
   for (const alias of Object.keys(value).sort()) {
     if (
-      (type === 'plugin' &&
-        (!CANONICAL_PLUGIN_ALIAS_RE.test(alias) || ['prototype', 'constructor'].includes(alias))) ||
+      (type === 'plugin' && (!CANONICAL_PLUGIN_ALIAS_RE.test(alias) || ['prototype', 'constructor'].includes(alias))) ||
       (type === 'integration' && !isSafeBindingAlias(alias))
     ) {
       throw readinessContractError(`${path} contains an invalid alias`)
@@ -194,17 +189,19 @@ function parseReadinessItems(
           throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias} is noncanonical`)
         }
         if (typeof mapping.integrationAlias !== 'string' || !isIntegrationInstanceAlias(mapping.integrationAlias)) {
-          throw readinessContractError(
-            `${path}.${alias}.interfaces.${interfaceAlias}.integrationAlias is invalid`
-          )
+          throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias}.integrationAlias is invalid`)
         }
         for (const field of ['integrationId', 'integrationInterfaceAlias'] as const) {
           if (typeof mapping[field] !== 'string' || mapping[field] === '') {
-            throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias}.${field} must be a non-empty string`)
+            throw readinessContractError(
+              `${path}.${alias}.interfaces.${interfaceAlias}.${field} must be a non-empty string`
+            )
           }
         }
         if (!isSafeBindingAlias(mapping.integrationInterfaceAlias as string)) {
-          throw readinessContractError(`${path}.${alias}.interfaces.${interfaceAlias}.integrationInterfaceAlias is invalid`)
+          throw readinessContractError(
+            `${path}.${alias}.interfaces.${interfaceAlias}.integrationInterfaceAlias is invalid`
+          )
         }
         dependencyAliases.add(interfaceAlias)
       }
@@ -224,20 +221,17 @@ function parseReadinessItems(
           throw readinessContractError(`${path}.${alias}.integrations.${integrationAlias} is noncanonical`)
         }
         if (
-          typeof mapping.integrationId !== 'string' || mapping.integrationId === '' ||
-          typeof mapping.integrationAlias !== 'string' || !isIntegrationInstanceAlias(mapping.integrationAlias)
+          typeof mapping.integrationId !== 'string' ||
+          mapping.integrationId === '' ||
+          typeof mapping.integrationAlias !== 'string' ||
+          !isIntegrationInstanceAlias(mapping.integrationAlias)
         ) {
           throw readinessContractError(`${path}.${alias}.integrations.${integrationAlias} is invalid`)
         }
       }
     }
-    if (
-      typeof raw.configurationRevision === 'string' &&
-      !/^sha256:[0-9a-f]{64}$/.test(raw.configurationRevision)
-    ) {
-      throw readinessContractError(
-        `${path}.${alias}.configurationRevision must be sha256:<64 lowercase hex>`
-      )
+    if (typeof raw.configurationRevision === 'string' && !/^sha256:[0-9a-f]{64}$/.test(raw.configurationRevision)) {
+      throw readinessContractError(`${path}.${alias}.configurationRevision must be sha256:<64 lowercase hex>`)
     }
     items[alias] = raw as CloudReadinessDependency
   }
@@ -303,9 +297,7 @@ function parseCloudDependencyReadiness(bot: DevBotReadinessBot): CloudDependency
       }
       return { authority: 'authoritative' as const, revision: last.revision }
     }
-    throw readinessContractError(
-      'bot.devReadiness.lastDevDeployment.authority must be authoritative or unknown'
-    )
+    throw readinessContractError('bot.devReadiness.lastDevDeployment.authority must be authoritative or unknown')
   })()
   const integrationItems = parseReadinessItems(bot.integrations, 'bot.integrations', 'integration')
   const pluginMetadata = bot.devReadiness.plugins
@@ -617,10 +609,14 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       readProfile: (name) => this.readProfileFromFS(name),
     })
     const selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
-    cloudProfileResolve.assertProfileAuthority('command target override', {
-      apiUrl: selectedApiUrl,
-      workspaceId: this.argv.workspaceId,
-    }, profile)
+    cloudProfileResolve.assertProfileAuthority(
+      'command target override',
+      {
+        apiUrl: selectedApiUrl,
+        workspaceId: this.argv.workspaceId,
+      },
+      profile
+    )
     if (this.argv.local && !agentLocalInfo.apiUrl) {
       throw new errors.BotpressCLIError(
         'agent.local.json has no apiUrl — brt dev --local cannot use profile stack coordinates'
@@ -636,18 +632,18 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         requireCoordinates: true,
       })
     }
-    const apiUrl = this.argv.local
-      ? agentLocalInfo.apiUrl!.replace(/\/+$/, '')
-      : selectedApiUrl
-    const workspaceId = this.argv.local
-      ? agentLocalInfo.workspaceId
-      : (this.argv.workspaceId ?? profile.workspaceId)
+    const apiUrl = this.argv.local ? agentLocalInfo.apiUrl!.replace(/\/+$/, '') : selectedApiUrl
+    const workspaceId = this.argv.local ? agentLocalInfo.workspaceId : (this.argv.workspaceId ?? profile.workspaceId)
     if (!workspaceId) {
       throw new errors.BotpressCLIError(
         `profile "${profileName}" has no workspaceId — re-run \`brt login\` before \`brt dev\``
       )
     }
-    return { token: this.argv.local ? profile.token : (this.argv.token ?? profile.token), apiUrl, workspaceId }
+    return {
+      token: this.argv.local ? profile.token : (this.argv.token ?? profile.token),
+      apiUrl,
+      workspaceId,
+    }
   }
 
   private async _resolveClassicLocalClient(dir: string): Promise<apiUtils.ApiClient> {
@@ -658,10 +654,14 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       readProfile: (name) => this.readProfileFromFS(name),
     })
     const selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
-    cloudProfileResolve.assertProfileAuthority('command target override', {
-      apiUrl: selectedApiUrl,
-      workspaceId: this.argv.workspaceId,
-    }, profile)
+    cloudProfileResolve.assertProfileAuthority(
+      'command target override',
+      {
+        apiUrl: selectedApiUrl,
+        workspaceId: this.argv.workspaceId,
+      },
+      profile
+    )
     cloudProfileResolve.assertProfileAuthority('bot.local.json', local ?? {}, profile, {
       requireCoordinates: true,
     })
@@ -839,7 +839,14 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       watcher = await utils.filewatcher.FileWatcher.watch(
         dir,
         async (events) => {
-          if (!events.some((e) => adkBundle.isAgentSourceChange(dir, e.path, { dependencyEnv: 'dev' }))) return
+          if (
+            !events.some((e) =>
+              adkBundle.isAgentSourceChange(dir, e.path, {
+                dependencyEnv: 'dev',
+              })
+            )
+          )
+            return
           this.logger.log('Agent source changed, regenerating tunnel bot')
           try {
             await regenerate()
@@ -954,7 +961,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           `${localStack.fileName} has no workspaceId — brt dev --check --local cannot use profile stack coordinates`
         )
       }
-      strictLocal = { apiUrl: localStack.apiUrl.replace(/\/+$/, ''), workspaceId: localStack.workspaceId }
+      strictLocal = {
+        apiUrl: localStack.apiUrl.replace(/\/+$/, ''),
+        workspaceId: localStack.workspaceId,
+      }
     }
 
     const { name: profileName, profile } = await cloudProfileResolve.resolveProfile({
@@ -963,10 +973,14 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       readProfile: (name) => this.readProfileFromFS(name),
     })
     const selectedApiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
-    cloudProfileResolve.assertProfileAuthority('command target override', {
-      apiUrl: selectedApiUrl,
-      workspaceId: this.argv.workspaceId,
-    }, profile)
+    cloudProfileResolve.assertProfileAuthority(
+      'command target override',
+      {
+        apiUrl: selectedApiUrl,
+        workspaceId: this.argv.workspaceId,
+      },
+      profile
+    )
     if (this.argv.local) {
       cloudProfileResolve.assertProfileAuthority(
         isAgent ? 'agent.local.json' : 'bot.local.json',
@@ -982,30 +996,25 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       )
     }
 
-    const apiUrl =
-      strictLocal?.apiUrl ??
-      selectedApiUrl
-    const cached = await this._readCachedDevCheckTarget(
-      isAgent,
-      dir,
-      { apiUrl, workspaceId }
-    )
+    const apiUrl = strictLocal?.apiUrl ?? selectedApiUrl
+    const cached = await this._readCachedDevCheckTarget(isAgent, dir, {
+      apiUrl,
+      workspaceId,
+    })
     const devId = cached.runtimeBotId
     const tunnelId = cached.tunnelId
     const url = this._devTunnelHttpUrl(tunnelId)
 
     const client = new CloudapiClient(apiUrl, this.argv.local ? profile.token : (this.argv.token ?? profile.token))
-    const report = await client
-      .getDevBotTarget(devId, workspaceId)
-      .catch((thrown) => {
-        if (thrown instanceof errors.HTTPError && thrown.status === 404) {
-          throw new errors.BotpressCLIError(
-            `dev readiness is unavailable for dev bot "${devId}" at ${apiUrl}. ` +
-              `Required server contract: GET /v1/admin/bots/{devId} must return authoritative readiness state.`
-          )
-        }
-        throw errors.BotpressCLIError.wrap(thrown, 'dev readiness check failed')
-      })
+    const report = await client.getDevBotTarget(devId, workspaceId).catch((thrown) => {
+      if (thrown instanceof errors.HTTPError && thrown.status === 404) {
+        throw new errors.BotpressCLIError(
+          `dev readiness is unavailable for dev bot "${devId}" at ${apiUrl}. ` +
+            `Required server contract: GET /v1/admin/bots/{devId} must return authoritative readiness state.`
+        )
+      }
+      throw errors.BotpressCLIError.wrap(thrown, 'dev readiness check failed')
+    })
     const verifiedTarget = resolveDevBotTarget(report.bot, devId, cached.targetBotId)
     const cloudReadiness = parseCloudDependencyReadiness(report.bot)
 
@@ -1034,6 +1043,14 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     const failed = isAgent ? [] : this._failedReadinessIntegrations(readinessIntegrations, integrations)
+    const evalChat = Object.values(readinessIntegrations).find((integration) => integration.name === 'chat')
+    const evalTransport =
+      evalChat && evalChat.enabled !== false && evalChat.status === 'registered'
+        ? { ready: true, integration: `chat@${evalChat.version}` }
+        : {
+            ready: false,
+            remediation: `brt eval --dev${this.argv.local ? ' --local' : ''}`,
+          }
     const output = {
       ok: failed.length === 0 && (!dependencies || dependencies.ok),
       bot: {
@@ -1042,6 +1059,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         url: report.bot.url ?? url,
       },
       integrations: readinessIntegrations,
+      evalTransport,
       ...(dependencies ? { dependencies } : {}),
     }
 
@@ -1060,6 +1078,11 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           const reason = integration.statusReason ? ` — ${integration.statusReason}` : ''
           this.logger.log(`  ${alias}: ${status}${reason}`)
         }
+      }
+      if (output.evalTransport.ready) {
+        this.logger.log(`Eval transport: ready (${output.evalTransport.integration})`)
+      } else {
+        this.logger.log(`Eval transport: not ready — run \`${output.evalTransport.remediation}\` to provision chat`)
       }
       if (dependencies) {
         this._printAgentDependencyReport(dependencies)
@@ -1225,7 +1248,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           : 'no verified numeric devTargetBotId in .botpress/project.cache.json — run `brt dev` to resolve the dev target'
       )
     }
-    const tunnelId = isAgent ? runtimeBotId : (await this.projectCache.peek('tunnelId')) ?? runtimeBotId
+    const tunnelId = isAgent ? runtimeBotId : ((await this.projectCache.peek('tunnelId')) ?? runtimeBotId)
     return { runtimeBotId, targetBotId, tunnelId }
   }
 
@@ -1289,7 +1312,13 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     return Object.entries(integrations).flatMap(([alias, integration]) => {
       const expected = requested[alias]
       if (!expected) {
-        return [{ alias, integration, reason: `unexpected authoritative integration ${alias}` }]
+        return [
+          {
+            alias,
+            integration,
+            reason: `unexpected authoritative integration ${alias}`,
+          },
+        ]
       }
       for (const field of ['id', 'name', 'version'] as const) {
         if (expected[field] !== undefined && integration[field] !== expected[field]) {

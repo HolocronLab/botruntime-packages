@@ -177,11 +177,12 @@ the hosted runtime workflow and privacy-safe cloud persistence. A bare
 `builtin_eval_runner`; `runs` lists or inspects persisted results.
 
 ```bash
-# Run all deployed eval definitions, or select a compatible filter
+# Sync local evals/manifest + private fixtures, then run the hosted workflow
 brt eval run
 brt eval greeting
 brt eval run greeting --tag smoke --type regression
 brt eval run --judge-model openai:gpt-4o
+brt eval run --repeat 10 --max-concurrency 2 --min-pass-rate 0.9
 
 # Target the attested dev runtime instead of production
 brt eval run --dev
@@ -199,6 +200,13 @@ per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
 the selected profile PAT narrowed by the opaque runtime bot identity previously
 attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
 two authority modes cannot be mixed implicitly.
+
+The command verifies or provisions the exact compatible first-party Chat
+integration before a run. Repeated attempts are isolated runs; the aggregate
+contains pass rate, stable/flaky classification, p50/p95 duration, and a
+failure histogram keyed only by assertion kind. Fixture contents, signed URLs,
+actor messages, and tool payloads are excluded from the manifest result and
+aggregate output.
 
 The machine envelope has `schemaVersion: 1` and only allowlisted target, run,
 entry, verdict, timing, error-kind, and typed assertion metadata. Prompts,

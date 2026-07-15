@@ -7,6 +7,15 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { EvalRunCommand, EvalRunsCommand } from './eval-command'
 
+const ensureEvalChatTransport = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ webhookId: 'wh_chat', provisioned: false })
+)
+vi.mock('./eval-chat-transport', () => ({ ensureEvalChatTransport }))
+const prepareHostedEvalManifest = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
+)
+vi.mock('../eval-manifest-prepare', () => ({ prepareHostedEvalManifest }))
+
 vi.mock('latest-version', () => ({ default: vi.fn(async () => '0.5.4') }))
 
 const API_URL = 'https://cloud.example'
@@ -79,7 +88,10 @@ const detail = (overrides: Record<string, unknown> = {}) => ({
 })
 
 const json = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
 
 describe('brt eval public contract', () => {
   let botpressHome: string
@@ -96,16 +108,31 @@ describe('brt eval public contract', () => {
     stdout = ''
     stderr = ''
     originalFetch = globalThis.fetch
+    ensureEvalChatTransport.mockReset().mockResolvedValue({ webhookId: 'wh_chat', provisioned: false })
+    prepareHostedEvalManifest.mockReset().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
 
     fs.writeFileSync(
       path.join(botpressHome, 'profiles.json'),
-      JSON.stringify({ default: { apiUrl: API_URL, workspaceId: WORKSPACE_ID, token: 'pat_secret' } })
+      JSON.stringify({
+        default: {
+          apiUrl: API_URL,
+          workspaceId: WORKSPACE_ID,
+          token: 'pat_secret',
+        },
+      })
     )
-    fs.writeFileSync(path.join(botpressHome, 'bots.json'), JSON.stringify({ default: { [PROD_BOT_ID]: { apiKey: 'bot_key' } } }))
+    fs.writeFileSync(
+      path.join(botpressHome, 'bots.json'),
+      JSON.stringify({ default: { [PROD_BOT_ID]: { apiKey: 'bot_key' } } })
+    )
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
-      JSON.stringify({ botId: PROD_BOT_ID, workspaceId: WORKSPACE_ID, apiUrl: API_URL })
+      JSON.stringify({
+        botId: PROD_BOT_ID,
+        workspaceId: WORKSPACE_ID,
+        apiUrl: API_URL,
+      })
     )
 
     vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
@@ -129,14 +156,21 @@ describe('brt eval public contract', () => {
     expect(commandDefinitions.eval).toEqual(
       expect.objectContaining({
         description: expect.stringMatching(/eval/i),
-        default: expect.objectContaining({ schema: expect.objectContaining({ name: expect.any(Object) }) }),
+        default: expect.objectContaining({
+          schema: expect.objectContaining({ name: expect.any(Object) }),
+        }),
         subcommands: expect.objectContaining({
           run: expect.objectContaining({
             schema: expect.objectContaining({
               name: expect.objectContaining({ positional: true }),
               tag: expect.objectContaining({ type: 'string' }),
-              type: expect.objectContaining({ choices: ['capability', 'regression'] }),
+              type: expect.objectContaining({
+                choices: ['capability', 'regression'],
+              }),
               judgeModel: expect.objectContaining({ type: 'string' }),
+              repeat: expect.objectContaining({ type: 'number', default: 1 }),
+              maxConcurrency: expect.objectContaining({ type: 'number', default: 1 }),
+              minPassRate: expect.objectContaining({ type: 'number', default: 1 }),
               dev: expect.objectContaining({ type: 'boolean' }),
             }),
           }),
@@ -166,7 +200,11 @@ describe('brt eval public contract', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe(`${API_URL}/v1/evals/bot/${PROD_BOT_ID}/runs?limit=10`)
     expect(headers(calls[0]!)).toEqual({ authorization: 'Bearer bot_key' })
-    expect(JSON.parse(stdout).target).toEqual({ environment: 'production', workspaceId: WORKSPACE_ID, botId: PROD_BOT_ID })
+    expect(JSON.parse(stdout).target).toEqual({
+      environment: 'production',
+      workspaceId: WORKSPACE_ID,
+      botId: PROD_BOT_ID,
+    })
   })
 
   it('uses the attested dev runtime identity with PAT and x-bot-id', async () => {
@@ -174,7 +212,13 @@ describe('brt eval public contract', () => {
     stubFetch(async (url) => {
       const pathname = decodeURIComponent(new URL(url).pathname)
       if (pathname === `/v1/admin/bots/${DEV_RUNTIME_BOT_ID}`) {
-        return json({ bot: { id: DEV_RUNTIME_BOT_ID, dev: true, tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID } } })
+        return json({
+          bot: {
+            id: DEV_RUNTIME_BOT_ID,
+            dev: true,
+            tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID },
+          },
+        })
       }
       return json({ runs: [run({ botId: DEV_RUNTIME_BOT_ID })] })
     })
@@ -186,7 +230,10 @@ describe('brt eval public contract', () => {
       `/v1/admin/bots/${DEV_RUNTIME_BOT_ID}`,
       `/v1/evals/bot/${DEV_RUNTIME_BOT_ID}/runs`,
     ])
-    expect(headers(calls[1]!)).toEqual({ authorization: 'Bearer pat_secret', 'x-bot-id': DEV_RUNTIME_BOT_ID })
+    expect(headers(calls[1]!)).toEqual({
+      authorization: 'Bearer pat_secret',
+      'x-bot-id': DEV_RUNTIME_BOT_ID,
+    })
     expect(JSON.parse(stdout).target).toEqual({
       environment: 'development',
       workspaceId: WORKSPACE_ID,
@@ -205,7 +252,14 @@ describe('brt eval public contract', () => {
     expect((await runsCommand().handler()).exitCode).toBe(1)
     expect(stderr).toMatch(/agent\.json.*brt link/i)
     stderr = ''
-    fs.writeFileSync(path.join(workDir, 'agent.json'), JSON.stringify({ botId: 'opaque', workspaceId: WORKSPACE_ID, apiUrl: API_URL }))
+    fs.writeFileSync(
+      path.join(workDir, 'agent.json'),
+      JSON.stringify({
+        botId: 'opaque',
+        workspaceId: WORKSPACE_ID,
+        apiUrl: API_URL,
+      })
+    )
     expect((await runsCommand().handler()).exitCode).toBe(1)
     expect(stderr).toMatch(/botId.*positive decimal/i)
     expect(calls).toEqual([])
@@ -225,7 +279,9 @@ describe('brt eval public contract', () => {
   it('rejects a poisoned per-bot credential before network without reflecting it', async () => {
     fs.writeFileSync(
       path.join(botpressHome, 'bots.json'),
-      JSON.stringify({ default: { [PROD_BOT_ID]: { apiKey: 'bot_key\ncustomer_secret' } } })
+      JSON.stringify({
+        default: { [PROD_BOT_ID]: { apiKey: 'bot_key\ncustomer_secret' } },
+      })
     )
     stubFetch(async () => json({ runs: [] }))
 
@@ -276,12 +332,19 @@ describe('brt eval public contract', () => {
     [{ runs: [run({ status: 'unknown' })] }, /status.*malformed/i],
     [{ runs: [run({ createdAt: 'yesterday' })] }, /createdAt.*malformed/i],
     [{ ...detail(), entries: [entry({ passed: 'yes' })] }, /passed.*malformed/i],
-    [{ ...detail(), entries: [entry({ results: [result({ assertionKind: 'raw_prompt' })] })] }, /assertionKind.*malformed/i],
+    [
+      {
+        ...detail(),
+        entries: [entry({ results: [result({ assertionKind: 'raw_prompt' })] })],
+      },
+      /assertionKind.*malformed/i,
+    ],
   ])('fails loudly on malformed hosted eval response: %j', async (body, expected) => {
     stubFetch(async () => json(body))
-    const command = Array.isArray((body as { runs?: unknown }).runs) || 'runs' in (body as object)
-      ? runsCommand()
-      : runsCommand({ runId: '101' })
+    const command =
+      Array.isArray((body as { runs?: unknown }).runs) || 'runs' in (body as object)
+        ? runsCommand()
+        : runsCommand({ runId: '101' })
 
     const response = await command.handler()
 
@@ -310,25 +373,52 @@ describe('brt eval public contract', () => {
   it('lists with status, limit and opaque cursor and returns a resumable stable JSON envelope', async () => {
     stubFetch(async () => json({ runs: [run()], nextToken: 'MTAw' }))
 
-    const response = await runsCommand({ json: true, limit: 5, nextToken: 'MjAw', status: 'completed' }).handler()
+    const response = await runsCommand({
+      json: true,
+      limit: 5,
+      nextToken: 'MjAw',
+      status: 'completed',
+    }).handler()
     const output = JSON.parse(stdout)
 
     expect(response.exitCode).toBe(0)
     const url = new URL(calls[0]!.url)
-    expect(Object.fromEntries(url.searchParams)).toEqual({ limit: '5', status: 'completed', nextToken: 'MjAw' })
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      limit: '5',
+      status: 'completed',
+      nextToken: 'MjAw',
+    })
     expect(output).toEqual({
       schemaVersion: 1,
-      target: { environment: 'production', workspaceId: WORKSPACE_ID, botId: PROD_BOT_ID },
-      runs: [expect.objectContaining({ id: '101', status: 'completed', triggerType: 'manual' })],
+      target: {
+        environment: 'production',
+        workspaceId: WORKSPACE_ID,
+        botId: PROD_BOT_ID,
+      },
+      runs: [
+        expect.objectContaining({
+          id: '101',
+          status: 'completed',
+          triggerType: 'manual',
+        }),
+      ],
       nextToken: 'MTAw',
     })
     expect(stdout + stderr).not.toMatch(/raw prompt|raw response|customer secret/i)
   })
 
   it('shows --latest and a run ID through the metadata-only detail projection', async () => {
-    stubFetch(async (_url, index) => index === 0 ? json({ runs: [run()] }) : json(detail()))
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({ runs: [run()] })
+        : json(detail({ entries: [entry({ results: [result({ assertionKind: 'delivered_to' })] })] }))
+    )
 
-    const response = await runsCommand({ latest: true, json: true, verbose: true }).handler()
+    const response = await runsCommand({
+      latest: true,
+      json: true,
+      verbose: true,
+    }).handler()
     const output = JSON.parse(stdout)
 
     expect(response.exitCode).toBe(0)
@@ -352,7 +442,7 @@ describe('brt eval public contract', () => {
           evalEntryId: '201',
           turnIndex: 0,
           resultIndex: 0,
-          assertionKind: 'response_contains',
+          assertionKind: 'delivered_to',
           passed: true,
           skipped: false,
           score: null,
@@ -362,7 +452,9 @@ describe('brt eval public contract', () => {
         },
       ],
     })
-    expect(stdout + stderr).not.toMatch(/private scenario|raw evaluator|raw prompt|raw model|customer secret|raw response/i)
+    expect(stdout + stderr).not.toMatch(
+      /private scenario|raw evaluator|raw prompt|raw model|customer secret|raw response/i
+    )
   })
 
   it('prints readable metadata-only human history', async () => {
@@ -382,7 +474,11 @@ describe('brt eval public contract', () => {
           name: 'builtin_eval_runner',
           status: 'pending',
           input: {
-            filter: { names: ['greeting'], tags: ['smoke'], type: 'regression' },
+            filter: {
+              names: ['greeting'],
+              tags: ['smoke'],
+              type: 'regression',
+            },
             runType: 'manual',
             judgeModel: 'openai:gpt-4o',
           },
@@ -391,7 +487,19 @@ describe('brt eval public contract', () => {
         return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
       }
       if (url.includes('/v1/chat/workflows/')) {
-        return json({ workflow: { id: 'workflow_1', status: 'completed', output: { runId: '101', passed: 1, failed: 0, total: 1, duration: 1000 } } })
+        return json({
+          workflow: {
+            id: 'workflow_1',
+            status: 'completed',
+            output: {
+              runId: '101',
+              passed: 1,
+              failed: 0,
+              total: 1,
+              duration: 1000,
+            },
+          },
+        })
       }
       return json(detail())
     })
@@ -417,10 +525,30 @@ describe('brt eval public contract', () => {
   it('runs against dev only through the PAT-scoped opaque target', async () => {
     writeDevTarget()
     stubFetch(async (url, index) => {
-      if (index === 0) return json({ bot: { id: DEV_RUNTIME_BOT_ID, dev: true, tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID } } })
-      if (url.endsWith('/v1/chat/workflows')) return json({ workflow: { id: 'wf_dev', status: 'pending', output: {} } }, 201)
+      if (index === 0)
+        return json({
+          bot: {
+            id: DEV_RUNTIME_BOT_ID,
+            dev: true,
+            tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID },
+          },
+        })
+      if (url.endsWith('/v1/chat/workflows'))
+        return json({ workflow: { id: 'wf_dev', status: 'pending', output: {} } }, 201)
       if (url.endsWith('/v1/chat/workflows/wf_dev')) {
-        return json({ workflow: { id: 'wf_dev', status: 'completed', output: { runId: '101', passed: 1, failed: 0, total: 1, duration: 1 } } })
+        return json({
+          workflow: {
+            id: 'wf_dev',
+            status: 'completed',
+            output: {
+              runId: '101',
+              passed: 1,
+              failed: 0,
+              total: 1,
+              duration: 1,
+            },
+          },
+        })
       }
       return json(detail({ botId: DEV_RUNTIME_BOT_ID }))
     })
@@ -428,18 +556,112 @@ describe('brt eval public contract', () => {
     const response = await runCommand({ dev: true, json: true }).handler()
 
     expect(response.exitCode).toBe(0)
+    expect(ensureEvalChatTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: WORKSPACE_ID,
+        botId: DEV_TARGET_BOT_ID,
+        development: true,
+      })
+    )
+    expect(prepareHostedEvalManifest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectDir: workDir,
+        botId: DEV_TARGET_BOT_ID,
+        workspaceId: WORKSPACE_ID,
+        chatWebhookId: 'wh_chat',
+      })
+    )
     for (const call of calls.slice(1)) {
-      expect(headers(call)).toEqual({ authorization: 'Bearer pat_secret', 'x-bot-id': DEV_RUNTIME_BOT_ID, ...(call.init.body ? { 'content-type': 'application/json' } : {}) })
+      expect(headers(call)).toEqual({
+        authorization: 'Bearer pat_secret',
+        'x-bot-id': DEV_RUNTIME_BOT_ID,
+        ...(call.init.body ? { 'content-type': 'application/json' } : {}),
+      })
     }
+  })
+
+  it('aggregates repeated runs and accepts a flaky suite at the configured pass rate', async () => {
+    stubFetch(async (_url, index) => {
+      if (index === 0) return json({ workflow: { id: 'wf_1', status: 'pending', output: {} } }, 201)
+      if (index === 1)
+        return json({
+          workflow: {
+            id: 'wf_1',
+            status: 'completed',
+            output: { runId: '101', passed: 1, failed: 0, total: 1, duration: 100 },
+          },
+        })
+      if (index === 2) return json(detail())
+      if (index === 3) return json({ workflow: { id: 'wf_2', status: 'pending', output: {} } }, 201)
+      if (index === 4)
+        return json({
+          workflow: {
+            id: 'wf_2',
+            status: 'completed',
+            output: { runId: '102', passed: 0, failed: 1, total: 1, duration: 300 },
+          },
+        })
+      return json(
+        detail({
+          id: '102',
+          entries: [
+            entry({
+              id: '202',
+              evalRunId: '102',
+              passed: false,
+              results: [result({ id: '302', evalEntryId: '202', passed: false })],
+            }),
+          ],
+        })
+      )
+    })
+
+    const response = await runCommand({
+      repeat: 2,
+      maxConcurrency: 1,
+      minPassRate: 0.5,
+      json: true,
+    }).handler()
+
+    expect(response.exitCode).toBe(0)
+    expect(JSON.parse(stdout).aggregate).toEqual(
+      expect.objectContaining({
+        repeat: 2,
+        passedRuns: 1,
+        failedRuns: 1,
+        passRate: 0.5,
+        classification: 'flaky',
+        p50DurationMs: 100,
+        p95DurationMs: 300,
+        failureHistogram: { response_contains: 1 },
+      })
+    )
   })
 
   it('returns non-zero for a failed suite after printing only the safe result', async () => {
     stubFetch(async (url, index) => {
       if (index === 0) return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
       if (url.includes('/workflows/')) {
-        return json({ workflow: { id: 'workflow_1', status: 'completed', output: { runId: '101', passed: 0, failed: 1, total: 1, duration: 1, rawError: 'customer secret' } } })
+        return json({
+          workflow: {
+            id: 'workflow_1',
+            status: 'completed',
+            output: {
+              runId: '101',
+              passed: 0,
+              failed: 1,
+              total: 1,
+              duration: 1,
+              rawError: 'customer secret',
+            },
+          },
+        })
       }
-      return json(detail({ entries: [entry({ passed: false, error: 'customer secret' })] }))
+      return json(
+        detail({
+          entries: [entry({ passed: false, error: 'customer secret' })],
+        })
+      )
     })
 
     const response = await runCommand({ json: true }).handler()
@@ -454,7 +676,14 @@ describe('brt eval public contract', () => {
     stubFetch(async (_url, index) =>
       index === 0
         ? json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
-        : json({ workflow: { id: 'workflow_1', status: 'failed', output: {}, failureReason: 'raw prompt and customer secret' } })
+        : json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'failed',
+              output: {},
+              failureReason: 'raw prompt and customer secret',
+            },
+          })
     )
 
     const response = await runCommand({ verbose: true }).handler()
@@ -485,7 +714,13 @@ describe('brt eval public contract', () => {
     stubFetch(async (_url, index) =>
       index === 0
         ? json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
-        : json({ workflow: { id: 'workflow_1', status: 'completed', output: { runId: 'bad', rawPrompt: 'customer secret' } } })
+        : json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'completed',
+              output: { runId: 'bad', rawPrompt: 'customer secret' },
+            },
+          })
     )
 
     const response = await runCommand({ verbose: true }).handler()
@@ -536,7 +771,13 @@ describe('brt eval public contract', () => {
   }
 
   function writeDevTarget(): void {
-    fs.writeFileSync(path.join(workDir, 'agent.local.json'), JSON.stringify({ devId: DEV_RUNTIME_BOT_ID, devTargetBotId: DEV_TARGET_BOT_ID }))
+    fs.writeFileSync(
+      path.join(workDir, 'agent.local.json'),
+      JSON.stringify({
+        devId: DEV_RUNTIME_BOT_ID,
+        devTargetBotId: DEV_TARGET_BOT_ID,
+      })
+    )
   }
 
   function stubFetch(impl: (url: string, index: number, init: RequestInit) => Promise<Response>): void {

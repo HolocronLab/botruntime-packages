@@ -33,7 +33,7 @@ const networkProperties = {
   },
   webhookAuthMode: {
     type: "string",
-    enum: ["shared_secret", "provider_verified"],
+    enum: ["shared_secret", "provider_verified", "handler_verified"],
     description: "Authentication mode enforced for inbound webhooks.",
   },
 };
@@ -72,14 +72,23 @@ const requestTypeFields = `  /**
   /**
    * Authentication mode enforced for inbound webhooks.
    */
-  webhookAuthMode?: "shared_secret" | "provider_verified";
+  webhookAuthMode?: "shared_secret" | "provider_verified" | "handler_verified";
 `;
 
 export function extendGeneratedClientSource(source, operationName) {
   let output = source;
   if (
-    !output.includes('webhookAuthMode?: "shared_secret" | "provider_verified";')
+    !output.includes(
+      'webhookAuthMode?: "shared_secret" | "provider_verified" | "handler_verified";',
+    )
   ) {
+    output = output.replace(
+      'webhookAuthMode?: "shared_secret" | "provider_verified";',
+      'webhookAuthMode?: "shared_secret" | "provider_verified" | "handler_verified";',
+    );
+  }
+
+  if (!output.includes("webhookAuthMode?:")) {
     const inputMarker = `\n}\n\nexport type ${operationName}Input`;
     if (!output.includes(inputMarker)) {
       throw new Error(`failed to find ${operationName} request body boundary`);

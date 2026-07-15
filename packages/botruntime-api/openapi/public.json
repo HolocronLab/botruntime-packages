@@ -24392,7 +24392,8 @@
                   "type": "string",
                   "enum": [
                     "shared_secret",
-                    "provider_verified"
+                    "provider_verified",
+                    "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
                 }
@@ -25011,7 +25012,8 @@
                   "type": "string",
                   "enum": [
                     "shared_secret",
-                    "provider_verified"
+                    "provider_verified",
+                    "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
                 }
@@ -25635,7 +25637,8 @@
                   "type": "string",
                   "enum": [
                     "shared_secret",
-                    "provider_verified"
+                    "provider_verified",
+                    "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
                 }
@@ -26267,7 +26270,8 @@
                   "type": "string",
                   "enum": [
                     "shared_secret",
-                    "provider_verified"
+                    "provider_verified",
+                    "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
                 }

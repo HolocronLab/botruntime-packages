@@ -38,7 +38,14 @@ function writeProfile(botpressHome: string): void {
 function writeProjectCache(workDir: string): void {
   const cachePath = path.join(workDir, '.botpress', 'project.cache.json')
   fs.mkdirSync(path.dirname(cachePath), { recursive: true })
-  fs.writeFileSync(cachePath, JSON.stringify({ devId: 'dev_abc', devTargetBotId: '42', tunnelId: 'dev_abc' }))
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({
+      devId: 'dev_abc',
+      devTargetBotId: '42',
+      tunnelId: 'dev_abc',
+    })
+  )
 }
 
 function writeProjectCacheState(workDir: string, state: Record<string, unknown>): void {
@@ -79,10 +86,7 @@ function devBot(runtimeBotId: string, devTargetBotId: string) {
 
 function writeAgentProject(workDir: string): void {
   fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
-  fs.writeFileSync(
-    path.join(workDir, 'agent.local.json'),
-    JSON.stringify({ devId: 'dev_agent', devTargetBotId: '42' })
-  )
+  fs.writeFileSync(path.join(workDir, 'agent.local.json'), JSON.stringify({ devId: 'dev_agent', devTargetBotId: '42' }))
 }
 
 function writeDevDependencySnapshot(
@@ -140,7 +144,10 @@ class TestDependencySnapshotStore {
     const snapshotPath = this.getSnapshotPath(expected.env)
     if (!fs.existsSync(snapshotPath)) return null
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'))
-    const canonicalExpected = { ...expected, apiUrl: expected.apiUrl.replace(/\/+$/, '') }
+    const canonicalExpected = {
+      ...expected,
+      apiUrl: expected.apiUrl.replace(/\/+$/, ''),
+    }
     if (
       snapshot.version !== 2 ||
       snapshot.env !== canonicalExpected.env ||
@@ -187,21 +194,32 @@ async function testReconcileDependencyReadiness({
 }: {
   snapshot: any
   cloud: any
-  expectedTarget: { env: string; apiUrl: string; workspaceId: string; botId: string }
+  expectedTarget: {
+    env: string
+    apiUrl: string
+    workspaceId: string
+    botId: string
+  }
 }): Promise<any> {
   const statuses = await testResolveDependencyStatuses({ snapshot })
   const issues: any[] = []
   const canonicalExpectedApiUrl = expectedTarget.apiUrl.replace(/\/+$/, '')
   const canonicalSnapshotApiUrl = snapshot.target?.apiUrl?.replace(/\/+$/, '')
   if (snapshot.env !== expectedTarget.env) {
-    issues.push({ code: 'SNAPSHOT_ENV_MISMATCH', message: `expected ${expectedTarget.env}` })
+    issues.push({
+      code: 'SNAPSHOT_ENV_MISMATCH',
+      message: `expected ${expectedTarget.env}`,
+    })
   }
   if (
     canonicalSnapshotApiUrl !== canonicalExpectedApiUrl ||
     snapshot.target?.workspaceId !== expectedTarget.workspaceId ||
     snapshot.target?.botId !== expectedTarget.botId
   ) {
-    issues.push({ code: 'SNAPSHOT_TARGET_MISMATCH', message: 'expected the selected dev target authority' })
+    issues.push({
+      code: 'SNAPSHOT_TARGET_MISMATCH',
+      message: 'expected the selected dev target authority',
+    })
   }
   if (snapshot.stale === true) issues.push({ code: 'SNAPSHOT_STALE', message: 'snapshot is stale' })
   if (cloud.integrations?.authority !== 'authoritative') {
@@ -286,12 +304,10 @@ function makeCommand(
   logger: Logger,
   argvOverrides: Record<string, unknown> = {}
 ): DevCommand {
-  const cmd = new DevCommand(
-    {} as any,
-    {} as any,
-    logger,
-    { ...makeArgv(botpressHome, workDir), ...argvOverrides } as any
-  )
+  const cmd = new DevCommand({} as any, {} as any, logger, {
+    ...makeArgv(botpressHome, workDir),
+    ...argvOverrides,
+  } as any)
   ;(cmd as any).readProjectDefinitionFromFS = () => ({
     projectType: 'bot',
     resolveProjectDefinition: async () => ({
@@ -333,7 +349,10 @@ describe('DevCommand --check', () => {
         plugins: {},
         devReadiness: {
           ...authoritativeDevReadiness(),
-          plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+          plugins: {
+            authority: 'authoritative',
+            source: 'bot_definition_plugins',
+          },
         },
       },
     }))
@@ -366,6 +385,8 @@ describe('DevCommand --check', () => {
     expect(result.exitCode).toBe(0)
     expect(out.read()).toContain('Dev bot: dev_abc')
     expect(out.read()).toContain('telegram: registered')
+    expect(out.read()).toContain('Eval transport: not ready')
+    expect(out.read()).toContain('brt eval --dev')
   })
 
   it('uses only authoritative GET and leaves remote and local state unchanged', async () => {
@@ -405,11 +426,16 @@ describe('DevCommand --check', () => {
     writeAgentProject(workDir)
     const localPath = path.join(workDir, 'agent.local.json')
     fs.writeFileSync(localPath, JSON.stringify({ devId: 'dev_agent', devTargetBotId: '41' }))
-    writeDevDependencySnapshot(workDir, {}, {}, {
-      apiUrl: 'https://cloud.example',
-      workspaceId: 'ws_123',
-      botId: '84',
-    })
+    writeDevDependencySnapshot(
+      workDir,
+      {},
+      {},
+      {
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+        botId: '84',
+      }
+    )
     const before = fs.readFileSync(localPath)
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
       bot: { ...devBot('dev_agent', '84'), integrations: {} },
@@ -463,7 +489,13 @@ describe('DevCommand --check', () => {
     writeDevDependencySnapshot(workDir, {})
     const snapshotPath = path.join(workDir, '.adk', 'dependencies', 'dev.json')
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'))
-    fs.writeFileSync(snapshotPath, JSON.stringify({ ...snapshot, target: { ...snapshot.target, botId: '99' } }))
+    fs.writeFileSync(
+      snapshotPath,
+      JSON.stringify({
+        ...snapshot,
+        target: { ...snapshot.target, botId: '99' },
+      })
+    )
     const cachePath = path.join(workDir, '.botpress', 'project.cache.json')
     const profilePath = path.join(botpressHome, 'profiles.json')
     const agentLocalPath = path.join(workDir, 'agent.local.json')
@@ -471,7 +503,10 @@ describe('DevCommand --check', () => {
     const before = new Map(
       files.map((filePath) => [
         filePath,
-        { bytes: fs.readFileSync(filePath), mtimeMs: fs.statSync(filePath).mtimeMs },
+        {
+          bytes: fs.readFileSync(filePath),
+          mtimeMs: fs.statSync(filePath).mtimeMs,
+        },
       ])
     )
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget')
@@ -490,11 +525,16 @@ describe('DevCommand --check', () => {
 
   it('blocks a foreign-authority dev snapshot after one authoritative GET and performs no local write', async () => {
     writeAgentProject(workDir)
-    writeDevDependencySnapshot(workDir, {}, {}, {
-      apiUrl: 'https://foreign.example',
-      workspaceId: 'ws_123',
-      botId: '42',
-    })
+    writeDevDependencySnapshot(
+      workDir,
+      {},
+      {},
+      {
+        apiUrl: 'https://foreign.example',
+        workspaceId: 'ws_123',
+        botId: '42',
+      }
+    )
     const snapshotPath = path.join(workDir, '.adk', 'dependencies', 'dev.json')
     const cachePath = path.join(workDir, '.botpress', 'project.cache.json')
     const profilePath = path.join(botpressHome, 'profiles.json')
@@ -503,7 +543,10 @@ describe('DevCommand --check', () => {
     const before = new Map(
       files.map((filePath) => [
         filePath,
-        { bytes: fs.readFileSync(filePath), mtimeMs: fs.statSync(filePath).mtimeMs },
+        {
+          bytes: fs.readFileSync(filePath),
+          mtimeMs: fs.statSync(filePath).mtimeMs,
+        },
       ])
     )
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget')
@@ -522,13 +565,20 @@ describe('DevCommand --check', () => {
 
   it('requires agent.local apiUrl and workspaceId under --local before network', async () => {
     writeAgentProject(workDir)
-    writeDevDependencySnapshot(workDir, {}, {}, {
-      apiUrl: 'https://dev.local',
-      workspaceId: 'dev_ws',
-      botId: '42',
-    })
+    writeDevDependencySnapshot(
+      workDir,
+      {},
+      {},
+      {
+        apiUrl: 'https://dev.local',
+        workspaceId: 'dev_ws',
+        botId: '42',
+      }
+    )
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget')
-    const cmd = makeCommand(botpressHome, workDir, new Logger(), { local: true })
+    const cmd = makeCommand(botpressHome, workDir, new Logger(), {
+      local: true,
+    })
 
     const result = await cmd.handler()
 
@@ -547,11 +597,16 @@ describe('DevCommand --check', () => {
         workspaceId: 'dev_ws',
       })
     )
-    writeDevDependencySnapshot(workDir, {}, {}, {
-      apiUrl: 'https://dev.local',
-      workspaceId: 'dev_ws',
-      botId: '42',
-    })
+    writeDevDependencySnapshot(
+      workDir,
+      {},
+      {},
+      {
+        apiUrl: 'https://dev.local',
+        workspaceId: 'dev_ws',
+        botId: '42',
+      }
+    )
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockImplementation(async function (
       this: CloudapiClient,
       runtimeBotId,
@@ -592,7 +647,10 @@ describe('DevCommand --check', () => {
     )
     writeDevDependencySnapshot(workDir, {})
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget')
-    const cmd = makeCommand(botpressHome, workDir, new Logger(), { local: true, profile: 'local' })
+    const cmd = makeCommand(botpressHome, workDir, new Logger(), {
+      local: true,
+      profile: 'local',
+    })
 
     const result = await cmd.handler()
 
@@ -613,7 +671,11 @@ describe('DevCommand --check', () => {
     )
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
-      JSON.stringify({ botId: '101', apiUrl: 'https://poisoned-agent.example', workspaceId: 'poisoned_agent_ws' })
+      JSON.stringify({
+        botId: '101',
+        apiUrl: 'https://poisoned-agent.example',
+        workspaceId: 'poisoned_agent_ws',
+      })
     )
     writeDevDependencySnapshot(workDir, {})
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockImplementation(async function (
@@ -626,7 +688,9 @@ describe('DevCommand --check', () => {
       expect(workspaceId).toBe('ws_123')
       return { bot: { ...devBot(runtimeBotId, '42'), integrations: {} } }
     })
-    const cmd = makeCommand(botpressHome, workDir, new Logger(), { local: false })
+    const cmd = makeCommand(botpressHome, workDir, new Logger(), {
+      local: false,
+    })
 
     const result = await cmd.handler()
 
@@ -710,7 +774,9 @@ describe('DevCommand --check', () => {
     vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
       bot: {
         ...devBot('dev_abc', '42'),
-        integrations: { telegram: authoritativeIntegration({ installationId: undefined }) },
+        integrations: {
+          telegram: authoritativeIntegration({ installationId: undefined }),
+        },
       },
     })
     const err = captureStream()
@@ -726,7 +792,9 @@ describe('DevCommand --check', () => {
     vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
       bot: {
         ...devBot('dev_abc', '42'),
-        integrations: { telegram: authoritativeIntegration({ status: 'active' }) },
+        integrations: {
+          telegram: authoritativeIntegration({ status: 'active' }),
+        },
       },
     })
     const err = captureStream()
@@ -810,7 +878,10 @@ describe('DevCommand --check', () => {
         plugins: {},
         devReadiness: {
           ...authoritativeDevReadiness(),
-          plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+          plugins: {
+            authority: 'authoritative',
+            source: 'bot_definition_plugins',
+          },
         },
       },
     })
@@ -823,7 +894,11 @@ describe('DevCommand --check', () => {
     expect(reconcile).toHaveBeenCalledWith({
       snapshot: expect.objectContaining({
         env: 'dev',
-        target: { apiUrl: 'https://cloud.example', workspaceId: 'ws_123', botId: '42' },
+        target: {
+          apiUrl: 'https://cloud.example',
+          workspaceId: 'ws_123',
+          botId: '42',
+        },
       }),
       expectedTarget: {
         env: 'dev',
@@ -834,8 +909,15 @@ describe('DevCommand --check', () => {
       bpModulesDir: path.join(workDir, '.adk', 'bot', 'bp_modules'),
       cloud: {
         botUpdatedAt: '2026-07-10T01:00:00.000Z',
-        integrations: { ...authoritativeDevReadiness().integrations, items: {} },
-        plugins: { authority: 'authoritative', source: 'bot_definition_plugins', items: {} },
+        integrations: {
+          ...authoritativeDevReadiness().integrations,
+          items: {},
+        },
+        plugins: {
+          authority: 'authoritative',
+          source: 'bot_definition_plugins',
+          items: {},
+        },
         lastDevDeployment: authoritativeDevReadiness().lastDevDeployment,
       },
     })
@@ -850,7 +932,12 @@ describe('DevCommand --check', () => {
         ok: false,
         statuses: [],
         issues: [
-          { code: 'CLOUD_VERSION_MISMATCH', message: 'version differs', type: 'integration', alias: 'zeta' },
+          {
+            code: 'CLOUD_VERSION_MISMATCH',
+            message: 'version differs',
+            type: 'integration',
+            alias: 'zeta',
+          },
           {
             code: 'CLOUD_CONFIGURATION_REVISION_MISMATCH',
             message: 'configuration revision differs',
@@ -888,7 +975,10 @@ describe('DevCommand --check', () => {
         ...devBot('dev_agent', '42'),
         devReadiness: {
           schemaVersion: 0,
-          integrations: { authority: 'authoritative', source: 'integration_installation' },
+          integrations: {
+            authority: 'authoritative',
+            source: 'integration_installation',
+          },
         } as any,
       },
     })
@@ -933,7 +1023,10 @@ describe('DevCommand --check', () => {
         plugins: { 'custom-alias': plugin },
         devReadiness: {
           ...authoritativeDevReadiness(),
-          plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+          plugins: {
+            authority: 'authoritative',
+            source: 'bot_definition_plugins',
+          },
         },
       },
     })
@@ -942,13 +1035,15 @@ describe('DevCommand --check', () => {
     const result = await cmd.handler()
 
     expect(result.exitCode).toBe(0)
-    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
-      cloud: expect.objectContaining({
-        plugins: expect.objectContaining({
-          items: { 'custom-alias': plugin },
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cloud: expect.objectContaining({
+          plugins: expect.objectContaining({
+            items: { 'custom-alias': plugin },
+          }),
         }),
-      }),
-    }))
+      })
+    )
   })
 
   it.each(['a', 'A-valid', `a${'b'.repeat(100)}`, 'prototype'])(
@@ -966,13 +1061,21 @@ describe('DevCommand --check', () => {
           ...devBot('dev_agent', '42'),
           plugins: {
             [alias]: {
-              id: '31', name: 'plugin', version: '1.0.0', enabled: true,
-              configuration: {}, interfaces: {}, integrations: {},
+              id: '31',
+              name: 'plugin',
+              version: '1.0.0',
+              enabled: true,
+              configuration: {},
+              interfaces: {},
+              integrations: {},
             },
           },
           devReadiness: {
             ...authoritativeDevReadiness(),
-            plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+            plugins: {
+              authority: 'authoritative',
+              source: 'bot_definition_plugins',
+            },
           },
         },
       })
@@ -1000,13 +1103,20 @@ describe('DevCommand --check', () => {
         ...devBot('dev_agent', '42'),
         plugins: {
           'custom-alias': {
-            id: '31', name: 'plugin', version: '1.0.0', enabled: true,
-            configuration: {}, interfaces: {},
+            id: '31',
+            name: 'plugin',
+            version: '1.0.0',
+            enabled: true,
+            configuration: {},
+            interfaces: {},
           },
         },
         devReadiness: {
           ...authoritativeDevReadiness(),
-          plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+          plugins: {
+            authority: 'authoritative',
+            source: 'bot_definition_plugins',
+          },
         },
       },
     })
@@ -1139,7 +1249,9 @@ describe('DevCommand agent routing', () => {
     }
     const apiFactory = {
       newClient: vi.fn().mockReturnValue({
-        client: { getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }) },
+        client: {
+          getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
+        },
       }),
     }
     const command = new DevCommand(apiFactory as any, {} as any, new Logger(), argv as any)
@@ -1155,7 +1267,11 @@ describe('DevCommand agent routing', () => {
     fs.rmSync(path.join(workDir, 'agent.local.json'))
     fs.writeFileSync(
       path.join(workDir, 'bot.local.json'),
-      JSON.stringify({ botId: 7, workspaceId: 7, apiUrl: 'https://foreign.example' })
+      JSON.stringify({
+        botId: 7,
+        workspaceId: 7,
+        apiUrl: 'https://foreign.example',
+      })
     )
     const apiFactory = { newClient: vi.fn() }
     const command = new DevCommand(apiFactory as any, {} as any, new Logger(), {
@@ -1175,7 +1291,11 @@ describe('DevCommand agent routing', () => {
     fs.rmSync(path.join(workDir, 'agent.local.json'))
     fs.writeFileSync(
       path.join(workDir, 'bot.local.json'),
-      JSON.stringify({ botId: 7, workspaceId: 9001, apiUrl: 'https://dev.local' })
+      JSON.stringify({
+        botId: 7,
+        workspaceId: 9001,
+        apiUrl: 'https://dev.local',
+      })
     )
     const apiFactory = {
       newClient: vi.fn().mockImplementation(() => {
@@ -1192,7 +1312,11 @@ describe('DevCommand agent routing', () => {
     await expect(command.run()).rejects.toThrow(/classic local credential probe complete/)
 
     expect(apiFactory.newClient).toHaveBeenCalledWith(
-      { apiUrl: 'https://dev.local', workspaceId: '9001', token: 'brt_pat_local' },
+      {
+        apiUrl: 'https://dev.local',
+        workspaceId: '9001',
+        token: 'brt_pat_local',
+      },
       expect.any(Logger)
     )
   })
@@ -1272,7 +1396,9 @@ describe('DevCommand agent routing', () => {
     }
     const apiFactory = {
       newClient: vi.fn().mockReturnValue({
-        client: { getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }) },
+        client: {
+          getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
+        },
       }),
     }
     const command = new DevCommand(apiFactory as any, {} as any, new Logger(), argv as any)
@@ -1415,7 +1541,9 @@ describe('DevCommand agent routing', () => {
     const botPath = path.join(workDir, '.adk', 'bot')
     const generateSpy = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(botPath)
     const createBot = vi.fn().mockResolvedValue({ bot: devBot('new_local_dev', '42') })
-    const apiFactory = { newClient: vi.fn().mockReturnValue({ client: { createBot } }) }
+    const apiFactory = {
+      newClient: vi.fn().mockReturnValue({ client: { createBot } }),
+    }
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     let onChange: Parameters<typeof utils.filewatcher.FileWatcher.watch>[1] | undefined
     const close = vi.fn().mockResolvedValue(undefined)
@@ -1583,7 +1711,11 @@ describe('DevCommand agent routing', () => {
       },
     })
     expect(apiFactory.newClient).toHaveBeenCalledWith(
-      { token: 'brt_pat_xxx', apiUrl: 'https://cloud.example', workspaceId: 'ws_123' },
+      {
+        token: 'brt_pat_xxx',
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+      },
       expect.any(Logger)
     )
     expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
@@ -1678,7 +1810,11 @@ describe('DevCommand agent routing', () => {
 
     await (command as any)._refreshAgentDevSnapshot(
       workDir,
-      { token: 'brt_pat_xxx', apiUrl: 'https://cloud.example', workspaceId: 'ws_123' },
+      {
+        token: 'brt_pat_xxx',
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+      },
       { runtimeBotId: 'dev_agent', targetBotId: '42' }
     )
 
@@ -1695,7 +1831,6 @@ describe('DevCommand agent routing', () => {
     })
   })
 })
-
 
 describe('DevCommand dev target routing', () => {
   let botpressHome: string
@@ -1818,7 +1953,10 @@ describe('DevCommand dev target routing', () => {
           bot: {
             ...createdBot,
             integrations: {
-              telegram: { status: 'registration_failed', statusReason: 'registration failed' },
+              telegram: {
+                status: 'registration_failed',
+                statusReason: 'registration failed',
+              },
             },
           },
         }),
@@ -1874,7 +2012,10 @@ describe('DevCommand dev target routing', () => {
 
   it('aborts on an invalid cached dev target before create, update, or tables', async () => {
     const runtimeBotId = 'dev_opaque'
-    writeProjectCacheState(workDir, { tunnelId: runtimeBotId, devId: runtimeBotId })
+    writeProjectCacheState(workDir, {
+      tunnelId: runtimeBotId,
+      devId: runtimeBotId,
+    })
     const getBot = vi.fn().mockResolvedValue({ bot: { ...devBot(runtimeBotId, '42'), tags: {} } })
     const createBot = vi.fn()
     const updateBot = vi.fn()
@@ -1899,7 +2040,11 @@ describe('DevCommand dev target routing', () => {
 
   it('aborts on a transient cached dev GET failure without minting a replacement', async () => {
     const runtimeBotId = 'dev_opaque'
-    writeProjectCacheState(workDir, { tunnelId: runtimeBotId, devId: runtimeBotId, devTargetBotId: '42' })
+    writeProjectCacheState(workDir, {
+      tunnelId: runtimeBotId,
+      devId: runtimeBotId,
+      devTargetBotId: '42',
+    })
     const getBot = vi.fn().mockRejectedValue(new Error('network unavailable'))
     const createBot = vi.fn()
     const updateBot = vi.fn()
@@ -1924,7 +2069,11 @@ describe('DevCommand dev target routing', () => {
 
   it('creates only after a verified cached 404 and revalidates the returned target', async () => {
     const runtimeBotId = 'dev_opaque'
-    writeProjectCacheState(workDir, { tunnelId: runtimeBotId, devId: runtimeBotId, devTargetBotId: '41' })
+    writeProjectCacheState(workDir, {
+      tunnelId: runtimeBotId,
+      devId: runtimeBotId,
+      devTargetBotId: '41',
+    })
     const notFound = Object.assign(new Error('missing'), {
       isApiError: true,
       code: 404,
@@ -1948,6 +2097,9 @@ describe('DevCommand dev target routing', () => {
 
     expect(createBot).toHaveBeenCalledOnce()
     expect(updateBot).toHaveBeenCalledWith(expect.objectContaining({ id: runtimeBotId }))
-    expect(readProjectCacheState(workDir)).toMatchObject({ devId: runtimeBotId, devTargetBotId: '42' })
+    expect(readProjectCacheState(workDir)).toMatchObject({
+      devId: runtimeBotId,
+      devTargetBotId: '42',
+    })
   })
 })

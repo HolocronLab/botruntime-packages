@@ -65,6 +65,7 @@ test("extends classic deploy and dry-run request schemas with network policy", (
     assert.deepEqual(properties.webhookAuthMode.enum, [
       "shared_secret",
       "provider_verified",
+      "handler_verified",
     ]);
   }
 });
@@ -103,7 +104,7 @@ export const parseReq = (input: ${operationName}Input) => ({
     assert.match(extended, /ingressRelayed\?: boolean;/);
     assert.match(
       extended,
-      /webhookAuthMode\?: "shared_secret" \| "provider_verified";/,
+      /webhookAuthMode\?: "shared_secret" \| "provider_verified" \| "handler_verified";/,
     );
     assert.match(extended, /'providerHosts': input\['providerHosts'\]/);
     assert.match(extended, /'ingressRelayed': input\['ingressRelayed'\]/);
