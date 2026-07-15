@@ -40,7 +40,11 @@ describe('hosted eval manifest sync', () => {
       client: { uploadFile },
     })
 
-    expect(result).toEqual({ manifestFileId: 'manifest_1', fixtures: 1, evals: 1 })
+    expect(result).toEqual({
+      manifestFileId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      fixtures: 1,
+      evals: 1,
+    })
     expect(uploads[0]).toMatchObject({
       key: expect.stringMatching(/^eval-fixtures\/[a-f0-9]{64}\/D\.pdf$/),
       contentType: 'application/pdf',
@@ -52,6 +56,7 @@ describe('hosted eval manifest sync', () => {
     const manifest = JSON.parse(Buffer.from(manifestUpload.content as Buffer).toString('utf8'))
     expect(manifest).toMatchObject({
       schemaVersion: 1,
+      manifestId: result.manifestFileId,
       evals: [{ name: 'document', conversation: [{ attachments: [{ fixture: 'ddu' }] }] }],
       fixtures: {
         ddu: {

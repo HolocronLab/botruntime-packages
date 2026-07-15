@@ -26,6 +26,7 @@ import * as cloudLink from '../cloud-project-link'
 import * as errors from '../errors'
 import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
 import { buildDevWorkerEnvironment } from '../dev-worker-env'
+import { DevTraceIngestServer } from '../dev-trace-ingest'
 import * as tables from '../tables'
 import type { CommandArgv } from '../typings'
 import * as utils from '../utils'
@@ -333,7 +334,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   protected override async bootstrap(): Promise<void> {
     this._rejectLegacyAdkDeployLoop()
     // `--check` is a deterministic read-only probe. GlobalCommand.bootstrap
-    // performs an unrelated latest-version network lookup, so skip it here;
+    // performs an unrelated public-registry version lookup, so skip it here;
     // readiness must contact only the authoritative dev target.
     if (this.argv.check) return
     await super.bootstrap()
@@ -448,6 +449,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     })
 
     let worker: Worker | undefined = undefined
+    const traceIngest = this._initialDef.type === 'bot' ? await DevTraceIngestServer.start() : undefined
 
     const supervisor = new utils.tunnel.TunnelSupervisor(wsTunnelUrl, tunnelId, this.logger)
     supervisor.events.on('connected', ({ tunnel }) => {
@@ -496,8 +498,13 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       this.logger.debug('Tunnel manually closed')
     })
 
-    await this._runBuild(watchEnabled)
-    worker = await this._spawnWorkerForResolvedDevTarget(api, httpTunnelUrl, env, port)
+    try {
+      await this._runBuild(watchEnabled)
+      worker = await this._spawnWorkerForResolvedDevTarget(api, httpTunnelUrl, env, port, traceIngest?.url)
+    } catch (thrown) {
+      await traceIngest?.close()
+      throw thrown
+    }
 
     // Order matters: register the dev bot (createBot({dev:true,url})) BEFORE
     // connecting the tunnel. cloudapi only forwards /run/<tunnelId> to the tunnel
@@ -513,6 +520,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       if (worker.running) {
         await worker.kill()
       }
+      await traceIngest?.close()
       throw errors.BotpressCLIError.wrap(thrown, 'An error occurred while starting the dev server')
     }
 
@@ -568,6 +576,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         await worker.kill()
       }
       await this._disposeBuildResources()
+      await traceIngest?.close()
     }
   }
 
@@ -1432,7 +1441,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     api: apiUtils.ApiClient,
     httpTunnelUrl: string,
     inherited: Record<string, string>,
-    port: number
+    port: number,
+    spanIngestUrl?: string
   ): Promise<Worker> {
     let env = inherited
     if (this._initialDef?.type === 'bot') {
@@ -1447,6 +1457,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         token: api.token,
         workspaceId: api.workspaceId,
         target,
+        spanIngestUrl,
       })
     }
     return this._spawnWorker(env, port)

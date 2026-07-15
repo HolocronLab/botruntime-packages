@@ -104,8 +104,6 @@ export const setup = (bot: BotImplementation) => {
           TrackedUserProfile.loadAll(),
         ])
 
-        void workflow.acknowledgeStartOfProcessing()
-
         try {
           const interval = setInterval(async () => {
             await Promise.all([
@@ -115,13 +113,10 @@ export const setup = (bot: BotImplementation) => {
             ])
           }, 20_000)
 
-          void updateWorkflow({
+          await updateWorkflow({
             id: workflow.id,
             status: 'in_progress',
             eventId: event.id,
-          }).catch(() => {
-            // Ignore errors - setting in_progress on a workflow that's already
-            // in progress (or finished) is a no-op, not a failure
           })
 
           type Result = Awaited<ReturnType<typeof instance.handle>>

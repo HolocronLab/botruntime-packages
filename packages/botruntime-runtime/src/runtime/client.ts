@@ -1,7 +1,7 @@
 import { Client } from '@holocronlab/botruntime-client'
 import { context } from './context/context'
 import { getSingleton } from './singletons'
-import { runtimeClientWorkspaceId } from './runtime-client-scope'
+import { runtimeClientCoordinates } from './runtime-client-scope'
 
 /**
  * Get the authenticated Botpress client.
@@ -65,13 +65,12 @@ function getStandaloneClient(): Client {
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
-    const workspaceId = runtimeClientWorkspaceId(process.env, botId)
+    const coordinates = runtimeClientCoordinates(process.env, botId)
 
     return new Client({
       token,
       apiUrl,
-      workspaceId,
-      botId,
+      ...coordinates,
     })
   })
 }

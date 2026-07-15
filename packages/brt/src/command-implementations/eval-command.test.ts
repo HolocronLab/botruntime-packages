@@ -12,7 +12,10 @@ const prepareHostedEvalManifest = vi.hoisted(() =>
 )
 vi.mock('../eval-manifest-prepare', () => ({ prepareHostedEvalManifest }))
 
-vi.mock('latest-version', () => ({ default: vi.fn(async () => '0.5.4') }))
+vi.mock('../public-package-version', () => ({
+  fetchLatestPublicVersion: vi.fn(async () => '0.6.10'),
+  publicRegistryUrl: vi.fn(() => 'https://registry.npmjs.org'),
+}))
 
 const API_URL = 'https://cloud.example'
 const WORKSPACE_ID = '42'
@@ -476,6 +479,7 @@ describe('brt eval public contract', () => {
             },
             runType: 'manual',
             judgeModel: 'openai:gpt-4o',
+            evalManifestId: 'manifest_1',
           },
           timeoutAt: expect.any(String),
         })
@@ -528,6 +532,9 @@ describe('brt eval public contract', () => {
             tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID },
           },
         })
+      if (index === 1 && url.endsWith(`/v1/evals/bot/${encodeURIComponent(DEV_RUNTIME_BOT_ID)}/ready`)) {
+        return json({ ready: true })
+      }
       if (url.endsWith('/v1/chat/workflows'))
         return json({ workflow: { id: 'wf_dev', status: 'pending', output: {} } }, 201)
       if (url.endsWith('/v1/chat/workflows/wf_dev')) {

@@ -8,23 +8,30 @@ describe('runtime eval workflow trace-reader contract', () => {
     'utf8',
   )
 
-  it('uses bot-scoped reader authority and never the human admin target route', () => {
+  it('uses local rich traces in development and bot-scoped Vortex traces in production', () => {
+    expect(source).toContain('ADK_SPAN_INGEST_URL')
+    expect(source).toContain('new LocalSpanSource(localSpanIngestUrl!)')
     expect(source).toContain("mode: 'bot'")
-    expect(source).toContain('development: true')
-    expect(source).toContain('runtimeBotId')
     expect(source).toContain('apiBotId')
     expect(source).not.toMatch(/\bpat\b/)
   })
 
-  it('uses the API bot identity for SDK and eval-store operations while keeping trace routing opaque', () => {
+  it('uses numeric API identity only for SDK storage and opaque runtime identity for routed eval writes', () => {
     expect(source).toContain('const botId = apiBotId')
     expect(source).toMatch(/development[\s\S]*runtimeBotId/)
-    expect(source).toContain('botId,')
+    expect(source).toMatch(/new VortexEvalStore\([\s\S]{0,500}botId: runtimeBotId/)
+  })
+
+  it('binds an explicitly synchronized CLI manifest to the hosted run', () => {
+    expect(source).toContain('evalManifestId: z.string().optional()')
+    expect(source).toContain('input.evalManifestId ?? loadedManifestId')
+    expect(source).toContain('manifest.manifestId ?? file.id')
+    expect(source).toContain('does not match the loaded eval manifest')
   })
 
   it('injects the native eval transport without importing or provisioning chat', () => {
     expect(source).toContain("new Client({ apiUrl, token, botId: runtimeBotId, workspaceId: '' })")
-    expect(source).toContain('createNativeEvalChatClient(chatSdkClient)')
+    expect(source).toContain('createNativeEvalChatClient(evalChatSdkClient)')
     expect(source).not.toContain("import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat'")
     expect(source).not.toContain('chatWebhookId ?')
     expect(source).not.toContain('chatBaseUrl')
@@ -39,7 +46,7 @@ describe('runtime eval workflow trace-reader contract', () => {
     const validate = source.indexOf(
       'validateEvalCapabilities(filteredDefinitions',
     )
-    const readable = source.indexOf('await source.assertReadable()')
+    const readable = source.indexOf('await source.assertReadable?.()')
     const createRun = source.indexOf("step('create-run'")
 
     expect(filter).toBeGreaterThan(-1)
@@ -49,7 +56,7 @@ describe('runtime eval workflow trace-reader contract', () => {
     expect(validate).toBeGreaterThan(preflight)
     expect(readable).toBeGreaterThan(validate)
     expect(createRun).toBeGreaterThan(readable)
-    expect(source.match(/await source\.assertReadable\(\)/g)).toHaveLength(1)
+    expect(source.match(/await source\.assertReadable\?\.\(\)/g)).toHaveLength(1)
     expect(source).toContain('sourcePreflighted: true')
   })
 

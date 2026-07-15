@@ -2,7 +2,6 @@ import { z } from '@holocronlab/botruntime-sdk'
 import type { YargsConfig } from '@holocronlab/botruntime-yargs-extra'
 import chalk from 'chalk'
 import * as fs from 'fs'
-import latestVersion from 'latest-version'
 import _ from 'lodash'
 import semver from 'semver'
 import type { ApiClientFactory } from '../api/client'
@@ -11,6 +10,7 @@ import * as consts from '../consts'
 import * as errors from '../errors'
 import type { CommandArgv, CommandDefinition } from '../typings'
 import * as utils from '../utils'
+import { fetchLatestPublicVersion, publicRegistryUrl } from '../public-package-version'
 import { BaseCommand } from './base-command'
 
 export type GlobalCommandDefinition = CommandDefinition<typeof config.schemas.global>
@@ -185,6 +185,10 @@ export abstract class GlobalCommand<C extends GlobalCommandDefinition> extends B
   }
 
   private readonly _notifyUpdateCli = async (): Promise<void> => {
+    // Bootstrap must not create hidden network traffic in unit tests. Apart
+    // from making assertions nondeterministic, test fetch stubs may contain
+    // deliberately sensitive failures that must never reach CLI logs.
+    if (process.env.VITEST || process.env.NODE_ENV === 'test') return
     try {
       this.logger.debug('Checking if cli is up to date')
 
@@ -193,7 +197,7 @@ export abstract class GlobalCommand<C extends GlobalCommandDefinition> extends B
         throw new errors.BotpressCLIError('Could not find version in package.json')
       }
 
-      const latest = await latestVersion(pkgJson.name)
+      const latest = await fetchLatestPublicVersion(pkgJson.name, publicRegistryUrl())
       const isOutdated = semver.lt(pkgJson.version, latest)
       if (isOutdated) {
         this.logger.box(
@@ -207,9 +211,11 @@ export abstract class GlobalCommand<C extends GlobalCommandDefinition> extends B
           ].join('\n')
         )
       }
-    } catch (thrown) {
-      const err = errors.BotpressCLIError.map(thrown)
-      this.logger.debug(`Failed to check if cli is up to date: ${err.message}`)
+    } catch {
+      // Registry/network error bodies and messages are untrusted and may
+      // contain credentials from a proxy. Keep the optional check fail-open
+      // without reflecting them, even in verbose mode.
+      this.logger.debug('Failed to check if cli is up to date')
     }
   }
 

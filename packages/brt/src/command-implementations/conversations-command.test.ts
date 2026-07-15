@@ -7,7 +7,6 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { ListConversationsCommand, ShowConversationCommand } from './conversations-command'
 
-vi.mock('latest-version', () => ({ default: vi.fn(async () => '0.5.4') }))
 
 const API_URL = 'https://cloud.example'
 const WORKSPACE_ID = '42'

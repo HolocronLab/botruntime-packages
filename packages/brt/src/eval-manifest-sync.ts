@@ -125,11 +125,13 @@ export async function syncEvalManifest(input: {
     }
   }
 
-  const manifest: EvalManifest = {
+  const manifestPayload: EvalManifest = {
     schemaVersion: EVAL_MANIFEST_SCHEMA_VERSION,
     evals: sanitizedDefinitions(input.definitions),
     ...(Object.keys(fixtures).length > 0 ? { fixtures } : {}),
   }
+  const manifestId = `sha256:${createHash('sha256').update(JSON.stringify(manifestPayload)).digest('hex')}`
+  const manifest: EvalManifest = { ...manifestPayload, manifestId }
   const content = Buffer.from(JSON.stringify(manifest))
   const uploaded = await input.client.uploadFile({
     key: 'evals/manifest.json',
@@ -143,5 +145,5 @@ export async function syncEvalManifest(input: {
     throw new Error('Eval manifest upload metadata mismatch.')
   }
 
-  return { manifestFileId: uploaded.file.id, fixtures: prepared.length, evals: input.definitions.length }
+  return { manifestFileId: manifestId, fixtures: prepared.length, evals: input.definitions.length }
 }

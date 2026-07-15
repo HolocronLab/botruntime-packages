@@ -24,44 +24,41 @@ export type Command = {
   command: 'adk-dev' | 'adk-build' | 'adk-deploy'
 }
 
-const env = getSingleton('__ADK_GLOBAL_ENV', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- initialized lazily
-  let env: Development | Production | Command = {} as any
+type EnvironmentVariables = Record<string, string | undefined>
 
-  // Check if running in Bun - if so, always treat as command mode
-  const isBun = typeof process.versions.bun !== 'undefined'
-
-  if (typeof process.env.AWS_LAMBDA_FUNCTION_NAME === 'string' && process.env.AWS_LAMBDA_FUNCTION_NAME.length > 0) {
-    env = {
-      type: 'production',
-    }
+export function resolveEnvironment(environment: EnvironmentVariables, isBun: boolean): Development | Production | Command {
+  if (typeof environment.AWS_LAMBDA_FUNCTION_NAME === 'string' && environment.AWS_LAMBDA_FUNCTION_NAME.length > 0) {
+    return { type: 'production' }
   }
-  //////////
-  // Development mode only possible in Node.js (not Bun)
-  else if (!isBun && process.env.NODE_ENV === 'development') {
-    env = {
+
+  // BRT launches its classic tunnel runtime with Bun as well. Keep runtime
+  // classification separate from WORKER_MODE, which controls the ADK worker pool.
+  const isDevelopmentWorker =
+    environment.NODE_ENV === 'development' && environment.ADK_RUNTIME_MODE === 'development'
+  if ((!isBun || isDevelopmentWorker) && environment.NODE_ENV === 'development') {
+    return {
       type: 'development',
       adk: {
-        directory: process.env.ADK_DIRECTORY || '',
+        directory: environment.ADK_DIRECTORY || '',
       },
       agent: {
-        directory: process.env.AGENT_DIRECTORY || '',
+        directory: environment.AGENT_DIRECTORY || '',
       },
       local: {
-        PAT: process.env.ADK_LOCAL_PAT || '',
+        PAT: environment.ADK_LOCAL_PAT || '',
       },
-    }
-  }
-  /////////
-  else {
-    // Bun is always command mode, or Node.js when not in development
-    env = {
-      type: 'command',
-      command: 'adk-dev', // default
     }
   }
 
-  return env
+  return {
+    type: 'command',
+    command: 'adk-dev',
+  }
+}
+
+const env = getSingleton('__ADK_GLOBAL_ENV', () => {
+  const isBun = typeof process.versions.bun !== 'undefined'
+  return resolveEnvironment(process.env, isBun)
 })
 
 /**

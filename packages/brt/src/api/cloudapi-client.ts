@@ -743,6 +743,16 @@ export class CloudapiClient {
     })
   }
 
+  public async requireEvalBotReady(runtimeBotId: string): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/evals/bot/${encodeURIComponent(runtimeBotId)}/ready`,
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'eval',
+    })
+  }
+
   public async createEvalWorkflow(
     body: {
       name: 'builtin_eval_runner'

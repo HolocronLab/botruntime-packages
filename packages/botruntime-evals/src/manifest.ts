@@ -10,6 +10,8 @@ export const EVAL_MANIFEST_TAGS = {
 
 export interface EvalManifest {
   schemaVersion: number
+  /** Content-addressed identity used to bind a hosted run to exact definitions. */
+  manifestId?: string
   evals: EvalDefinition[]
   chatWebhookId?: string
   /** Immutable fixture metadata only. File contents and signed URLs are never persisted here. */
