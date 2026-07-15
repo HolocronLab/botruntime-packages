@@ -70,11 +70,29 @@ jobs:
             fi
           }
 
+          install_package_dependencies() {
+            local package_dir="$1"
+            local patches_path="$package_dir/patches"
+            local linked_patches=0
+
+            if [ ! -e "$patches_path" ] && [ ! -L "$patches_path" ]; then
+              ln -s ../botruntime-llmz/patches "$patches_path"
+              linked_patches=1
+            fi
+
+            local install_status=0
+            (cd "$package_dir" && bun install --ignore-scripts --no-save) || install_status=$?
+            if [ "$linked_patches" -eq 1 ]; then
+              unlink "$patches_path"
+            fi
+            return "$install_status"
+          }
+
           for package in $PACKAGE_ORDER; do
             package_dir="packages/$package"
             echo "::group::Build and verify $package"
 
-            (cd "$package_dir" && bun install --ignore-scripts)
+            install_package_dependencies "$package_dir"
             run_script_if_present "$package_dir" check:type
             run_script_if_present "$package_dir" typecheck
             run_script_if_present "$package_dir" build
