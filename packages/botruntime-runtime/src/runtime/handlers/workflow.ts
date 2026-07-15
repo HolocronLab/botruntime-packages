@@ -108,19 +108,31 @@ export const setup = (bot: BotImplementation) => {
         ])
 
         try {
-          const interval = setInterval(async () => {
-            await Promise.all([
-              TrackedState.saveAllDirty(),
-              TrackedTags.saveAllDirty(),
-              TrackedUserProfile.saveAllDirty(),
-            ])
-          }, 20_000)
-
           await updateWorkflow({
             id: workflow.id,
             status: 'in_progress',
             eventId: event.id,
           })
+
+          let heartbeatRunning = false
+          const interval = setInterval(async () => {
+            if (heartbeatRunning) {
+              return
+            }
+            heartbeatRunning = true
+            try {
+              await Promise.all([
+                TrackedState.saveAllDirty(),
+                TrackedTags.saveAllDirty(),
+                TrackedUserProfile.saveAllDirty(),
+                updateWorkflow({ id: workflow.id, status: 'in_progress', eventId: event.id }),
+              ])
+            } catch (error) {
+              console.warn(`[workflow:${workflow.name}] heartbeat failed (${workflow.id})`, error)
+            } finally {
+              heartbeatRunning = false
+            }
+          }, 20_000)
 
           type Result = Awaited<ReturnType<typeof instance.handle>>
 

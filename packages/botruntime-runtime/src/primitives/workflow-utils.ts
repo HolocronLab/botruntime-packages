@@ -4,6 +4,17 @@ import { WorkflowDataRequestEvent } from '../runtime'
 import { isEvent } from '../utilities/events'
 
 type UpdateWorkflowInput = Client['updateWorkflow']
+
+export function withWorkflowExecutionEvent<T extends object>(
+  props: T & { eventId?: string },
+  eventId?: string
+): T & { eventId?: string } {
+  if (!eventId || props.eventId) {
+    return props
+  }
+  return { ...props, eventId }
+}
+
 export const updateWorkflow: UpdateWorkflowInput = async (props) => {
   const client = context.get('client')
   const workflowId = props.id
@@ -21,6 +32,9 @@ export const updateWorkflow: UpdateWorkflowInput = async (props) => {
   if (ctxWorkflowControl?.workflow?.id === workflowId) {
     workflowsToUpdate.push(ctxWorkflowControl.workflow)
   }
+
+  const executionEventId = workflowsToUpdate.length > 0 ? context.get('event', { optional: true })?.id : undefined
+  props = withWorkflowExecutionEvent(props, executionEventId)
 
   const workflowAlreadyDone = workflowsToUpdate.find(
     (wf) => wf.status === 'cancelled' || wf.status === 'completed' || wf.status === 'failed' || wf.status === 'timedout'

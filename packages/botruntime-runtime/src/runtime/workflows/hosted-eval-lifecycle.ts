@@ -71,6 +71,10 @@ export class HostedEvalLifecycle {
     })
   }
 
+  rememberCompletedReport(report: EvalReport): void {
+    this.completedReports.set(report.name, report)
+  }
+
   async reconcileForCompletion(report: EvalRunReport, step: HostedEvalStep): Promise<void> {
     if (report.aborted) {
       await step('finalize-aborted-evals', () =>

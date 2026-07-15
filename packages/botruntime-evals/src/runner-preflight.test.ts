@@ -478,6 +478,40 @@ describe('eval observation capability preflight', () => {
     expect(authenticatedClient.createMessage).not.toHaveBeenCalled()
   })
 
+  it('lets a durable host checkpoint each complete eval including its progress side effects', async () => {
+    vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
+    const source = spanSource()
+    const progress: string[] = []
+    const checkpointEval = vi.fn(
+      async ({ definition, index }: { definition: EvalDefinition; index: number; execute: () => Promise<unknown> }) => ({
+        name: definition.name,
+        turns: [],
+        outcomeAssertions: [],
+        pass: true,
+        duration: index + 1,
+      })
+    )
+
+    const report = await runEvalSuite({
+      client: validSuiteClient(),
+      botId: 'runtime-bot',
+      definitions: [basicEval],
+      createSpanSource: () => source,
+      sourcePreflighted: true,
+      chatClient: chatHarness().chatClient,
+      chatWebhookId: 'webhook',
+      logger: quietLogger,
+      checkpointEval,
+      onProgress: (event) => {
+        progress.push(event.type)
+      },
+    })
+
+    expect(checkpointEval).toHaveBeenCalledOnce()
+    expect(report).toMatchObject({ passed: 1, failed: 0, total: 1 })
+    expect(progress).toEqual(['suite_start', 'suite_complete'])
+  })
+
   it('validates only filtered definitions before reader preflight', async () => {
     const source = spanSource({ assertReadable: vi.fn().mockRejectedValue(new Error('reader-preflight-marker')) })
     const unsupported: EvalDefinition = {

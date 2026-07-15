@@ -101,6 +101,23 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
     expect(store.markRunComplete).toHaveBeenCalledWith('10', { aborted: true, errorKind: 'aborted' })
   })
 
+  it('remembers a replayed eval checkpoint for later failure reconciliation', async () => {
+    const store = mockStore()
+    const lifecycle = new HostedEvalLifecycle(store, '10', [alpha, beta])
+    lifecycle.rememberCompletedReport(alphaReport)
+    const cause = new Error('later checkpoint failed')
+
+    await expect(lifecycle.terminalizeFailure(cause, recordingStep([]))).rejects.toBe(cause)
+
+    expect(store.addRunResults).toHaveBeenCalledWith('10', alphaReport)
+    expect(store.startEntry).toHaveBeenCalledOnce()
+    expect(store.startEntry).toHaveBeenCalledWith('10', {
+      evalName: 'beta',
+      evalType: 'regression',
+      tags: ['nightly'],
+    })
+  })
+
   it('keeps a completed eval error kind exact while only missing definitions become aborted', async () => {
     const store = mockStore()
     const controller = new AbortController()
