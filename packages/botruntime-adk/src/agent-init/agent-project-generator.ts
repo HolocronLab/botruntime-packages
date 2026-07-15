@@ -330,7 +330,7 @@ export class AgentProjectGenerator {
         '@holocronlab/botruntime-runtime': `^${ADK_VERSION}`,
       },
       devDependencies: {
-        '@holocronlab/brt': '^0.5.8',
+        '@holocronlab/brt': '^0.6.0',
         typescript: '^5.9.3',
       },
     })

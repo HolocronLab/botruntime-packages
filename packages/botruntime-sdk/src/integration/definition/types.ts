@@ -93,7 +93,7 @@ export type SecretDefinition = {
 export type IntegrationNetworkDefinition = {
   providerHosts?: string[]
   ingressRelayed?: boolean
-  webhookAuthMode?: 'shared_secret' | 'provider_verified'
+  webhookAuthMode?: 'shared_secret' | 'provider_verified' | 'handler_verified'
 }
 
 export type EntityDefinition<TEntity extends BaseEntities[string] = BaseEntities[string]> =

@@ -11,6 +11,10 @@ consumed by the `brt` CLI and tooling (`./internal`), and a small,
 dependency-light surface for UI consumers such as the inspector
 (`./ui`).
 
+Hosted eval execution is built in: production and dev identities remain
+separate, fixtures receive fresh file URLs, and virtual-clock/fault controls
+are accepted only for attested isolated development bots.
+
 ## Install
 
 ```sh

@@ -12,4 +12,14 @@ export interface EvalManifest {
   schemaVersion: number
   evals: EvalDefinition[]
   chatWebhookId?: string
+  /** Immutable fixture metadata only. File contents and signed URLs are never persisted here. */
+  fixtures?: Record<string, EvalFixtureManifestEntry>
+}
+
+export interface EvalFixtureManifestEntry {
+  fileId: string
+  name: string
+  contentType: string
+  size: number
+  sha256: string
 }

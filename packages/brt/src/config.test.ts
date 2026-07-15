@@ -32,4 +32,8 @@ describe('config schemas', () => {
   it('keeps dev --adk only as a hidden deprecated migration guard', () => {
     expect(schemas.dev.adk).toMatchObject({ hidden: true, deprecated: true })
   })
+
+  it('exposes only the transport implemented by the self-hosted Chat integration', () => {
+    expect(schemas.chat.protocol).toMatchObject({ choices: ['polling'], default: 'polling' })
+  })
 })

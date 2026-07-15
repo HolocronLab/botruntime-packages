@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
@@ -57,14 +56,12 @@ jobs:
           scope: "@holocronlab"
           package-manager-cache: false
 
-      - name: Install the npm CLI with trusted publishing support
-        run: npm install --global npm@11.15.0
-
       - name: Regenerate checked-in client sources
         run: bash scripts/regen.sh
 
       - name: Build, verify, and publish the complete public catalog
         env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PUBLIC_NPM_REGISTRY: "https://registry.npmjs.org"
         shell: bash
         run: |

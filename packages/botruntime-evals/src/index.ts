@@ -11,6 +11,7 @@ export type {
   ConversationTurn,
   ChatClient,
   EvalDefinition,
+  EvalControl,
   EvalFilter,
   EvalLogger,
   EvalProgressEvent,
@@ -18,6 +19,8 @@ export type {
   EvalRunReport,
   EvalRunnerConfig,
   EvalSetup,
+  EvalFixtureSource,
+  ConversationRelationSelector,
   GraderResult,
   MatchOperator,
   NumericOperator,
@@ -41,4 +44,6 @@ export type {
   WorkflowWaitOptions,
 } from './types'
 export { EVAL_MANIFEST_TAGS, EVAL_MANIFEST_SCHEMA_VERSION } from './manifest'
-export type { EvalManifest } from './manifest'
+export type { EvalFixtureManifestEntry, EvalManifest } from './manifest'
+export { buildAttachmentPayload, fixtureReportLabel } from './attachments'
+export type { EvalAttachment, ResolvedEvalFixture } from './attachments'

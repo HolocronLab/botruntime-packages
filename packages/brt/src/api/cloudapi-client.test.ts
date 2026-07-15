@@ -5,6 +5,16 @@ import { CloudapiClient } from './cloudapi-client'
 type FetchCall = { url: string; init: RequestInit }
 
 describe('CloudapiClient', () => {
+  it('derives a bot-scoped SDK client without exposing the selected credential', () => {
+    const sdk = new CloudapiClient('https://api.example', 'private-token').sdkClient('42', '2')
+
+    expect(sdk.config.apiUrl).toBe('https://api.example')
+    expect(sdk.config.headers).toMatchObject({
+      Authorization: 'Bearer private-token',
+      'x-bot-id': '42',
+      'x-workspace-id': '2',
+    })
+  })
   const originalFetch = global.fetch
   let calls: FetchCall[]
 

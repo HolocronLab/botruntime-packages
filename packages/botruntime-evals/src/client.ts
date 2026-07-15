@@ -187,9 +187,13 @@ export class ChatSession {
    * bot responses; the span source independently observes completion/timing.
    */
   async sendMessage(message: string): Promise<void> {
+    await this.sendPayload({ type: 'text', text: message })
+  }
+
+  async sendPayload(payload: ChatPayload): Promise<void> {
     const client = this.assertConnected()
     const conversationId = await this.ensureConversation()
-    await client.createMessage({ conversationId, payload: { type: 'text', text: message } })
+    await client.createMessage({ conversationId, payload })
   }
 
   async sendEvent(payload: Record<string, unknown>): Promise<void> {

@@ -83,6 +83,9 @@ export const VORTEX_EVAL_ASSERTION_KINDS = [
   'timing',
   'workflow',
   'state',
+  'delivered_to',
+  'not_delivered_to',
+  'conversation_mode',
   'outcome',
   'unknown',
 ] as const
@@ -150,6 +153,33 @@ function assertionArrayLength(value: unknown, field: string): number {
   return value.length
 }
 
+function assertionStringListLength(value: unknown, field: string): number {
+  if (value === undefined) return 0
+  const values = typeof value === 'string' ? [value] : value
+  if (!Array.isArray(values) || values.some((item) => typeof item !== 'string' || item.length === 0)) {
+    configFailure(`${field} must be a string or an array of non-empty strings`)
+  }
+  return values.length
+}
+
+function conversationModeAssertionLength(value: unknown): number {
+  if (value === undefined) return 0
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    configFailure('conversation mode assertion must be an object')
+  }
+  const assertion = value as { target?: unknown; equals?: unknown; property?: unknown }
+  if (
+    typeof assertion.target !== 'string' ||
+    assertion.target.length === 0 ||
+    typeof assertion.equals !== 'string' ||
+    assertion.equals.length === 0 ||
+    (assertion.property !== undefined && (typeof assertion.property !== 'string' || assertion.property.length === 0))
+  ) {
+    configFailure('conversation mode assertion requires non-empty target, equals, and optional property strings')
+  }
+  return 1
+}
+
 function projectedTurnResults(turn: unknown): number {
   if (turn === null || typeof turn !== 'object' || Array.isArray(turn)) {
     configFailure('hosted eval turns must be objects')
@@ -162,6 +192,9 @@ function projectedTurnResults(turn: unknown): number {
       state?: unknown
       workflow?: unknown
       timing?: unknown
+      deliveredTo?: unknown
+      notDeliveredTo?: unknown
+      conversationMode?: unknown
     }
   }
   if (value.assert !== undefined && (value.assert === null || typeof value.assert !== 'object' || Array.isArray(value.assert))) {
@@ -174,7 +207,10 @@ function projectedTurnResults(turn: unknown): number {
     assertionArrayLength(value.assert?.tools, 'tool assertions') +
     assertionArrayLength(value.assert?.state, 'state assertions') +
     assertionArrayLength(value.assert?.workflow, 'workflow assertions') +
-    assertionArrayLength(value.assert?.timing, 'timing assertions')
+    assertionArrayLength(value.assert?.timing, 'timing assertions') +
+    assertionStringListLength(value.assert?.deliveredTo, 'deliveredTo assertion') +
+    assertionStringListLength(value.assert?.notDeliveredTo, 'notDeliveredTo assertion') +
+    conversationModeAssertionLength(value.assert?.conversationMode)
   )
 }
 
@@ -453,6 +489,9 @@ function assertionKindOf(assertion: string): VortexEvalAssertionKind {
   if (assertion.startsWith('response_time ')) return 'timing'
   if (assertion === 'workflow' || assertion.startsWith('workflow:')) return 'workflow'
   if (assertion === 'state' || assertion.startsWith('state:')) return 'state'
+  if (assertion.startsWith('delivered_to:')) return 'delivered_to'
+  if (assertion.startsWith('not_delivered_to:')) return 'not_delivered_to'
+  if (assertion.startsWith('conversation_mode:')) return 'conversation_mode'
   if (assertion === 'outcome') return 'outcome'
   return 'unknown'
 }

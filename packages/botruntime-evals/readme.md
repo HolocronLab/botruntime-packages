@@ -3,11 +3,15 @@
 Evaluation definitions and runner for brt-based botruntime agents.
 
 Author evals with a small declarative API (`Eval`), then run them against a
-live agent through the trace-driven runner: an SSE collector streams spans in
-real time, `transformSpans` projects them into grader-friendly turn data, and
+live agent through the hosted Chat transport and a trace collector. The runner
+projects spans into grader-friendly turn data and
 graders assert on responses, tool calls, state mutations, workflow spans, and
 timing — including an optional LLM-judge grader backed by
 `@holocronlab/botruntime-zai`.
+
+The authoring contract also supports private file fixtures, synthetic actors
+routed to related conversations, delivery/mode assertions, same-target
+parallel turns, and isolated-development clock/fault controls.
 
 ## Install
 
@@ -26,9 +30,9 @@ const greeting = new Eval({
   name: 'greeting',
   conversation: [
     {
-      user: 'hello',
-      assertions: {
-        response: [{ type: 'llm_judge', criteria: 'Greets the user back politely' }],
+      message: 'hello',
+      assert: {
+        response: [{ llm_judge: 'Greets the user back politely' }],
       },
     },
   ],
@@ -41,6 +45,11 @@ const report = await runEval(greeting, {
   botId: process.env.BOT_ID!,
 })
 ```
+
+Local fixture paths are authoring-only. `brt eval` uploads referenced files
+with private integration access and stores only file id, name, MIME, size and
+sha256 in the hosted manifest; signed URLs and contents are never persisted in
+eval results.
 
 ## Entry points
 

@@ -23,6 +23,16 @@ test('integration definition exposes optional network policy', () => {
   })
 })
 
+test('integration definition supports handler-owned end-user authentication', () => {
+  const integration = new IntegrationDefinition({
+    name: 'chat',
+    version: '0.1.0',
+    network: { webhookAuthMode: 'handler_verified' },
+  })
+
+  expect(integration.network?.webhookAuthMode).toBe('handler_verified')
+})
+
 test('integration with channel extending an interface with same channel merges channel tags', () => {
   // arrange
   const intrface = new InterfaceDefinition({

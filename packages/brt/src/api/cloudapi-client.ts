@@ -1,4 +1,5 @@
 import * as errors from '../errors'
+import { Client as BotruntimeClient } from '@holocronlab/botruntime-client'
 
 // CloudapiClient — the bespoke half of brt: a thin, dependency-free typed client
 // over cloudapi's /v1/admin + /internal/* surface. This is NOT the Botpress-shaped
@@ -54,7 +55,7 @@ export interface IntegrationDefinitionEntity {
 export interface IntegrationDefinitionNetwork {
   providerHosts?: string[]
   ingressRelayed?: boolean
-  webhookAuthMode?: 'shared_secret' | 'provider_verified'
+  webhookAuthMode?: 'shared_secret' | 'provider_verified' | 'handler_verified'
 }
 
 export interface PublishIntegrationBundleResponse {
@@ -78,6 +79,7 @@ export interface DevBotReadinessIntegration {
   configurationRevision?: string
   status?: string
   statusReason?: string
+  webhookId?: string
 }
 
 export interface DevBotReadinessPlugin {
@@ -210,14 +212,14 @@ type IntegrationDefinitionWriteBody = {
   configSchema: unknown
   providerHosts?: string[]
   ingressRelayed?: boolean
-  webhookAuthMode?: 'shared_secret' | 'provider_verified'
+  webhookAuthMode?: 'shared_secret' | 'provider_verified' | 'handler_verified'
 }
 
 const integrationDefinitionWriteBody = (
   name: string,
   version: string,
   configSchema: unknown,
-  network?: IntegrationDefinitionNetwork
+  network?: IntegrationDefinitionNetwork,
 ): IntegrationDefinitionWriteBody => ({
   name,
   version,
@@ -231,7 +233,7 @@ const integrationDefinitionWriteBody = (
 export class CloudapiClient {
   public constructor(
     private readonly baseUrl: string,
-    private readonly apiKey: string
+    private readonly apiKey: string,
   ) {}
 
   public withKey(apiKey: string): CloudapiClient {
@@ -240,6 +242,16 @@ export class CloudapiClient {
 
   public get base(): string {
     return this.baseUrl
+  }
+
+  /** Narrow the already-selected CLI authority to a concrete bot SDK client. */
+  public sdkClient(botId: string, workspaceId: string): BotruntimeClient {
+    return new BotruntimeClient({
+      apiUrl: this.baseUrl,
+      token: this.apiKey,
+      botId,
+      workspaceId,
+    })
   }
 
   private async raw(opts: RequestOpts): Promise<any> {
@@ -271,11 +283,16 @@ export class CloudapiClient {
         if (!res.ok) {
           // 4xx is never retried; 5xx is retried only for idempotent calls.
           if (res.status >= 500 && opts.idempotent && attempt < attempts) {
-            lastErr = new errors.BotpressCLIError(`${requestLabel(opts)}: HTTP ${res.status} ${text}`)
+            lastErr = new errors.BotpressCLIError(
+              `${requestLabel(opts)}: HTTP ${res.status} ${text}`,
+            )
             await backoff(attempt)
             continue
           }
-          throw new errors.HTTPError(res.status, httpMessage(opts, res.status, text))
+          throw new errors.HTTPError(
+            res.status,
+            httpMessage(opts, res.status, text),
+          )
         }
         if (!text) return {}
         try {
@@ -283,7 +300,7 @@ export class CloudapiClient {
         } catch (thrown) {
           if (opts.privacySensitive) {
             throw new errors.BotpressCLIError(
-              `${requestLabel(opts)}: ${opts.privacySensitive} response is malformed JSON`
+              `${requestLabel(opts)}: ${opts.privacySensitive} response is malformed JSON`,
             )
           }
           throw thrown
@@ -292,7 +309,11 @@ export class CloudapiClient {
         clearTimeout(timer)
         // An HTTP-status decision (4xx, or 5xx on the last attempt) is already
         // final — never retried. Only genuine network/abort errors retry.
-        if (thrown instanceof errors.HTTPError || thrown instanceof errors.BotpressCLIError) throw thrown
+        if (
+          thrown instanceof errors.HTTPError ||
+          thrown instanceof errors.BotpressCLIError
+        )
+          throw thrown
         lastErr = thrown as Error
         if (opts.idempotent && attempt < attempts) {
           await backoff(attempt)
@@ -300,15 +321,20 @@ export class CloudapiClient {
         }
         if (opts.privacySensitive) {
           throw new errors.BotpressCLIError(
-            `${requestLabel(opts)}: network request failed; check connectivity and the selected API URL, then retry`
+            `${requestLabel(opts)}: network request failed; check connectivity and the selected API URL, then retry`,
           )
         }
-        throw new errors.BotpressCLIError(`${requestLabel(opts)}: ${(thrown as Error).message}`, {
-          cause: thrown as Error,
-        })
+        throw new errors.BotpressCLIError(
+          `${requestLabel(opts)}: ${(thrown as Error).message}`,
+          {
+            cause: thrown as Error,
+          },
+        )
       }
     }
-    throw lastErr ?? new errors.BotpressCLIError(`${requestLabel(opts)}: failed`)
+    throw (
+      lastErr ?? new errors.BotpressCLIError(`${requestLabel(opts)}: failed`)
+    )
   }
 
   // ---- provision (NOT idempotent, NOT retried) -----------------------------
@@ -317,7 +343,10 @@ export class CloudapiClient {
   // workspace-scoped PAT provisioning with no x-workspace-id returns 400. The
   // server reads x-workspace-id only on the PAT auth path and ignores it for
   // legacy/bot-scoped keys (auth.go:12), so sending it is harmless for those.
-  public async provisionBot(name?: string, workspaceId?: string): Promise<ProvisionResponse> {
+  public async provisionBot(
+    name?: string,
+    workspaceId?: string,
+  ): Promise<ProvisionResponse> {
     return this.raw({
       method: 'POST',
       path: '/v1/admin/provision-bot',
@@ -341,8 +370,12 @@ export class CloudapiClient {
     workspaceId?: string,
     recurringEvents: Record<
       string,
-      { type: string; schedule: { cron: string }; payload: Record<string, unknown> }
-    > = {}
+      {
+        type: string
+        schedule: { cron: string }
+        payload: Record<string, unknown>
+      }
+    > = {},
   ): Promise<unknown> {
     return this.raw({
       method: 'PUT',
@@ -355,7 +388,10 @@ export class CloudapiClient {
     })
   }
 
-  public async getDevBotTarget(botId: string, workspaceId: string): Promise<DevBotReadinessResponse> {
+  public async getDevBotTarget(
+    botId: string,
+    workspaceId: string,
+  ): Promise<DevBotReadinessResponse> {
     return this.raw({
       method: 'GET',
       path: `/v1/admin/bots/${encodeURIComponent(botId)}`,
@@ -363,7 +399,10 @@ export class CloudapiClient {
     })
   }
 
-  public async getBundle(botId: string, internalToken?: string): Promise<BundleResponse> {
+  public async getBundle(
+    botId: string,
+    internalToken?: string,
+  ): Promise<BundleResponse> {
     return this.raw({
       method: 'GET',
       path: `/internal/bots/${botId}/bundle`,
@@ -393,7 +432,11 @@ export class CloudapiClient {
   }
 
   // ---- config variables (env.X parity) -------------------------------------
-  public async setConfigVar(botId: string, name: string, value: string): Promise<unknown> {
+  public async setConfigVar(
+    botId: string,
+    name: string,
+    value: string,
+  ): Promise<unknown> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/config-variables/${name}`,
@@ -402,7 +445,9 @@ export class CloudapiClient {
     })
   }
 
-  public async listConfigVars(botId: string): Promise<{ variables: ConfigVar[] }> {
+  public async listConfigVars(
+    botId: string,
+  ): Promise<{ variables: ConfigVar[] }> {
     return this.raw({
       method: 'GET',
       path: '/v1/admin/config-variables',
@@ -423,7 +468,7 @@ export class CloudapiClient {
     workspaceId: string,
     botId: string,
     name: string,
-    value: string
+    value: string,
   ): Promise<unknown> {
     return this.raw({
       method: 'PUT',
@@ -432,7 +477,10 @@ export class CloudapiClient {
     })
   }
 
-  public async listWorkspaceConfigVars(workspaceId: string, botId: string): Promise<{ variables: ConfigVar[] }> {
+  public async listWorkspaceConfigVars(
+    workspaceId: string,
+    botId: string,
+  ): Promise<{ variables: ConfigVar[] }> {
     return this.raw({
       method: 'GET',
       path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/config-variables`,
@@ -440,7 +488,11 @@ export class CloudapiClient {
     })
   }
 
-  public async deleteWorkspaceConfigVar(workspaceId: string, botId: string, name: string): Promise<unknown> {
+  public async deleteWorkspaceConfigVar(
+    workspaceId: string,
+    botId: string,
+    name: string,
+  ): Promise<unknown> {
     return this.raw({
       method: 'DELETE',
       path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/config-variables/${encodeURIComponent(name)}`,
@@ -453,7 +505,7 @@ export class CloudapiClient {
     name: string,
     version: string,
     config: Record<string, unknown>,
-    alias?: string
+    alias?: string,
   ): Promise<InstallResponse> {
     return this.raw({
       method: 'POST',
@@ -463,7 +515,10 @@ export class CloudapiClient {
     })
   }
 
-  public async registerIntegration(botId: string, webhookId: string): Promise<RegisterResponse> {
+  public async registerIntegration(
+    botId: string,
+    webhookId: string,
+  ): Promise<RegisterResponse> {
     return this.raw({
       method: 'POST',
       path: `/v1/admin/integrations/${webhookId}/register`,
@@ -478,7 +533,7 @@ export class CloudapiClient {
     name: string,
     version: string,
     config: Record<string, unknown>,
-    alias?: string
+    alias?: string,
   ): Promise<WorkspaceInstallResponse> {
     return this.raw({
       method: 'POST',
@@ -489,7 +544,7 @@ export class CloudapiClient {
 
   public async listWorkspaceIntegrations(
     workspaceId: string,
-    botId: string
+    botId: string,
   ): Promise<WorkspaceIntegrationListResponse> {
     return this.raw({
       method: 'GET',
@@ -501,7 +556,7 @@ export class CloudapiClient {
   public async registerWorkspaceIntegration(
     workspaceId: string,
     botId: string,
-    webhookId: string
+    webhookId: string,
   ): Promise<WorkspaceRegisterResponse> {
     return this.raw({
       method: 'POST',
@@ -515,13 +570,18 @@ export class CloudapiClient {
     version: string,
     configSchema: unknown,
     workspaceId?: string,
-    network?: IntegrationDefinitionNetwork
+    network?: IntegrationDefinitionNetwork,
   ): Promise<IntegrationDefinitionEntity> {
     return this.raw({
       method: 'POST',
       path: '/v1/admin/integration-definitions',
       workspaceId,
-      body: integrationDefinitionWriteBody(name, version, configSchema, network),
+      body: integrationDefinitionWriteBody(
+        name,
+        version,
+        configSchema,
+        network,
+      ),
     })
   }
 
@@ -531,18 +591,23 @@ export class CloudapiClient {
     version: string,
     configSchema: unknown,
     workspaceId?: string,
-    network?: IntegrationDefinitionNetwork
+    network?: IntegrationDefinitionNetwork,
   ): Promise<IntegrationDefinitionEntity> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/integration-definitions/${id}`,
       workspaceId,
-      body: integrationDefinitionWriteBody(name, version, configSchema, network),
+      body: integrationDefinitionWriteBody(
+        name,
+        version,
+        configSchema,
+        network,
+      ),
     })
   }
 
   public async listIntegrationDefinitions(
-    workspaceId?: string
+    workspaceId?: string,
   ): Promise<{ definitions: IntegrationDefinitionEntity[] }> {
     return this.raw({
       method: 'GET',
@@ -563,7 +628,7 @@ export class CloudapiClient {
     name: string,
     version: string,
     code: string,
-    workspaceId?: string
+    workspaceId?: string,
   ): Promise<PublishIntegrationBundleResponse> {
     return this.raw({
       method: 'POST',
@@ -582,12 +647,13 @@ export class CloudapiClient {
   public async getWorkspaceBotLogs(
     workspaceId: string,
     botId: string,
-    params: GetBotLogsParams
+    params: GetBotLogsParams,
   ): Promise<BotLogsResponse> {
     const qs = new URLSearchParams({ timeStart: params.timeStart })
     if (params.timeEnd) qs.set('timeEnd', params.timeEnd)
     if (params.level) qs.set('level', params.level)
-    if (params.messageContains) qs.set('messageContains', params.messageContains)
+    if (params.messageContains)
+      qs.set('messageContains', params.messageContains)
     if (params.conversationId) qs.set('conversationId', params.conversationId)
     if (params.nextToken) qs.set('nextToken', params.nextToken)
     return this.raw({
@@ -607,13 +673,13 @@ export class CloudapiClient {
   public async listWorkspaceTraces(
     workspaceId: string,
     botId: string,
-    params: TraceListParams
+    params: TraceListParams,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
       path: tracePath(
         `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/traces`,
-        params
+        params,
       ),
       idempotent: true,
       privacySensitive: 'trace',
@@ -622,7 +688,7 @@ export class CloudapiClient {
 
   public async listDevelopmentTraces(
     runtimeBotId: string,
-    params: TraceListParams
+    params: TraceListParams,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -639,13 +705,13 @@ export class CloudapiClient {
   public async listWorkspaceConversations(
     workspaceId: string,
     botId: string,
-    params: ConversationListParams
+    params: ConversationListParams,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
       path: conversationPath(
         `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/conversations`,
-        params
+        params,
       ),
       idempotent: true,
       privacySensitive: 'conversation',
@@ -654,7 +720,7 @@ export class CloudapiClient {
 
   public async listDevelopmentConversations(
     runtimeBotId: string,
-    params: ConversationListParams
+    params: ConversationListParams,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -672,7 +738,7 @@ export class CloudapiClient {
       input: Record<string, unknown>
       timeoutAt: string
     },
-    runtimeBotId?: string
+    runtimeBotId?: string,
   ): Promise<unknown> {
     return this.raw({
       method: 'POST',
@@ -683,7 +749,10 @@ export class CloudapiClient {
     })
   }
 
-  public async getEvalWorkflow(workflowId: string, runtimeBotId?: string): Promise<unknown> {
+  public async getEvalWorkflow(
+    workflowId: string,
+    runtimeBotId?: string,
+  ): Promise<unknown> {
     return this.raw({
       method: 'GET',
       path: `/v1/chat/workflows/${encodeURIComponent(workflowId)}`,
@@ -696,18 +765,24 @@ export class CloudapiClient {
   public async listEvalRuns(
     selector: string,
     params: EvalRunListParams,
-    runtimeBotId?: string
+    runtimeBotId?: string,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
-      path: evalRunsPath(`/v1/evals/bot/${encodeURIComponent(selector)}/runs`, params),
+      path: evalRunsPath(
+        `/v1/evals/bot/${encodeURIComponent(selector)}/runs`,
+        params,
+      ),
       botId: runtimeBotId,
       idempotent: true,
       privacySensitive: 'eval',
     })
   }
 
-  public async getEvalRun(runId: string, runtimeBotId?: string): Promise<unknown> {
+  public async getEvalRun(
+    runId: string,
+    runtimeBotId?: string,
+  ): Promise<unknown> {
     return this.raw({
       method: 'GET',
       path: `/v1/evals/runs/${encodeURIComponent(runId)}`,
@@ -722,7 +797,10 @@ export class CloudapiClient {
   // presence of x-workspace-id (dev does not send it); under a workspace PAT
   // the deploy therefore sends BOTH x-workspace-id (writer gate owner|admin)
   // and x-bot-id (numeric, which table set to address).
-  public async listTables(botId: string, workspaceId?: string): Promise<{ tables: Array<{ name: string }> }> {
+  public async listTables(
+    botId: string,
+    workspaceId?: string,
+  ): Promise<{ tables: Array<{ name: string }> }> {
     return this.raw({
       method: 'GET',
       path: '/v1/tables',
@@ -732,7 +810,12 @@ export class CloudapiClient {
     })
   }
 
-  public async createTable(botId: string, name: string, schema: unknown, workspaceId?: string): Promise<unknown> {
+  public async createTable(
+    botId: string,
+    name: string,
+    schema: unknown,
+    workspaceId?: string,
+  ): Promise<unknown> {
     return this.raw({
       method: 'POST',
       path: '/v1/tables',
@@ -761,9 +844,11 @@ function httpMessage(opts: RequestOpts, status: number, text: string): string {
       return `${where}: HTTP ${status} — ${resource} service failed; retry or check the server status`
     return `${where}: HTTP ${status} — ${resource} request was rejected; check the command filters and target`
   }
-  if (status === 401) return `${where}: 401 — empty/invalid/revoked api key; check \`brt profiles list\` / \`brt link\``
+  if (status === 401)
+    return `${where}: 401 — empty/invalid/revoked api key; check \`brt profiles list\` / \`brt link\``
   if (status === 404) return `${where}: 404 — ${text || 'not found'}`
-  if (status === 409) return `${where}: 409 — already exists / unique constraint (${text})`
+  if (status === 409)
+    return `${where}: 409 — already exists / unique constraint (${text})`
   if (status === 500 && opts.path.includes('provision'))
     return `${where}: 500 — likely "no workspace scope"; key must carry a workspace (${text})`
   return `${where}: HTTP ${status} ${text}`
@@ -794,7 +879,10 @@ function tracePath(basePath: string, params: TraceListParams): string {
   return `${basePath}?${query.toString()}`
 }
 
-function conversationPath(basePath: string, params: ConversationListParams): string {
+function conversationPath(
+  basePath: string,
+  params: ConversationListParams,
+): string {
   const query = new URLSearchParams({ pageSize: String(params.pageSize) })
   if (params.nextToken) query.set('nextToken', params.nextToken)
   return `${basePath}?${query.toString()}`

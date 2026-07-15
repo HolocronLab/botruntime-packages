@@ -5,13 +5,15 @@
  * tooling without tying the authoring API to the agent runtime package.
  */
 
-import type { EvalDefinition as _EvalDefinition } from './definition'
+import type { ConversationTurn as _ConversationTurn, EvalDefinition as _EvalDefinition } from './definition'
 import type { EvalErrorCode } from './errors'
 
 export {
   Eval,
   type EvalDefinition,
   type EvalSetup,
+  type EvalFixtureSource,
+  type ConversationRelationSelector,
   type ConversationTurn,
   type TurnAssertions,
   type OutcomeAssertions,
@@ -23,6 +25,7 @@ export {
   type MatchOperator,
   type NumericOperator,
 } from './definition'
+export type { EvalAttachment, ResolvedEvalFixture } from './attachments'
 
 export type { Span, SpanStatus, TraceMetadata } from './spans/trace'
 export type { SpanSourceCapabilities, WaitOptions, WorkflowWaitOptions } from './spans/span-source'
@@ -65,6 +68,8 @@ export interface ToolCall {
 
 export interface TurnReport {
   turnIndex: number
+  actor?: string
+  target?: string
   userMessage: string
   botResponse: string
   assertions: GraderResult[]
@@ -219,6 +224,18 @@ export interface EvalRunnerConfig {
   chatWebhookId?: string
   /** Base URL for the chat service. Defaults to the botruntime chat host (https://botruntime.ru). */
   chatBaseUrl?: string
+  /** Resolve a declared fixture to a short-lived URL immediately before its turn. */
+  resolveFixture?: (
+    fixture: string,
+    context: { botId: string; evalName: string; turnIndex: number }
+  ) => Promise<import('./attachments').ResolvedEvalFixture>
+  evalControl?: EvalControl
+}
+
+export interface EvalControl {
+  advanceClock(input: { milliseconds: number; runDueWorkflows?: boolean }): Promise<{ virtualNow: string; releasedJobs: number }>
+  configureFaults(faults: NonNullable<NonNullable<_ConversationTurn['control']>['faults']>): Promise<void>
+  clearFaults(): Promise<void>
 }
 
 // --- Eval suite filter ---

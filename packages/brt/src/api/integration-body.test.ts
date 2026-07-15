@@ -1,39 +1,39 @@
-import { IntegrationDefinition } from "@holocronlab/botruntime-sdk";
-import { describe, expect, test } from "vitest";
-import type { Integration } from "@holocronlab/botruntime-client";
+import { IntegrationDefinition } from '@holocronlab/botruntime-sdk'
+import { describe, expect, test } from 'vitest'
+import type { Integration } from '@holocronlab/botruntime-client'
 import {
   prepareCreateIntegrationBody,
   prepareUpdateIntegrationBody,
-} from "./integration-body";
+} from './integration-body'
 
-describe("integration deployment bodies", () => {
-  test("preserves the platform network contract on the classic deploy path", async () => {
+describe('integration deployment bodies', () => {
+  test('preserves the platform network contract on the classic deploy path', async () => {
     const integration = new IntegrationDefinition({
-      name: "yookassa",
-      version: "1.0.0",
+      name: 'yookassa',
+      version: '1.0.0',
       network: {
-        providerHosts: ["api.yookassa.ru"],
+        providerHosts: ['api.yookassa.ru'],
         ingressRelayed: true,
-        webhookAuthMode: "provider_verified",
+        webhookAuthMode: 'provider_verified',
       },
-    });
+    })
 
-    const body = await prepareCreateIntegrationBody(integration);
+    const body = await prepareCreateIntegrationBody(integration)
 
     expect(body).toMatchObject({
-      providerHosts: ["api.yookassa.ru"],
+      providerHosts: ['api.yookassa.ru'],
       ingressRelayed: true,
-      webhookAuthMode: "provider_verified",
-    });
-  });
+      webhookAuthMode: 'provider_verified',
+    })
+  })
 
-  test("preserves the platform network contract when classic deploy updates an integration", () => {
+  test('preserves the platform network contract when classic deploy updates an integration', () => {
     const body = prepareUpdateIntegrationBody(
       {
-        id: "integration-id",
-        providerHosts: ["api.yookassa.ru"],
+        id: 'integration-id',
+        providerHosts: ['api.yookassa.ru'],
         ingressRelayed: true,
-        webhookAuthMode: "provider_verified",
+        webhookAuthMode: 'provider_verified',
       },
       {
         actions: {},
@@ -48,24 +48,36 @@ describe("integration deployment bodies", () => {
         configuration: { identifier: {} },
         identifier: {},
       } as unknown as Integration,
-    );
+    )
 
     expect(body).toMatchObject({
-      providerHosts: ["api.yookassa.ru"],
+      providerHosts: ['api.yookassa.ru'],
       ingressRelayed: true,
-      webhookAuthMode: "provider_verified",
-    });
-  });
+      webhookAuthMode: 'provider_verified',
+    })
+  })
 
-  test("serializes secure network defaults so redeploy can clear stale policy", async () => {
+  test('serializes secure network defaults so redeploy can clear stale policy', async () => {
     const body = await prepareCreateIntegrationBody(
-      new IntegrationDefinition({ name: "plain", version: "1.0.0" }),
-    );
+      new IntegrationDefinition({ name: 'plain', version: '1.0.0' }),
+    )
 
     expect(body).toMatchObject({
       providerHosts: [],
       ingressRelayed: false,
-      webhookAuthMode: "shared_secret",
-    });
-  });
-});
+      webhookAuthMode: 'shared_secret',
+    })
+  })
+
+  test('preserves handler-owned authentication for first-party Chat', async () => {
+    const body = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({
+        name: 'chat',
+        version: '0.7.6',
+        network: { webhookAuthMode: 'handler_verified' },
+      }),
+    )
+
+    expect(body.webhookAuthMode).toBe('handler_verified')
+  })
+})

@@ -4,9 +4,7 @@ import * as readline from 'readline'
 import * as uuid from 'uuid'
 import * as utils from '../utils'
 
-// @holocronlab/botruntime-chat 0.5.5 neither exports this union nor accepts a transport
-// selector on listenConversation; it picks the transport internally.
-type ServerEventsProtocol = 'sse' | 'websocket'
+type ServerEventsProtocol = 'polling'
 
 type MessageSource = 'myself' | 'bot' | 'other'
 type ChatMessage = chat.Message & { source: MessageSource }

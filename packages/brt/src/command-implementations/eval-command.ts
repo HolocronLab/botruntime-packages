@@ -2,6 +2,9 @@ import type { EvalRunListParams } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
 import { CloudCommand, type EvalCloudTarget } from './cloud-command'
+import { ensureEvalChatTransport } from './eval-chat-transport'
+import { prepareHostedEvalManifest } from '../eval-manifest-prepare'
+import { aggregateRepeatedEvals, runWithConcurrency, type RepeatedEvalAttempt } from '../eval-repeat'
 
 const POSITIVE_DECIMAL = /^[1-9][0-9]*$/
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
@@ -24,7 +27,16 @@ const WORKFLOW_STATUSES = [
   'timedout',
   'cancelled',
 ] as const
-const ERROR_KINDS = ['aborted', 'configuration', 'auth', 'trace_reader', 'chat', 'timeout', 'upstream', 'internal'] as const
+const ERROR_KINDS = [
+  'aborted',
+  'configuration',
+  'auth',
+  'trace_reader',
+  'chat',
+  'timeout',
+  'upstream',
+  'internal',
+] as const
 const ASSERTION_KINDS = [
   'response',
   'no_response',
@@ -38,6 +50,9 @@ const ASSERTION_KINDS = [
   'timing',
   'workflow',
   'state',
+  'delivered_to',
+  'not_delivered_to',
+  'conversation_mode',
   'outcome',
   'unknown',
 ] as const
@@ -100,7 +115,9 @@ type EvalDefinition = typeof commandDefinitions.eval.subcommands.run | typeof co
 abstract class EvalCloudCommand<C extends EvalDefinition> extends CloudCommand<C> {
   protected async resolveEvalTarget(): Promise<EvalTarget> {
     if (this.argv.local && !this.argv.dev) {
-      throw new errors.BotpressCLIError('--local requires --dev for hosted eval commands; production and development targets cannot be mixed')
+      throw new errors.BotpressCLIError(
+        '--local requires --dev for hosted eval commands; production and development targets cannot be mixed'
+      )
     }
     const target = await this.evalCloudapiTarget()
     return {
@@ -137,14 +154,15 @@ export class EvalRunsCommand extends EvalCloudCommand<EvalRunsCommandDefinition>
   public async run(): Promise<void> {
     const limit = requireIntegerInRange('limit', this.argv.limit, 1, MAX_RUNS)
     const runId = this.argv.runId === undefined ? undefined : requireDatabaseId(this.argv.runId, 'run id')
-    const status =
-      this.argv.status === undefined ? undefined : requireEnum(this.argv.status, RUN_STATUSES, '--status')
+    const status = this.argv.status === undefined ? undefined : requireEnum(this.argv.status, RUN_STATUSES, '--status')
     if (this.argv.latest && runId !== undefined) {
       throw new errors.BotpressCLIError('--latest cannot be combined with a run ID')
     }
     if (this.argv.nextToken !== undefined) requireCursor(this.argv.nextToken, '--next-token')
     if ((runId !== undefined || this.argv.latest) && (status !== undefined || this.argv.nextToken !== undefined)) {
-      throw new errors.BotpressCLIError('--status and --next-token are list filters and cannot be combined with a run detail selector')
+      throw new errors.BotpressCLIError(
+        '--status and --next-token are list filters and cannot be combined with a run detail selector'
+      )
     }
 
     const target = await this.resolveEvalTarget()
@@ -204,11 +222,28 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
     const name = optionalIdentifier(this.argv.name, 'eval name', 128)
     const tag = optionalIdentifier(this.argv.tag, 'eval tag', 64)
     const judgeModel = optionalModel(this.argv.judgeModel)
+    const repeat = requireIntegerInRange('repeat', this.argv.repeat ?? 1, 1, 100)
+    const maxConcurrency = requireIntegerInRange('max-concurrency', this.argv.maxConcurrency ?? 1, 1, 10)
+    const minPassRate = requirePassRate(this.argv.minPassRate ?? 1)
     const evalType =
       this.argv.type === undefined
         ? undefined
         : requireEnum(this.argv.type, ['capability', 'regression'] as const, '--type')
     const target = await this.resolveEvalTarget()
+    const chatTransport = await ensureEvalChatTransport({
+      client: target.client,
+      workspaceId: target.output.workspaceId,
+      botId: target.output.environment === 'development' ? target.output.targetBotId : target.output.botId,
+      development: target.output.environment === 'development',
+    })
+    const apiBotId = target.output.environment === 'development' ? target.output.targetBotId : target.output.botId
+    await prepareHostedEvalManifest({
+      projectDir: this.projectDir,
+      botId: apiBotId,
+      workspaceId: target.output.workspaceId,
+      chatWebhookId: chatTransport.webhookId,
+      client: target.client.sdkClient(apiBotId, target.output.workspaceId),
+    })
 
     const filter = {
       ...(name !== undefined ? { names: [name] } : {}),
@@ -220,6 +255,50 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       runType: 'manual',
       ...(judgeModel !== undefined ? { judgeModel } : {}),
     }
+    const attempts = await runWithConcurrency(
+      Array.from({ length: repeat }, () => () => this.runAttempt(target, input, timeout)),
+      maxConcurrency
+    )
+
+    if (attempts.length === 1) {
+      const attempt = attempts[0]!
+      this.printDetail(target, attempt.detail)
+      if (!attempt.summary.passed) {
+        throw new errors.BotpressCLIError(
+          `hosted eval suite failed (${attempt.completion.failed} failed eval${attempt.completion.failed === 1 ? '' : 's'}); inspect \`brt eval runs ${attempt.detail.id} --verbose\` and \`brt traces\``
+        )
+      }
+      return
+    }
+
+    const aggregate = aggregateRepeatedEvals(attempts.map((attempt) => attempt.summary))
+    if (this.argv.json) {
+      this.logger.json({ schemaVersion: 1, target: target.output, aggregate })
+    } else {
+      this.logger.log(
+        `Repeated evals: ${aggregate.passedRuns}/${aggregate.repeat} passed (${aggregate.passRate.toFixed(3)}), ${aggregate.classification}`
+      )
+      this.logger.log(`Latency: p50=${aggregate.p50DurationMs}ms p95=${aggregate.p95DurationMs}ms`)
+      for (const [assertion, count] of Object.entries(aggregate.failureHistogram).sort()) {
+        this.logger.log(`  ${assertion}: ${count}`)
+      }
+    }
+    if (aggregate.passRate < minPassRate) {
+      throw new errors.BotpressCLIError(
+        `hosted eval pass rate ${aggregate.passRate.toFixed(3)} is below required ${minPassRate.toFixed(3)}`
+      )
+    }
+  }
+
+  private async runAttempt(
+    target: EvalTarget,
+    input: Record<string, unknown>,
+    timeout: number
+  ): Promise<{
+    completion: ReturnType<typeof parseWorkflowCompletion>
+    detail: EvalRunDetail
+    summary: RepeatedEvalAttempt
+  }> {
     const created = parseWorkflowResponse(
       await target.client.createEvalWorkflow(
         {
@@ -234,21 +313,27 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
 
     const deadline = Date.now() + timeout
     while (Date.now() <= deadline) {
-      const current = parseWorkflowResponse(
-        await target.client.getEvalWorkflow(created.id, target.runtimeHeader)
-      )
+      const current = parseWorkflowResponse(await target.client.getEvalWorkflow(created.id, target.runtimeHeader))
       if (current.status === 'completed') {
         const completion = parseWorkflowCompletion(current.output)
-        const detail = parseEvalRunDetail(
-          await target.client.getEvalRun(completion.runId, target.runtimeHeader)
+        const detail = parseEvalRunDetail(await target.client.getEvalRun(completion.runId, target.runtimeHeader))
+        const passed = !(
+          completion.failed > 0 ||
+          detail.status === 'failed' ||
+          detail.entries.some((item) => item.passed === false)
         )
-        this.printDetail(target, detail)
-        if (completion.failed > 0 || detail.status === 'failed' || detail.entries.some((item) => item.passed === false)) {
-          throw new errors.BotpressCLIError(
-            `hosted eval suite failed (${completion.failed} failed eval${completion.failed === 1 ? '' : 's'}); inspect \`brt eval runs ${detail.id} --verbose\` and \`brt traces\``
-          )
+        return {
+          completion,
+          detail,
+          summary: {
+            id: detail.id,
+            passed,
+            duration: completion.duration,
+            failedAssertions: detail.entries.flatMap((entry) =>
+              entry.results.filter((result) => !result.passed && !result.skipped).map((result) => result.assertionKind)
+            ),
+          },
         }
-        return
       }
       if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
         throw new errors.BotpressCLIError(
@@ -451,6 +536,13 @@ function requireIntegerInRange(field: string, value: unknown, min: number, max: 
   }
   if (value < min || value > max) {
     throw new errors.BotpressCLIError(`${field} must be between ${min} and ${max}`)
+  }
+  return value
+}
+
+function requirePassRate(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new errors.BotpressCLIError('min-pass-rate must be a number between 0 and 1')
   }
   return value
 }

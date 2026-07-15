@@ -357,7 +357,7 @@ export interface ValidateIntegrationCreationRequestBody {
   /**
    * Authentication mode enforced for inbound webhooks.
    */
-  webhookAuthMode?: "shared_secret" | "provider_verified";
+  webhookAuthMode?: "shared_secret" | "provider_verified" | "handler_verified";
 }
 
 export type ValidateIntegrationCreationInput = ValidateIntegrationCreationRequestBody & ValidateIntegrationCreationRequestHeaders & ValidateIntegrationCreationRequestQuery & ValidateIntegrationCreationRequestParams

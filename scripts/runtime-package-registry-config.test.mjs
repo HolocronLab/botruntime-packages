@@ -79,6 +79,39 @@ test('docs contract CI retains checkout analytics while building ADK', () => {
   )
 })
 
+test('docs contract CI builds every bumped local package before ADK and BRT', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  const chatBuild = workflow.indexOf('name: Install the current botruntime-chat package')
+  const evalsBuild = workflow.indexOf('name: Build the current botruntime-evals package')
+  const runtimeBuild = workflow.indexOf('name: Build the current botruntime-runtime package')
+  const analyticsBuild = workflow.indexOf('name: Build the current botruntime-analytics package')
+  const adkBuild = workflow.indexOf('name: Build the current botruntime-adk package')
+  const brtInstall = workflow.indexOf('name: Install brt contract-generator dependencies')
+
+  assert.ok(chatBuild >= 0 && evalsBuild > chatBuild && runtimeBuild > evalsBuild && adkBuild > runtimeBuild && brtInstall > adkBuild)
+  const localReleaseBuilds = workflow.slice(evalsBuild, analyticsBuild)
+  assert.equal((localReleaseBuilds.match(/bun install [^\n]*--no-save --ignore-scripts/g) ?? []).length, 2)
+  assert.doesNotMatch(localReleaseBuilds, /bun install --frozen-lockfile/)
+  assert.match(
+    localReleaseBuilds,
+    /--package=packages\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client/
+  )
+  assert.match(
+    localReleaseBuilds,
+    /--package=packages\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-sdk/
+  )
+  assert.equal((localReleaseBuilds.match(/bunfig\.github-packages\.toml/g) ?? []).length, 2)
+  assert.match(
+    workflow,
+    /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-sdk/
+  )
+  assert.match(
+    workflow,
+    /--package=packages\/brt[^\n]*--exclude=@holocronlab\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-sdk/
+  )
+})
+
 test('global integration publication keeps its separate authenticated catalog registry', () => {
   const workflow = readFileSync(
     new URL('../.github/workflows/publish-integrations-catalog.yml', import.meta.url),
@@ -93,16 +126,16 @@ test('global integration publication keeps its separate authenticated catalog re
   assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/)
 })
 
-test('the anonymous-consumer release train publishes every public package through OIDC', () => {
+test('the anonymous-consumer release train publishes every public package with the npm token', () => {
   const workflow = readFileSync(new URL('../.github/workflows/publish-public-packages.yml', import.meta.url), 'utf8')
-  assert.match(workflow, /id-token: write/)
+  assert.doesNotMatch(workflow, /id-token: write/)
   assert.match(workflow, /actions\/checkout@v6/)
   assert.match(workflow, /actions\/setup-node@v6/)
   assert.match(workflow, /node-version: ["']24["']/)
   assert.match(workflow, /package-manager-cache: false/)
-  assert.match(workflow, /npm install --global npm@11\.15\.0/)
   assert.match(workflow, /registry-url: ["']https:\/\/registry\.npmjs\.org["']/)
-  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN|NODE_AUTH_TOKEN|NPM_TOKEN/)
+  assert.match(workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/)
+  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN/)
   assert.match(workflow, /- ["']adk-v\*["']/)
   assert.match(workflow, /- ["']brt-v\*["']/)
 

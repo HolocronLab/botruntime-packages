@@ -270,6 +270,59 @@ describe('VortexEvalStore strict hosted contract', () => {
     ).toThrow(/project at most 1024 results/i)
   })
 
+  it('counts delivery assertions in hosted capacity and persists their platform kinds', async () => {
+    expect(() =>
+      validateHostedEvalDefinitions([
+        {
+          ...basicDefinition,
+          conversation: [
+            {
+              user: 'x',
+              assert: { deliveredTo: Array.from({ length: 63 }, (_, index) => `relation_${index}`) },
+            },
+          ],
+        },
+      ])
+    ).not.toThrow()
+    expect(() =>
+      validateHostedEvalDefinitions([
+        {
+          ...basicDefinition,
+          conversation: [
+            {
+              user: 'x',
+              assert: { deliveredTo: Array.from({ length: 64 }, (_, index) => `relation_${index}`) },
+            },
+          ],
+        },
+      ])
+    ).toThrow(/at most 64 results/i)
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => json({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    await store().appendTurnResults('1', '2', {
+      turnIndex: 0,
+      userMessage: '',
+      botResponse: '',
+      assertions: [
+        { assertion: 'delivered_to:lawyer', pass: true, expected: '', actual: '' },
+        { assertion: 'not_delivered_to:client', pass: true, expected: '', actual: '' },
+        { assertion: 'conversation_mode:client', pass: true, expected: '', actual: '' },
+      ],
+      pass: true,
+      botDuration: 8,
+      evalDuration: 3,
+    })
+
+    expect(bodyOf(fetchMock.mock.calls[0]!)).toEqual({
+      results: [
+        expect.objectContaining({ assertionKind: 'delivered_to' }),
+        expect.objectContaining({ assertionKind: 'not_delivered_to' }),
+        expect.objectContaining({ assertionKind: 'conversation_mode' }),
+      ],
+    })
+  })
+
   it('persists assertion-free successful turns as a deterministic safe response result', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => json({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)

@@ -4,7 +4,7 @@ import { CognitiveBeta } from '@holocronlab/botruntime-cognitive'
 import { describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition, Span, SpanSource, SpanSourceCapabilities } from './types'
 import type { ChatClient } from './types'
-import { isPartialEvalSuiteAbort, runEval, runEvalSuite, validateEvalCapabilities } from './runner'
+import { isPartialEvalSuiteAbort, runEval, runEvalSuite, validateEvalCapabilities, validateEvalControlCapabilities } from './runner'
 
 function completedHandler(): Span {
   return {
@@ -144,6 +144,19 @@ describe('eval observation capability preflight', () => {
     ).not.toThrow()
   })
 
+  it('rejects virtual time, faults, and parallel input before side effects when the host has no eval control', () => {
+    const definition: EvalDefinition = {
+      name: 'controlled',
+      conversation: [
+        {
+          parallel: [{ message: 'a' }, { message: 'b' }],
+          control: { advanceClock: { milliseconds: 72 * 60 * 60 * 1000 }, faults: [{ point: 'workflow.after_dispatch' }] },
+        },
+      ],
+    }
+    expect(() => validateEvalControlCapabilities([definition], undefined)).toThrow(/eval control/i)
+  })
+
   it('preserves tool-parameter and state assertions for rich local span sources', () => {
     expect(() =>
       validateEvalCapabilities(
@@ -208,6 +221,134 @@ describe('eval observation capability preflight', () => {
     expect(report.turns[0]).toMatchObject({ botResponse: 'listener response', pass: true })
     expect(authenticatedClient.createMessage).toHaveBeenCalledOnce()
     expect(source.disconnect).toHaveBeenCalledOnce()
+  })
+
+  it('resolves attachments before the turn and sends no signed URL to progress or reports', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const onProgress = vi.fn()
+    const resolveFixture = vi.fn().mockResolvedValue({
+      fixture: 'ddu-valid',
+      name: 'D.pdf',
+      contentType: 'application/pdf',
+      url: 'https://signed.example/file?token=secret',
+      size: 42,
+      sha256: 'a'.repeat(64),
+    })
+
+    const report = await runEval(
+      {
+        name: 'attachment',
+        conversation: [{ user: 'document', attachments: [{ fixture: 'ddu-valid' }] }],
+      },
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      { spanSource: source, chatClient, chatWebhookId: 'webhook', resolveFixture, onProgress }
+    )
+
+    expect(resolveFixture).toHaveBeenCalledWith('ddu-valid', expect.objectContaining({ botId: 'runtime-bot' }))
+    expect(authenticatedClient.createMessage).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      payload: {
+        type: 'bloc',
+        items: [
+          { type: 'text', text: 'document' },
+          { type: 'file', fileUrl: 'https://signed.example/file?token=secret', title: 'D.pdf' },
+        ],
+      },
+    })
+    expect(JSON.stringify({ report, progress: onProgress.mock.calls })).not.toContain('signed.example')
+    expect(JSON.stringify({ report, progress: onProgress.mock.calls })).not.toContain('token=secret')
+    expect(report.turns[0]?.userMessage).toContain('ddu-valid')
+  })
+
+  it('routes a named actor to a linked conversation and grades relay to the primary client', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const messages = new Map<string, any[]>([
+      ['conv-1', []],
+      ['hitl-1', []],
+    ])
+    const client = {
+      listConversations: vi.fn().mockResolvedValue({
+        conversations: [{ id: 'hitl-1', tags: { root: 'conv-1' }, properties: { mode: 'manual' } }],
+      }),
+      createUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
+      createMessage: vi.fn(async () => {
+        messages.get('conv-1')!.push({
+          id: 'relay-1',
+          direction: 'outgoing',
+          payload: { type: 'text', text: 'manual reply' },
+        })
+        return {}
+      }),
+      listMessages: vi.fn(async ({ conversationId }: { conversationId: string }) => ({
+        messages: [...(messages.get(conversationId) ?? [])],
+        meta: {},
+      })),
+      getConversation: vi.fn().mockResolvedValue({
+        conversation: { id: 'hitl-1', tags: {}, properties: { mode: 'manual' } },
+      }),
+    } as unknown as BpClient
+
+    const report = await runEval(
+      {
+        name: 'hitl-relay',
+        setup: { relations: { hitl_thread: { tags: { root: '$conversationId' } } } },
+        conversation: [
+          {
+            actor: 'operator',
+            target: { relation: 'hitl_thread' },
+            message: 'manual reply',
+            expectSilence: true,
+            assert: {
+              deliveredTo: 'client',
+              conversationMode: { target: 'hitl_thread', equals: 'manual' },
+            },
+          },
+        ],
+      },
+      { client, botId: 'runtime-bot' },
+      { spanSource: source, chatClient, chatWebhookId: 'webhook' }
+    )
+
+    expect(report).toMatchObject({ pass: true })
+    expect(report.turns[0]).toMatchObject({ actor: 'operator', target: 'hitl_thread', pass: true })
+    expect(client.createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: 'synthetic', conversationId: 'hitl-1', userId: 'operator-user' })
+    )
+    expect(source.repoint).toHaveBeenCalledWith({ conversationId: 'hitl-1' })
+  })
+
+  it('applies isolated controls and emits parallel same-conversation inputs together', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const evalControl = {
+      advanceClock: vi.fn().mockResolvedValue({ virtualNow: '2026-07-20T00:00:00Z', releasedJobs: 2 }),
+      configureFaults: vi.fn().mockResolvedValue(undefined),
+      clearFaults: vi.fn().mockResolvedValue(undefined),
+    }
+    const report = await runEval(
+      {
+        name: 'race',
+        conversation: [
+          {
+            parallel: [{ message: 'first' }, { message: 'duplicate' }],
+            control: {
+              advanceClock: { milliseconds: 1_000, runDueWorkflows: true },
+              faults: [{ point: 'workflow.after_dispatch', mode: 'lost_ack', times: 1 }],
+            },
+          },
+        ],
+      },
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      { spanSource: source, chatClient, chatWebhookId: 'webhook', evalControl }
+    )
+
+    expect(report.error).toBeUndefined()
+    expect(authenticatedClient.createMessage).toHaveBeenCalledTimes(2)
+    expect(evalControl.configureFaults).toHaveBeenCalledOnce()
+    expect(evalControl.advanceClock).toHaveBeenCalledWith({ milliseconds: 1_000, runDueWorkflows: true })
+    expect(evalControl.clearFaults).toHaveBeenCalledOnce()
   })
 
   it('propagates turn-complete progress sink failures from both runEval and runEvalSuite', async () => {
