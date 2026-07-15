@@ -14,6 +14,23 @@ export type UploadFileOutput = UpsertFileResponse
 
 type UploadFileClient = {
   upsertFile: (input: UpsertFileInput) => Promise<UpsertFileResponse>
+  config?: {
+    apiUrl: string
+    headers: Record<string, string | string[]>
+  }
+}
+
+const sameOriginHeaders = (client: UploadFileClient, uploadUrl: string): Record<string, string | string[]> => {
+  if (!client.config) return {}
+  try {
+    if (new URL(uploadUrl).origin === new URL(client.config.apiUrl).origin) {
+      return client.config.headers
+    }
+  } catch {
+    // A malformed URL is reported by axios below. Never forward credentials
+    // when the destination cannot be proven to share the API origin.
+  }
+  return {}
 }
 
 export const upload = async (
@@ -85,7 +102,8 @@ export const upload = async (
     publicContentImmediatelyAccessible,
   })
 
-  const headers: Record<string, string> = {
+  const headers: Record<string, string | string[]> = {
+    ...sameOriginHeaders(client, file.uploadUrl),
     'Content-Type': file.contentType,
   }
 
