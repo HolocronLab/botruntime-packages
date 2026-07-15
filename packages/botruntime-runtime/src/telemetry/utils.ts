@@ -1,7 +1,9 @@
 import stringify from 'fast-safe-stringify'
 import { AttributeValue } from '@opentelemetry/api'
-import { isNil, isNumber, isObjectLike } from 'lodash'
+import lodash from 'lodash'
 import { inspectToJsonSize } from '../utilities/strings'
+
+const { isNil, isNumber, isObjectLike } = lodash
 
 export const truncateAttribute = <T>(value: T, maxLength = 1024): AttributeValue => {
   if (Array.isArray(value)) {
