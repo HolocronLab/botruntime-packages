@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Rewrite packages/brt/package.json's local `file:../botruntime-*` deps to the
 // published registry versions (^<version> read from each sibling package.json)
-// so the published @holocronlab/brt tarball resolves its deps from GitHub Packages.
+// so the published @holocronlab/brt tarball resolves its deps from public npm.
 //
 // Run in CI right before `npm publish` (on a throwaway checkout — no revert needed).
 // Locally, it prints the diff; pass --write to actually rewrite.
