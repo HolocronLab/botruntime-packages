@@ -29,7 +29,7 @@ import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
 import { PlatformEvalControl } from './eval-control'
 import { fetchEvalManifestFile } from './eval-file-fetch'
-import { resolveHostedEvalIdleTimeout } from './eval-runner-policy'
+import { assertHostedEvalExecutionActive, resolveHostedEvalIdleTimeout } from './eval-runner-policy'
 
 async function loadEvalManifest(client: Client): Promise<{
   evals: EvalDefinition[]
@@ -245,13 +245,17 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     let report: EvalRunReport
     try {
       report = await runEvalSuite(config)
+      assertHostedEvalExecutionActive(signal)
     } catch (error) {
+      assertHostedEvalExecutionActive(signal)
       return hostedLifecycle.terminalizeFailure(error, step)
     }
 
     try {
       await hostedLifecycle.reconcileForCompletion(report, step)
+      assertHostedEvalExecutionActive(signal)
     } catch (error) {
+      assertHostedEvalExecutionActive(signal)
       return hostedLifecycle.terminalizeFailure(error, step)
     }
 

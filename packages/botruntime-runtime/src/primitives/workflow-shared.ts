@@ -1,6 +1,9 @@
 import { z } from '@holocronlab/botruntime-sdk'
 import type { Client } from '@holocronlab/botruntime-client'
 import { TrackedState, BUILT_IN_STATES } from '../runtime/index'
+import { createStepSignal, isStepSignal } from './workflow-signal'
+
+export { createStepSignal, isStepSignal, type StepExecutionSignal } from './workflow-signal'
 
 export type WorkflowStepContext = {
   output?: unknown
@@ -17,22 +20,6 @@ export type WorkflowStepContext = {
     stack?: string
     failedAt: string
     maxAttemptsReached: boolean
-  }
-}
-
-const StepSymbol = Symbol.for('StepSignal')
-
-type StepExecutionSignal = {
-  [StepSymbol]: true
-}
-
-export function isStepSignal(e: unknown): e is StepExecutionSignal {
-  return typeof e === 'object' && e !== null && StepSymbol in e
-}
-
-export function createStepSignal(): StepExecutionSignal {
-  return {
-    [StepSymbol]: true,
   }
 }
 

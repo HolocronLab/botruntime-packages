@@ -74,4 +74,14 @@ describe('runtime eval workflow trace-reader contract', () => {
     expect(reconcile).toBeGreaterThan(createRun)
     expect(complete).toBeGreaterThan(reconcile)
   })
+
+  it('yields on the workflow execution budget before terminalizing the hosted run', () => {
+    expect(source).toMatch(
+      /report = await runEvalSuite\(config\)\s+assertHostedEvalExecutionActive\(signal\)/,
+    )
+    expect(source).toMatch(
+      /catch \(error\) \{\s+assertHostedEvalExecutionActive\(signal\)\s+return hostedLifecycle\.terminalizeFailure/,
+    )
+    expect(source.match(/assertHostedEvalExecutionActive\(signal\)/g)).toHaveLength(4)
+  })
 })
