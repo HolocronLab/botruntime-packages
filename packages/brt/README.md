@@ -184,7 +184,10 @@ brt eval run greeting --tag smoke --type regression
 brt eval run --judge-model openai:gpt-4o
 brt eval run --repeat 10 --max-concurrency 2 --min-pass-rate 0.9
 
-# Target the attested dev runtime instead of production
+# Keep the tunnel runtime connected in terminal 1
+brt dev
+
+# Target that attested dev runtime from terminal 2
 brt eval run --dev
 brt eval runs --dev --latest
 
@@ -200,6 +203,13 @@ per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
 the selected profile PAT narrowed by the opaque runtime bot identity previously
 attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
 two authority modes cannot be mixed implicitly.
+
+`brt eval run --dev` executes against the live tunnel bot. Keep `brt dev`
+running in another terminal for the whole provision/register/run sequence. A
+disconnected or not-yet-deployed tunnel fails loudly with this remediation;
+if registration of a newly provisioned Chat installation fails, the CLI
+automatically removes that installation instead of leaving poisoned lifecycle
+state behind.
 
 The command verifies or provisions the exact compatible first-party Chat
 integration before a run. Repeated attempts are isolated runs; the aggregate

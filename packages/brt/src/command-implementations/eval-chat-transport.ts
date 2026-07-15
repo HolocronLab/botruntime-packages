@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { CloudapiClient } from '../api/cloudapi-client'
 
 export const EVAL_CHAT_VERSION = '0.7.6'
+export const EVAL_CHAT_NAME = 'botruntime/chat'
 
 type EvalChatTarget = {
   client: CloudapiClient
@@ -16,10 +17,13 @@ type EvalChatResult = {
 }
 
 type InstallationLike = {
+  id?: string
   name?: string
   version?: string
   webhookId?: string
   enabled?: boolean
+  status?: string
+  registered?: boolean
 }
 
 type RegistrationRetryOptions = {
@@ -48,8 +52,32 @@ export async function registerWithReadinessRetry<T>(
 const findChat = (installations: InstallationLike[]) =>
   installations.find(
     (installation) =>
-      installation.name === 'chat' && installation.enabled !== false,
+      installation.name === EVAL_CHAT_NAME && installation.enabled !== false,
   )
+
+const isRegistered = (installation: InstallationLike) =>
+  installation.registered === true || installation.status === 'registered'
+
+const registrationFailure = (target: EvalChatTarget, error: unknown) => {
+  const reason = error instanceof Error ? error.message : String(error)
+  if (target.development) {
+    return new Error(
+      `chat registration failed: ${reason}; run \`brt dev\` in another terminal and keep it connected while running \`brt eval --dev\``,
+      { cause: error },
+    )
+  }
+  return new Error(`chat registration failed: ${reason}`, { cause: error })
+}
+
+async function registerChat(target: EvalChatTarget, webhookId: string): Promise<void> {
+  if (target.development) {
+    await registerWithReadinessRetry(() =>
+      target.client.registerWorkspaceIntegration(target.workspaceId, target.botId, webhookId)
+    )
+    return
+  }
+  await registerWithReadinessRetry(() => target.client.registerIntegration(target.botId, webhookId))
+}
 
 export async function ensureEvalChatTransport(
   target: EvalChatTarget,
@@ -80,6 +108,13 @@ export async function ensureEvalChatTransport(
     }
     if (!existing.webhookId)
       throw new Error('chat integration is installed without a webhookId')
+    if (!isRegistered(existing)) {
+      try {
+        await registerChat(target, existing.webhookId)
+      } catch (error) {
+        throw registrationFailure(target, error)
+      }
+    }
     return { webhookId: existing.webhookId, provisioned: false }
   }
 
@@ -88,23 +123,36 @@ export async function ensureEvalChatTransport(
     ? await target.client.installWorkspaceIntegration(
         target.workspaceId,
         target.botId,
-        'chat',
+        EVAL_CHAT_NAME,
         EVAL_CHAT_VERSION,
         config,
       )
     : await target.client.installIntegration(
         target.botId,
-        'chat',
+        EVAL_CHAT_NAME,
         EVAL_CHAT_VERSION,
         config,
       )
 
-  if (target.development) {
-    await registerWithReadinessRetry(() =>
-      target.client.registerWorkspaceIntegration(target.workspaceId, target.botId, installed.webhookId)
-    )
-  } else {
-    await registerWithReadinessRetry(() => target.client.registerIntegration(target.botId, installed.webhookId))
+  try {
+    await registerChat(target, installed.webhookId)
+  } catch (error) {
+    const failure = registrationFailure(target, error)
+    if (target.development) {
+      try {
+        await target.client.uninstallWorkspaceIntegration(
+          target.workspaceId,
+          target.botId,
+          String(installed.installationId),
+        )
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [failure, rollbackError],
+          `${failure.message}; automatic rollback of installation ${installed.installationId} also failed`,
+        )
+      }
+    }
+    throw failure
   }
   return { webhookId: installed.webhookId, provisioned: true }
 }
