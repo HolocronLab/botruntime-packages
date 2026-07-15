@@ -133,6 +133,12 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/regen.sh
 
+      # Local file dependencies are linked by Bun, so their own runtime
+      # dependencies must exist before ADK bundles the vendored Chat client.
+      - name: Install the current botruntime-chat package
+        working-directory: packages/botruntime-chat
+        run: bun install --frozen-lockfile --ignore-scripts
+
       # The SDK carries the integration network type added by this checkout.
       # Keep the freshly built client local, but resolve the unchanged sibling
       # dependencies from the registry so PR CI does not need SDK publication.

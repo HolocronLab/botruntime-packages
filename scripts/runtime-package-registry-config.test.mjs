@@ -82,13 +82,14 @@ test('docs contract CI retains checkout analytics while building ADK', () => {
 test('docs contract CI builds every bumped local package before ADK and BRT', () => {
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
 
+  const chatBuild = workflow.indexOf('name: Install the current botruntime-chat package')
   const evalsBuild = workflow.indexOf('name: Build the current botruntime-evals package')
   const runtimeBuild = workflow.indexOf('name: Build the current botruntime-runtime package')
   const analyticsBuild = workflow.indexOf('name: Build the current botruntime-analytics package')
   const adkBuild = workflow.indexOf('name: Build the current botruntime-adk package')
   const brtInstall = workflow.indexOf('name: Install brt contract-generator dependencies')
 
-  assert.ok(evalsBuild >= 0 && runtimeBuild > evalsBuild && adkBuild > runtimeBuild && brtInstall > adkBuild)
+  assert.ok(chatBuild >= 0 && evalsBuild > chatBuild && runtimeBuild > evalsBuild && adkBuild > runtimeBuild && brtInstall > adkBuild)
   const localReleaseBuilds = workflow.slice(evalsBuild, analyticsBuild)
   assert.equal((localReleaseBuilds.match(/bun install [^\n]*--no-save --ignore-scripts/g) ?? []).length, 2)
   assert.doesNotMatch(localReleaseBuilds, /bun install --frozen-lockfile/)
