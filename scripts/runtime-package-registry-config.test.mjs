@@ -79,6 +79,25 @@ test('docs contract CI retains checkout analytics while building ADK', () => {
   )
 })
 
+test('docs contract CI builds every bumped local package before ADK and BRT', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  const evalsBuild = workflow.indexOf('name: Build the current botruntime-evals package')
+  const runtimeBuild = workflow.indexOf('name: Build the current botruntime-runtime package')
+  const adkBuild = workflow.indexOf('name: Build the current botruntime-adk package')
+  const brtInstall = workflow.indexOf('name: Install brt contract-generator dependencies')
+
+  assert.ok(evalsBuild >= 0 && runtimeBuild > evalsBuild && adkBuild > runtimeBuild && brtInstall > adkBuild)
+  assert.match(
+    workflow,
+    /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-sdk/
+  )
+  assert.match(
+    workflow,
+    /--package=packages\/brt[^\n]*--exclude=@holocronlab\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-sdk/
+  )
+})
+
 test('global integration publication keeps its separate authenticated catalog registry', () => {
   const workflow = readFileSync(
     new URL('../.github/workflows/publish-integrations-catalog.yml', import.meta.url),
