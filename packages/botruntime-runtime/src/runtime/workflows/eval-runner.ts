@@ -104,9 +104,10 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       : runtimeClient
     // Dev callback routing is attested by the opaque runtime id. Adding the
     // workspace header would switch PAT auth to the numeric deploy path and
-    // incorrectly interpret the runtime id as an API bot id.
+    // incorrectly interpret the runtime id as an API bot id. Empty workspaceId
+    // deliberately suppresses the SDK's BP_WORKSPACE_ID environment fallback.
     const chatSdkClient = development
-      ? new Client({ apiUrl, token, botId: runtimeBotId })
+      ? new Client({ apiUrl, token, botId: runtimeBotId, workspaceId: '' })
       : runtimeClient
     const chatClient = createNativeEvalChatClient(chatSdkClient)
     const vortexUrl = apiUrl

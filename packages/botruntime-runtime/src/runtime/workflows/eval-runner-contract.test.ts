@@ -23,7 +23,7 @@ describe('runtime eval workflow trace-reader contract', () => {
   })
 
   it('injects the native eval transport without importing or provisioning chat', () => {
-    expect(source).toContain('new Client({ apiUrl, token, botId: runtimeBotId })')
+    expect(source).toContain("new Client({ apiUrl, token, botId: runtimeBotId, workspaceId: '' })")
     expect(source).toContain('createNativeEvalChatClient(chatSdkClient)')
     expect(source).not.toContain("import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat'")
     expect(source).not.toContain('chatWebhookId ?')
