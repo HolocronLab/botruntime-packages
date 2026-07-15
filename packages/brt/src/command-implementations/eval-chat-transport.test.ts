@@ -21,10 +21,12 @@ describe('hosted eval chat transport', () => {
       listWorkspaceIntegrations: vi.fn().mockResolvedValue({
         installations: [
           {
-            name: 'chat',
+            name: 'botruntime/chat',
             version: '0.7.6',
             webhookId: 'wh_existing',
             enabled: true,
+            status: 'registered',
+            registered: true,
           },
         ],
       }),
@@ -67,6 +69,13 @@ describe('hosted eval chat transport', () => {
 
     const config = client.installWorkspaceIntegration.mock.calls[0]![4]
     expect(config.encryptionKey).toMatch(/^[A-Za-z0-9_-]{40,}$/)
+    expect(client.installWorkspaceIntegration).toHaveBeenCalledWith(
+      '2',
+      '23',
+      'botruntime/chat',
+      '0.7.6',
+      expect.any(Object),
+    )
     expect(client.registerWorkspaceIntegration).toHaveBeenCalledWith(
       '2',
       '23',
@@ -74,12 +83,71 @@ describe('hosted eval chat transport', () => {
     )
   })
 
+  it('recovers an existing failed installation by registering it again', async () => {
+    const client = {
+      listWorkspaceIntegrations: vi.fn().mockResolvedValue({
+        installations: [
+          {
+            id: '91',
+            name: 'botruntime/chat',
+            version: '0.7.6',
+            webhookId: 'wh_failed',
+            enabled: true,
+            status: 'failed',
+            registered: false,
+          },
+        ],
+      }),
+      installWorkspaceIntegration: vi.fn(),
+      registerWorkspaceIntegration: vi.fn().mockResolvedValue({ ok: true, status: 'registered' }),
+      uninstallWorkspaceIntegration: vi.fn(),
+    }
+
+    await expect(
+      ensureEvalChatTransport({
+        client: client as any,
+        workspaceId: '2',
+        botId: '23',
+        development: true,
+      }),
+    ).resolves.toEqual({ webhookId: 'wh_failed', provisioned: false })
+
+    expect(client.installWorkspaceIntegration).not.toHaveBeenCalled()
+    expect(client.registerWorkspaceIntegration).toHaveBeenCalledWith('2', '23', 'wh_failed')
+    expect(client.uninstallWorkspaceIntegration).not.toHaveBeenCalled()
+  })
+
+  it('rolls back a newly provisioned dev installation when registration fails', async () => {
+    const registerError = Object.assign(new Error('runtime unavailable'), { status: 400 })
+    const client = {
+      listWorkspaceIntegrations: vi.fn().mockResolvedValue({ installations: [] }),
+      installWorkspaceIntegration: vi.fn().mockResolvedValue({
+        installationId: '92',
+        webhookId: 'wh_new',
+        status: 'installed',
+      }),
+      registerWorkspaceIntegration: vi.fn().mockRejectedValue(registerError),
+      uninstallWorkspaceIntegration: vi.fn().mockResolvedValue({ ok: true }),
+    }
+
+    await expect(
+      ensureEvalChatTransport({
+        client: client as any,
+        workspaceId: '2',
+        botId: '23',
+        development: true,
+      }),
+    ).rejects.toThrow(/run `brt dev` in another terminal/i)
+
+    expect(client.uninstallWorkspaceIntegration).toHaveBeenCalledWith('2', '23', '92')
+  })
+
   it('fails loud on an incompatible installed chat version', async () => {
     const client = {
       listWorkspaceIntegrations: vi.fn().mockResolvedValue({
         installations: [
           {
-            name: 'chat',
+            name: 'botruntime/chat',
             version: '0.0.9',
             webhookId: 'wh_old',
             enabled: true,
@@ -119,7 +187,7 @@ describe('hosted eval chat transport', () => {
     ).resolves.toEqual({ webhookId: 'wh_prod', provisioned: true })
     expect(client.installIntegration).toHaveBeenCalledWith(
       '3',
-      'chat',
+      'botruntime/chat',
       '0.7.6',
       expect.any(Object),
     )

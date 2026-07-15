@@ -236,6 +236,9 @@ describe('CloudapiClient', () => {
           { status: 200 }
         )
       }
+      if (call.init.method === 'DELETE') {
+        return Response.json({ ok: true })
+      }
       return new Response(
         JSON.stringify({
           ok: true,
@@ -253,6 +256,7 @@ describe('CloudapiClient', () => {
       botToken: 'sealed-server-side',
     })
     const registered = await client.registerWorkspaceIntegration('ws_123', '42', 'wh_dev')
+    await client.uninstallWorkspaceIntegration('ws_123', '42', '7')
 
     expect(installed).toEqual({
       installationId: '7',
@@ -264,6 +268,7 @@ describe('CloudapiClient', () => {
     expect(calls.map((call) => call.url)).toEqual([
       'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations',
       'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations/wh_dev/register',
+      'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations/7',
     ])
     for (const call of calls) {
       expect((call.init.headers as Record<string, string>)['x-bot-id']).toBeUndefined()

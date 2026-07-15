@@ -74,6 +74,15 @@ type UpdatedBot = client.Bot
 type ClientIntegrationDefinitions = Record<string, client.Integration>
 type ClientIntegration = client.Bot['integrations'][string]
 
+export function resolveIntegrationLinkConfiguration(
+  integrationDefinition: ClientIntegrationDefinitions[string] | undefined,
+  configurationType: string | null,
+) {
+  return configurationType === null || configurationType === 'default' || configurationType === 'manual'
+    ? integrationDefinition?.configuration
+    : integrationDefinition?.configurations?.[configurationType]
+}
+
 class ProjectPaths extends utils.path.PathStore<keyof AllProjectPaths> {
   public constructor(argv: CommandArgv<ProjectCommandDefinition>) {
     const absWorkDir = utils.path.absoluteFrom(utils.path.cwd(), argv.workDir)
@@ -393,10 +402,7 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
     integration: ClientIntegration
     integrationDefinition?: ClientIntegrationDefinitions[string]
   }) {
-    const config =
-      integration.configurationType === null
-        ? integrationDefinition?.configuration
-        : integrationDefinition?.configurations[integration.configurationType]
+    const config = resolveIntegrationLinkConfiguration(integrationDefinition, integration.configurationType)
     return config?.identifier?.linkTemplateScript
   }
 

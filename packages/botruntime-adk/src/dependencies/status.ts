@@ -168,7 +168,8 @@ export function integrationRequiresAuthorization(
 /**
  * Pick the configuration definition to validate against. When the integration
  * uses a named variant (`configurations[type]`) that variant's schema applies;
- * otherwise the default `configuration` is used.
+ * otherwise the singular `configuration` is used. Cloud calls that direct,
+ * user-supplied configuration type `manual`; it is not a named variant.
  *
  * `variantMissing` is set when a non-default variant was requested but the spec has
  * no such variant (stale snapshot, or a catalog spec that renamed/removed it). The caller
@@ -179,7 +180,7 @@ function resolveActiveConfiguration(
   spec: IntegrationDefinition,
   configurationType?: string
 ): { config: ConfigurationLike | null | undefined; isDefault: boolean; variantMissing: boolean } {
-  if (configurationType && configurationType !== 'default') {
+  if (configurationType && configurationType !== 'default' && configurationType !== 'manual') {
     const variant = (spec.configurations as Record<string, ConfigurationLike> | undefined)?.[configurationType]
     if (variant) return { config: variant, isDefault: false, variantMissing: false }
     return { config: undefined, isDefault: false, variantMissing: true }

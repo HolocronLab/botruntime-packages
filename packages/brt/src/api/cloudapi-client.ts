@@ -565,6 +565,18 @@ export class CloudapiClient {
     })
   }
 
+  public async uninstallWorkspaceIntegration(
+    workspaceId: string,
+    botId: string,
+    installationId: string,
+  ): Promise<{ ok: boolean }> {
+    return this.raw({
+      method: 'DELETE',
+      path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/integrations/${encodeURIComponent(installationId)}`,
+      idempotent: true,
+    })
+  }
+
   public async createIntegrationDefinition(
     name: string,
     version: string,
