@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 jobs:
   integration-packages:
@@ -25,16 +24,8 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@holocronlab"
-
       - name: Test and type-check every catalog integration
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
           definitions=(integrations/*/integration.definition.ts)
@@ -44,7 +35,7 @@ jobs:
             echo "Checking $integration_dir"
             (
               cd "$integration_dir"
-              bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --frozen-lockfile --ignore-scripts
+              bun install --frozen-lockfile --ignore-scripts
               bun run test
               if jq -e '.scripts["check:type"]' package.json >/dev/null; then
                 bun run check:type
@@ -63,7 +54,7 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Test private registry configuration for the runtime release train
+      - name: Test public registry configuration for the runtime release train
         run: |
           node --test scripts/runtime-package-registry-config.test.mjs
           node --test scripts/catalog-publication-decision.test.mjs
@@ -121,16 +112,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
+          registry-url: "https://registry.npmjs.org"
           scope: "@holocronlab"
 
       # The PR may bump botruntime-client before that immutable version exists
-      # in GitHub Packages. Build the current checkout and keep it as BRT's
+      # in npmjs. Build the current checkout and keep it as BRT's
       # local dependency for contract generation.
       - name: Build the current botruntime-client package
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/regen.sh
 
       # Local file dependencies are linked by Bun, so their own runtime
@@ -143,43 +131,30 @@ jobs:
       # Keep the freshly built client local, but resolve the unchanged sibling
       # dependencies from the registry so PR CI does not need SDK publication.
       - name: Build the current botruntime-sdk package
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-sdk --exclude=@holocronlab/botruntime-client --write
           mv packages/botruntime-sdk/bun.lock "$RUNNER_TEMP/botruntime-sdk.source.bun.lock"
           cd packages/botruntime-sdk
-          # Existing sibling versions still live in GitHub Packages until the
-          # first npmjs release train completes. Keep PR contract CI on that
-          # authenticated bootstrap registry; published packages themselves
-          # remain configured for auth-free npmjs consumption.
-          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
+          bun install --no-save --ignore-scripts
           bun run build
 
       # Evals and runtime are part of the same release train. Build the
       # checkout copies so docs-contract CI never depends on versions that do
       # not exist in a registry until this PR has merged and published.
       - name: Build the current botruntime-evals package
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --write
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
           cd packages/botruntime-evals
-          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
+          bun install --no-save --ignore-scripts
           bun run build
 
       - name: Build the current botruntime-runtime package
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-sdk --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
           cd packages/botruntime-runtime
-          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
+          bun install --no-save --ignore-scripts
           bun run build
 
       - name: Verify runtime entrypoints in supported Node ESM
@@ -196,18 +171,15 @@ jobs:
           bun run build
 
       - name: Build the current botruntime-adk package
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
-          bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
+          bun install --no-save --ignore-scripts
           bun run build
 
       # Keep the freshly built ADK, client, and SDK as local dependencies.
-      # Resolve every other sibling from GitHub Packages, then discard the
+      # Resolve every other sibling from public npm, then discard the
       # source lock so Bun cannot silently restore stale file: resolutions.
       - name: Resolve BRT dependencies as published packages
         run: |
@@ -221,10 +193,7 @@ jobs:
         # build-time botruntime-api dependency). --no-save resolves that local
         # graph without mutating the checked-in lock; contract generation below
         # still fails on any command/schema drift.
-        run: bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --no-save --ignore-scripts
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun install --no-save --ignore-scripts
 
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
@@ -234,5 +203,5 @@ jobs:
 
       # Cross-repo ownership is intentionally one-way: private botforge CI can
       # checkout this public contract and validates Fumadocs against it. This
-      # public repository's GITHUB_TOKEN cannot read private botforge, and a
+      # public repository workflow cannot read private botforge, and a
       # long-lived PAT/App secret is unnecessary for the same invariant.

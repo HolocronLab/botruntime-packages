@@ -27,7 +27,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: publish-integrations-catalog
@@ -50,18 +49,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
+          registry-url: "https://registry.npmjs.org"
           scope: "@holocronlab"
 
       - name: Install the published brt CLI
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm install --global @holocronlab/brt@0.5.7
+        run: npm install --global --userconfig=/dev/null @holocronlab/brt@0.6.0
 
       - name: Install all integration dependencies
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
           definitions=(integrations/*/integration.definition.ts)
@@ -69,7 +64,7 @@ jobs:
           for definition in "${definitions[@]}"; do
             integration_dir="$(dirname "$definition")"
             echo "Installing $integration_dir"
-            (cd "$integration_dir" && bun install --config="$GITHUB_WORKSPACE/.github/bunfig.github-packages.toml" --frozen-lockfile --ignore-scripts)
+            (cd "$integration_dir" && bun install --frozen-lockfile --ignore-scripts)
           done
 
       - name: Authenticate brt

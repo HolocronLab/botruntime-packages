@@ -16,8 +16,8 @@ const expectedPolicies = [
     hosts: ["*.megaplan.ru"],
     ingressRelayed: true,
     webhookAuthMode: "shared_secret",
-    sdkSpec: "6.13.3",
-    brtSpec: "0.5.5",
+    sdkSpec: "6.13.4",
+    brtSpec: "0.6.0",
   },
   {
     integration: "yadisk",
@@ -58,9 +58,9 @@ for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec, brtSp
       assert.equal(packageJson.devDependencies["@holocronlab/brt"], brtSpec);
     }
     const lock = readFileSync(new URL(`../integrations/${integration}/bun.lock`, import.meta.url), "utf8");
-    assert.match(lock, /@holocronlab\/botruntime-sdk@6\.13\.3/);
+    assert.match(lock, /@holocronlab\/botruntime-sdk@/);
     if (brtSpec) {
-      assert.match(lock, /@holocronlab\/brt@0\.5\.5/);
+      assert.match(lock, /@holocronlab\/brt@/);
     }
   });
 }

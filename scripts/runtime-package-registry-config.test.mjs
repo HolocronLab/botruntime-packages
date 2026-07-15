@@ -12,6 +12,12 @@ const publicPackages = readdirSync(packagesDir, { withFileTypes: true })
   .map((manifestUrl) => ({ manifestUrl, manifest: JSON.parse(readFileSync(manifestUrl, 'utf8')) }))
   .filter(({ manifest }) => manifest.name?.startsWith('@holocronlab/') && manifest.private !== true)
 
+const integrationDirectories = readdirSync(new URL('../integrations/', import.meta.url), {
+  withFileTypes: true,
+})
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+
 for (const { manifestUrl, manifest } of publicPackages) {
   test(`${manifest.name} publishes publicly to npmjs`, () => {
     assert.deepEqual(manifest.publishConfig, {
@@ -44,6 +50,14 @@ for (const packageName of ['botruntime-adk', 'brt']) {
 
     const lockfile = readFileSync(new URL(`../packages/${packageName}/bun.lock`, import.meta.url), 'utf8')
     assert.doesNotMatch(lockfile, /npm\.pkg\.github\.com/)
+  })
+}
+
+for (const integrationName of integrationDirectories) {
+  test(`${integrationName} installs public Holocron dependencies without GitHub auth`, () => {
+    const lockfileUrl = new URL(`../integrations/${integrationName}/bun.lock`, import.meta.url)
+    assert.equal(existsSync(lockfileUrl), true)
+    assert.doesNotMatch(readFileSync(lockfileUrl, 'utf8'), /npm\.pkg\.github\.com/)
   })
 }
 
@@ -101,7 +115,7 @@ test('docs contract CI builds every bumped local package before ADK and BRT', ()
     localReleaseBuilds,
     /--package=packages\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-evals[^\n]*--exclude=@holocronlab\/botruntime-sdk/
   )
-  assert.equal((localReleaseBuilds.match(/bunfig\.github-packages\.toml/g) ?? []).length, 2)
+  assert.doesNotMatch(localReleaseBuilds, /bunfig\.github-packages\.toml|npm\.pkg\.github\.com/)
   assert.match(
     workflow,
     /--package=packages\/botruntime-adk[^\n]*--exclude=@holocronlab\/botruntime-chat[^\n]*--exclude=@holocronlab\/botruntime-client[^\n]*--exclude=@holocronlab\/botruntime-runtime[^\n]*--exclude=@holocronlab\/botruntime-sdk/
@@ -112,18 +126,22 @@ test('docs contract CI builds every bumped local package before ADK and BRT', ()
   )
 })
 
-test('global integration publication keeps its separate authenticated catalog registry', () => {
+test('global integration publication installs brt and dependencies anonymously', () => {
   const workflow = readFileSync(
     new URL('../.github/workflows/publish-integrations-catalog.yml', import.meta.url),
     'utf8'
   )
-  const config = readFileSync(
-    new URL('../.github/bunfig.github-packages.toml', import.meta.url),
-    'utf8'
-  )
 
-  assert.match(config, /npm\.pkg\.github\.com/)
-  assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/)
+  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN|NODE_AUTH_TOKEN|read:packages/)
+  assert.match(workflow, /npm install --global --userconfig=\/dev\/null @holocronlab\/brt@0\.6\.0/)
+  assert.match(workflow, /bun install --frozen-lockfile --ignore-scripts/)
+  assert.equal(existsSync(new URL('../.github/bunfig.github-packages.toml', import.meta.url)), false)
+})
+
+test('repository CI proves public packages without GitHub Packages credentials', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|bunfig\.github-packages\.toml|GITHUB_TOKEN|read:packages/)
 })
 
 test('the anonymous-consumer release train publishes every public package through OIDC', () => {

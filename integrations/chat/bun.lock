@@ -18,55 +18,11 @@
     },
   },
   "packages": {
-    "@esbuild/android-arm": ["@esbuild/android-arm@0.16.17", "", { "os": "android", "cpu": "arm" }, "sha512-N9x1CMXVhtWEAMS7pNNONyA14f71VPQN9Cnavj1XQh6T7bskqiLLrSca4O0Vr8Wdcga943eThxnVp3JLnBMYtw=="],
+    "@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
 
-    "@esbuild/android-arm64": ["@esbuild/android-arm64@0.16.17", "", { "os": "android", "cpu": "arm64" }, "sha512-MIGl6p5sc3RDTLLkYL1MyL8BMRN4tLMRCn+yRJJmEDvYZ2M7tmAf80hx1kbNEUX2KJ50RRtxZ4JHLvCfuB6kBg=="],
+    "@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.4", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-6tcw9e4pTguwxOSdghVGbBwVyAet6E8KviE9PdkhbiyWZKt+00Fm0Z7OP8CoQ44UeL4rqJCV1AVb1Ju7XA++mA=="],
 
-    "@esbuild/android-x64": ["@esbuild/android-x64@0.16.17", "", { "os": "android", "cpu": "x64" }, "sha512-a3kTv3m0Ghh4z1DaFEuEDfz3OLONKuFvI4Xqczqx4BqLyuFaFkuaG4j2MtA6fuWEFeC5x9IvqnX7drmRq/fyAQ=="],
-
-    "@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.16.17", "", { "os": "darwin", "cpu": "arm64" }, "sha512-/2agbUEfmxWHi9ARTX6OQ/KgXnOWfsNlTeLcoV7HSuSTv63E4DqtAc+2XqGw1KHxKMHGZgbVCZge7HXWX9Vn+w=="],
-
-    "@esbuild/darwin-x64": ["@esbuild/darwin-x64@0.16.17", "", { "os": "darwin", "cpu": "x64" }, "sha512-2By45OBHulkd9Svy5IOCZt376Aa2oOkiE9QWUK9fe6Tb+WDr8hXL3dpqi+DeLiMed8tVXspzsTAvd0jUl96wmg=="],
-
-    "@esbuild/freebsd-arm64": ["@esbuild/freebsd-arm64@0.16.17", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-mt+cxZe1tVx489VTb4mBAOo2aKSnJ33L9fr25JXpqQqzbUIw/yzIzi+NHwAXK2qYV1lEFp4OoVeThGjUbmWmdw=="],
-
-    "@esbuild/freebsd-x64": ["@esbuild/freebsd-x64@0.16.17", "", { "os": "freebsd", "cpu": "x64" }, "sha512-8ScTdNJl5idAKjH8zGAsN7RuWcyHG3BAvMNpKOBaqqR7EbUhhVHOqXRdL7oZvz8WNHL2pr5+eIT5c65kA6NHug=="],
-
-    "@esbuild/linux-arm": ["@esbuild/linux-arm@0.16.17", "", { "os": "linux", "cpu": "arm" }, "sha512-iihzrWbD4gIT7j3caMzKb/RsFFHCwqqbrbH9SqUSRrdXkXaygSZCZg1FybsZz57Ju7N/SHEgPyaR0LZ8Zbe9gQ=="],
-
-    "@esbuild/linux-arm64": ["@esbuild/linux-arm64@0.16.17", "", { "os": "linux", "cpu": "arm64" }, "sha512-7S8gJnSlqKGVJunnMCrXHU9Q8Q/tQIxk/xL8BqAP64wchPCTzuM6W3Ra8cIa1HIflAvDnNOt2jaL17vaW+1V0g=="],
-
-    "@esbuild/linux-ia32": ["@esbuild/linux-ia32@0.16.17", "", { "os": "linux", "cpu": "ia32" }, "sha512-kiX69+wcPAdgl3Lonh1VI7MBr16nktEvOfViszBSxygRQqSpzv7BffMKRPMFwzeJGPxcio0pdD3kYQGpqQ2SSg=="],
-
-    "@esbuild/linux-loong64": ["@esbuild/linux-loong64@0.16.17", "", { "os": "linux", "cpu": "none" }, "sha512-dTzNnQwembNDhd654cA4QhbS9uDdXC3TKqMJjgOWsC0yNCbpzfWoXdZvp0mY7HU6nzk5E0zpRGGx3qoQg8T2DQ=="],
-
-    "@esbuild/linux-mips64el": ["@esbuild/linux-mips64el@0.16.17", "", { "os": "linux", "cpu": "none" }, "sha512-ezbDkp2nDl0PfIUn0CsQ30kxfcLTlcx4Foz2kYv8qdC6ia2oX5Q3E/8m6lq84Dj/6b0FrkgD582fJMIfHhJfSw=="],
-
-    "@esbuild/linux-ppc64": ["@esbuild/linux-ppc64@0.16.17", "", { "os": "linux", "cpu": "ppc64" }, "sha512-dzS678gYD1lJsW73zrFhDApLVdM3cUF2MvAa1D8K8KtcSKdLBPP4zZSLy6LFZ0jYqQdQ29bjAHJDgz0rVbLB3g=="],
-
-    "@esbuild/linux-riscv64": ["@esbuild/linux-riscv64@0.16.17", "", { "os": "linux", "cpu": "none" }, "sha512-ylNlVsxuFjZK8DQtNUwiMskh6nT0vI7kYl/4fZgV1llP5d6+HIeL/vmmm3jpuoo8+NuXjQVZxmKuhDApK0/cKw=="],
-
-    "@esbuild/linux-s390x": ["@esbuild/linux-s390x@0.16.17", "", { "os": "linux", "cpu": "s390x" }, "sha512-gzy7nUTO4UA4oZ2wAMXPNBGTzZFP7mss3aKR2hH+/4UUkCOyqmjXiKpzGrY2TlEUhbbejzXVKKGazYcQTZWA/w=="],
-
-    "@esbuild/linux-x64": ["@esbuild/linux-x64@0.16.17", "", { "os": "linux", "cpu": "x64" }, "sha512-mdPjPxfnmoqhgpiEArqi4egmBAMYvaObgn4poorpUaqmvzzbvqbowRllQ+ZgzGVMGKaPkqUmPDOOFQRUFDmeUw=="],
-
-    "@esbuild/netbsd-x64": ["@esbuild/netbsd-x64@0.16.17", "", { "os": "none", "cpu": "x64" }, "sha512-/PzmzD/zyAeTUsduZa32bn0ORug+Jd1EGGAUJvqfeixoEISYpGnAezN6lnJoskauoai0Jrs+XSyvDhppCPoKOA=="],
-
-    "@esbuild/openbsd-x64": ["@esbuild/openbsd-x64@0.16.17", "", { "os": "openbsd", "cpu": "x64" }, "sha512-2yaWJhvxGEz2RiftSk0UObqJa/b+rIAjnODJgv2GbGGpRwAfpgzyrg1WLK8rqA24mfZa9GvpjLcBBg8JHkoodg=="],
-
-    "@esbuild/sunos-x64": ["@esbuild/sunos-x64@0.16.17", "", { "os": "sunos", "cpu": "x64" }, "sha512-xtVUiev38tN0R3g8VhRfN7Zl42YCJvyBhRKw1RJjwE1d2emWTVToPLNEQj/5Qxc6lVFATDiy6LjVHYhIPrLxzw=="],
-
-    "@esbuild/win32-arm64": ["@esbuild/win32-arm64@0.16.17", "", { "os": "win32", "cpu": "arm64" }, "sha512-ga8+JqBDHY4b6fQAmOgtJJue36scANy4l/rL97W+0wYmijhxKetzZdKOJI7olaBaMhWt8Pac2McJdZLxXWUEQw=="],
-
-    "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.16.17", "", { "os": "win32", "cpu": "ia32" }, "sha512-WnsKaf46uSSF/sZhwnqE4L/F89AYNMiD4YtEcYekBt9Q7nj0DiId2XH2Ng2PHM54qi5oPrQ8luuzGszqi/veig=="],
-
-    "@esbuild/win32-x64": ["@esbuild/win32-x64@0.16.17", "", { "os": "win32", "cpu": "x64" }, "sha512-y+EHuSchhL7FjHgvQL/0fnnFmO4T1bhvWANX6gcnqTjtnKWbTvUMCpGnv2+t+31d7RzyEAYAd4u2fnIhHL6N/Q=="],
-
-    "@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.3", "https://npm.pkg.github.com/download/@holocronlab/botruntime-client/1.46.3/eb1fbce598750a8c4b69a2fda407a634e62010ff", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-E+I3qEOxB9ZSaTDuhJm5CT4K6jcn3dTdBkia7PYcnp81YWQvpCF+UgVDw1+6CxzS4zmXCDoEtAc5fTpBZO922w=="],
-
-    "@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.3", "https://npm.pkg.github.com/download/@holocronlab/botruntime-sdk/6.13.3/c7e5a8c0e4a220be7422e5546d7e96693e6066f8", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.3", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" } }, "sha512-OHYA6U62h1ti9/N3DejVNoUxv95dOAYxDNpfrEd2/u6HkMH4fgBAz8zvwpBXuAudQE7zzDC4FoWQMUegMMepyQ=="],
-
-    "@holocronlab/botruntime-zui": ["@holocronlab/botruntime-zui@2.3.0", "https://npm.pkg.github.com/download/@holocronlab/botruntime-zui/2.3.0/1e8b0fcd561a5665ef002ac522d56e6e23e18898", {}, "sha512-gNIfiwjKUjDbbPkri6j3kjUi7f1khXjGiVV2H1Rgt7i+yC68BPPOBgaXhhod7eQ8V4Iz2S0ik7IVw1SyvD5Qhg=="],
+    "@holocronlab/botruntime-zui": ["@holocronlab/botruntime-zui@2.3.0", "", {}, "sha512-rv4OaPBODSzu9qSX+jocxVtR1af1CIsw0MyvxXuOdpnIFCqJpDFv5W6AZO/+Lq2gUCfiuHiClfbIqCNgw3zlRw=="],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
@@ -111,8 +67,6 @@
     "es-object-atoms": ["es-object-atoms@1.1.2", "", { "dependencies": { "es-errors": "^1.3.0" } }, "sha512-HWcBoN6NileqtSydK2FqHbS/LoDd2pqrnQHLyJzBj4kOp/ky2MWMN694xOfkK8/SnUsW2DH7EfyVlydKCsm1Zw=="],
 
     "es-set-tostringtag": ["es-set-tostringtag@2.1.0", "", { "dependencies": { "es-errors": "^1.3.0", "get-intrinsic": "^1.2.6", "has-tostringtag": "^1.0.2", "hasown": "^2.0.2" } }, "sha512-j6vWzfrGVfyXxge+O0x5sh6cvxAog0a/4Rdd2K36zCMV5eJ+/+tOAngRO8cODMNWbVRdVlmGZQL2YS3yR8bIUA=="],
-
-    "esbuild": ["esbuild@0.16.17", "", { "optionalDependencies": { "@esbuild/android-arm": "0.16.17", "@esbuild/android-arm64": "0.16.17", "@esbuild/android-x64": "0.16.17", "@esbuild/darwin-arm64": "0.16.17", "@esbuild/darwin-x64": "0.16.17", "@esbuild/freebsd-arm64": "0.16.17", "@esbuild/freebsd-x64": "0.16.17", "@esbuild/linux-arm": "0.16.17", "@esbuild/linux-arm64": "0.16.17", "@esbuild/linux-ia32": "0.16.17", "@esbuild/linux-loong64": "0.16.17", "@esbuild/linux-mips64el": "0.16.17", "@esbuild/linux-ppc64": "0.16.17", "@esbuild/linux-riscv64": "0.16.17", "@esbuild/linux-s390x": "0.16.17", "@esbuild/linux-x64": "0.16.17", "@esbuild/netbsd-x64": "0.16.17", "@esbuild/openbsd-x64": "0.16.17", "@esbuild/sunos-x64": "0.16.17", "@esbuild/win32-arm64": "0.16.17", "@esbuild/win32-ia32": "0.16.17", "@esbuild/win32-x64": "0.16.17" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-G8LEkV0XzDMNwXKgM0Jwu3nY3lSTwSGY6XbxM9cr9+s0T/qSV1q1JVPBGzm3dcjhCic9+emZDmMffkwgPeOeLg=="],
 
     "follow-redirects": ["follow-redirects@1.16.0", "", { "peerDependencies": { "debug": "*" }, "optionalPeers": ["debug"] }, "sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw=="],
 
