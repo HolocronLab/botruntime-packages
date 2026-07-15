@@ -28,7 +28,6 @@ describe('hosted eval manifest sync', () => {
 
     const result = await syncEvalManifest({
       projectDir: root,
-      chatWebhookId: 'wh_chat',
       definitions: [
         {
           name: 'document',
@@ -52,7 +51,6 @@ describe('hosted eval manifest sync', () => {
     const manifest = JSON.parse(Buffer.from(manifestUpload.content as Buffer).toString('utf8'))
     expect(manifest).toMatchObject({
       schemaVersion: 1,
-      chatWebhookId: 'wh_chat',
       evals: [{ name: 'document', conversation: [{ attachments: [{ fixture: 'ddu' }] }] }],
       fixtures: {
         ddu: {
@@ -76,7 +74,6 @@ describe('hosted eval manifest sync', () => {
     await expect(
       syncEvalManifest({
         projectDir: root,
-        chatWebhookId: 'wh_chat',
         definitions: [
           {
             name: 'bad',
@@ -101,7 +98,6 @@ describe('hosted eval manifest sync', () => {
     await expect(
       syncEvalManifest({
         projectDir: root,
-        chatWebhookId: 'wh_chat',
         definitions: [
           {
             name: 'bad_symlink',

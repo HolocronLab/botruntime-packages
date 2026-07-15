@@ -1043,14 +1043,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     const failed = isAgent ? [] : this._failedReadinessIntegrations(readinessIntegrations, integrations)
-    const evalChat = Object.values(readinessIntegrations).find((integration) => integration.name === 'chat')
-    const evalTransport =
-      evalChat && evalChat.enabled !== false && evalChat.status === 'registered'
-        ? { ready: true, integration: `chat@${evalChat.version}` }
-        : {
-            ready: false,
-            remediation: `brt eval --dev${this.argv.local ? ' --local' : ''}`,
-          }
+    const evalTransport = { ready: true, integration: 'botruntime/eval (native)' }
     const output = {
       ok: failed.length === 0 && (!dependencies || dependencies.ok),
       bot: {
@@ -1079,11 +1072,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           this.logger.log(`  ${alias}: ${status}${reason}`)
         }
       }
-      if (output.evalTransport.ready) {
-        this.logger.log(`Eval transport: ready (${output.evalTransport.integration})`)
-      } else {
-        this.logger.log(`Eval transport: not ready — run \`${output.evalTransport.remediation}\` to provision chat`)
-      }
+      this.logger.log(`Eval transport: ready (${output.evalTransport.integration})`)
       if (dependencies) {
         this._printAgentDependencyReport(dependencies)
       }

@@ -3,7 +3,7 @@
 Evaluation definitions and runner for brt-based botruntime agents.
 
 Author evals with a small declarative API (`Eval`), then run them against a
-live agent through the hosted Chat transport and a trace collector. The runner
+live agent through the native platform eval transport and a trace collector. The runner
 projects spans into grader-friendly turn data and
 graders assert on responses, tool calls, state mutations, workflow spans, and
 timing — including an optional LLM-judge grader backed by
@@ -63,6 +63,8 @@ eval results.
 - `./spans`, `./sse-collector`, `./trace` — the trace/span primitives the
   runner and graders operate on
 - `./client` — a send-only chat session for driving eval conversations
+- `createNativeEvalChatClient` — adapter over the authenticated platform chat
+  API; uses synthetic incoming messages and requires no integration/provider key
 - `./transformer` — projects raw trace spans into grader-friendly turn data
 - `./manifest`, `./types`, `./definition` — shared manifest/type/definition
   building blocks

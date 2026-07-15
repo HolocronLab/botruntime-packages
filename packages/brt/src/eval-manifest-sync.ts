@@ -53,7 +53,6 @@ function sanitizedDefinitions(definitions: EvalDefinition[]): EvalDefinition[] {
 
 export async function syncEvalManifest(input: {
   projectDir: string
-  chatWebhookId: string
   definitions: EvalDefinition[]
   client: UploadFileClient
 }): Promise<{ manifestFileId: string; fixtures: number; evals: number }> {
@@ -126,7 +125,6 @@ export async function syncEvalManifest(input: {
   const manifest: EvalManifest = {
     schemaVersion: EVAL_MANIFEST_SCHEMA_VERSION,
     evals: sanitizedDefinitions(input.definitions),
-    chatWebhookId: input.chatWebhookId,
     ...(Object.keys(fixtures).length > 0 ? { fixtures } : {}),
   }
   const content = Buffer.from(JSON.stringify(manifest))

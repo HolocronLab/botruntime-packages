@@ -6,7 +6,6 @@ export async function prepareHostedEvalManifest(input: {
   projectDir: string
   botId: string
   workspaceId: string
-  chatWebhookId: string
   client: Client
 }): Promise<{ manifestFileId: string; fixtures: number; evals: number }> {
   const definitions = await loadEvalsFromDir(`${input.projectDir}/evals`)
@@ -15,7 +14,6 @@ export async function prepareHostedEvalManifest(input: {
   }
   return syncEvalManifest({
     projectDir: input.projectDir,
-    chatWebhookId: input.chatWebhookId,
     definitions,
     client: input.client,
   })
