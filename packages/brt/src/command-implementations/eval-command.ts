@@ -2,7 +2,6 @@ import type { EvalRunListParams } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
 import { CloudCommand, type EvalCloudTarget } from './cloud-command'
-import { ensureEvalChatTransport } from './eval-chat-transport'
 import { prepareHostedEvalManifest } from '../eval-manifest-prepare'
 import { aggregateRepeatedEvals, runWithConcurrency, type RepeatedEvalAttempt } from '../eval-repeat'
 
@@ -230,18 +229,11 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
         ? undefined
         : requireEnum(this.argv.type, ['capability', 'regression'] as const, '--type')
     const target = await this.resolveEvalTarget()
-    const chatTransport = await ensureEvalChatTransport({
-      client: target.client,
-      workspaceId: target.output.workspaceId,
-      botId: target.output.environment === 'development' ? target.output.targetBotId : target.output.botId,
-      development: target.output.environment === 'development',
-    })
     const apiBotId = target.output.environment === 'development' ? target.output.targetBotId : target.output.botId
     await prepareHostedEvalManifest({
       projectDir: this.projectDir,
       botId: apiBotId,
       workspaceId: target.output.workspaceId,
-      chatWebhookId: chatTransport.webhookId,
       client: target.client.sdkClient(apiBotId, target.output.workspaceId),
     })
 

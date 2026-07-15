@@ -7,10 +7,6 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { EvalRunCommand, EvalRunsCommand } from './eval-command'
 
-const ensureEvalChatTransport = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ webhookId: 'wh_chat', provisioned: false })
-)
-vi.mock('./eval-chat-transport', () => ({ ensureEvalChatTransport }))
 const prepareHostedEvalManifest = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
 )
@@ -108,7 +104,6 @@ describe('brt eval public contract', () => {
     stdout = ''
     stderr = ''
     originalFetch = globalThis.fetch
-    ensureEvalChatTransport.mockReset().mockResolvedValue({ webhookId: 'wh_chat', provisioned: false })
     prepareHostedEvalManifest.mockReset().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
 
     fs.writeFileSync(
@@ -556,19 +551,11 @@ describe('brt eval public contract', () => {
     const response = await runCommand({ dev: true, json: true }).handler()
 
     expect(response.exitCode).toBe(0)
-    expect(ensureEvalChatTransport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: WORKSPACE_ID,
-        botId: DEV_TARGET_BOT_ID,
-        development: true,
-      })
-    )
     expect(prepareHostedEvalManifest).toHaveBeenCalledWith(
       expect.objectContaining({
         projectDir: workDir,
         botId: DEV_TARGET_BOT_ID,
         workspaceId: WORKSPACE_ID,
-        chatWebhookId: 'wh_chat',
       })
     )
     for (const call of calls.slice(1)) {

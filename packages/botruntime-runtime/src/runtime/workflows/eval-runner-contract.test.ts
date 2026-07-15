@@ -22,6 +22,13 @@ describe('runtime eval workflow trace-reader contract', () => {
     expect(source).toContain('botId,')
   })
 
+  it('injects the native eval transport without importing or provisioning chat', () => {
+    expect(source).toContain('createNativeEvalChatClient(sdkClient)')
+    expect(source).not.toContain("import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat'")
+    expect(source).not.toContain('chatWebhookId ?')
+    expect(source).not.toContain('chatBaseUrl')
+  })
+
   it('filters and preflights capabilities/auth before creating a Vortex run', () => {
     const filter = source.indexOf('const filteredDefinitions = filterEvals')
     const hostedValidation = source.indexOf(

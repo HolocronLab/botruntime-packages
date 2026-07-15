@@ -205,14 +205,12 @@ attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
 two authority modes cannot be mixed implicitly.
 
 `brt eval run --dev` executes against the live tunnel bot. Keep `brt dev`
-running in another terminal for the whole provision/register/run sequence. A
-disconnected or not-yet-deployed tunnel fails loudly with this remediation;
-if registration of a newly provisioned Chat installation fails, the CLI
-automatically removes that installation instead of leaving poisoned lifecycle
-state behind.
+running in another terminal for the run. A disconnected or not-yet-deployed
+tunnel fails loudly with this remediation. Eval messages use the platform's
+native `botruntime/eval` conversation transport: no Chat integration,
+provider account, or provider API key is provisioned.
 
-The command verifies or provisions the exact compatible first-party Chat
-integration before a run. Repeated attempts are isolated runs; the aggregate
+Repeated attempts are isolated runs; the aggregate
 contains pass rate, stable/flaky classification, p50/p95 duration, and a
 failure histogram keyed only by assertion kind. Fixture contents, signed URLs,
 actor messages, and tool payloads are excluded from the manifest result and

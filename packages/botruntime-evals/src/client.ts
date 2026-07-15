@@ -89,7 +89,8 @@ export class ChatSession {
   ) {}
 
   async connect() {
-    const webhookId = this._chatWebhookId ?? (await discoverWebhookId(this.bpClient, this.botId))
+    const webhookId =
+      this._chatWebhookId ?? (this._chatClient ? '' : await discoverWebhookId(this.bpClient, this.botId))
 
     // Prefer the host-injected client. The CLI passes its bundled CJS chat client
     // (working node http adapter); only fall back to a dynamic import when nothing

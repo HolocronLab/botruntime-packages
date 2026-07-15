@@ -10,6 +10,7 @@ import type {
 import {
   EVAL_MANIFEST_TAGS,
   EVAL_MANIFEST_SCHEMA_VERSION,
+  createNativeEvalChatClient,
 } from '@holocronlab/botruntime-evals'
 import {
   runEvalSuite,
@@ -94,17 +95,6 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
 
   handler: async ({ input, step, signal, workflow, client }) => {
     const runtimeClient = client._inner
-    const chatModule = (await import(
-      /* webpackIgnore: true */ '@holocronlab/botruntime-chat' as string
-    )) as {
-      Client?: import('@holocronlab/botruntime-evals').ChatClient
-      default?: { Client?: import('@holocronlab/botruntime-evals').ChatClient }
-    }
-    const chatClient = chatModule.default?.Client ?? chatModule.Client
-
-    if (!chatClient) {
-      throw new Error('Chat client is required to run evals.')
-    }
 
     const { apiUrl, token, runtimeBotId, apiBotId, workspaceId, development } =
       resolveEvalExecutionEnvironment(process.env, context.get('botId'))
@@ -112,13 +102,12 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     const sdkClient = development
       ? new Client({ apiUrl, token, botId: apiBotId, workspaceId })
       : runtimeClient
+    const chatClient = createNativeEvalChatClient(sdkClient)
     const vortexUrl = apiUrl
-    const chatBaseUrl = apiUrl
 
     const {
       evals: definitions,
       fileId: evalManifestId,
-      chatWebhookId,
       fixtures,
     } = await step('load-manifest', () => loadEvalManifest(sdkClient))
 
@@ -206,8 +195,6 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       botId,
       definitions: filteredDefinitions,
       chatClient,
-      ...(chatWebhookId ? { chatWebhookId } : {}),
-      chatBaseUrl,
       ...(Object.keys(fixtures).length > 0
         ? { resolveFixture: createHostedFixtureResolver(fixtures, sdkClient) }
         : {}),

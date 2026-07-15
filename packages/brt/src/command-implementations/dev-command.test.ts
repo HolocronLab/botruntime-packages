@@ -385,8 +385,8 @@ describe('DevCommand --check', () => {
     expect(result.exitCode).toBe(0)
     expect(out.read()).toContain('Dev bot: dev_abc')
     expect(out.read()).toContain('telegram: registered')
-    expect(out.read()).toContain('Eval transport: not ready')
-    expect(out.read()).toContain('brt eval --dev')
+    expect(out.read()).toContain('Eval transport: ready (botruntime/eval (native))')
+    expect(out.read()).not.toContain('provision chat')
   })
 
   it('uses only authoritative GET and leaves remote and local state unchanged', async () => {
