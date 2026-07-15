@@ -160,7 +160,6 @@
         "confirm",
         "dev",
         "json",
-        "local",
         "profile",
         "verbose",
         "workDir"
@@ -178,7 +177,6 @@
         "confirm",
         "dev",
         "json",
-        "local",
         "name",
         "profile",
         "verbose",
@@ -195,7 +193,6 @@
         "confirm",
         "dev",
         "json",
-        "local",
         "name",
         "profile",
         "valueFile",
@@ -216,7 +213,6 @@
         "dev",
         "json",
         "limit",
-        "local",
         "nextToken",
         "profile",
         "since",
@@ -236,7 +232,6 @@
         "conversationId",
         "dev",
         "json",
-        "local",
         "profile",
         "verbose",
         "workDir"
@@ -252,12 +247,10 @@
         "apiUrl",
         "botId",
         "botpressHome",
-        "bypassBreakingChangeDetection",
         "confirm",
         "createNewBot",
         "dryRun",
         "json",
-        "local",
         "minify",
         "name",
         "noBuild",
@@ -278,13 +271,11 @@
       "path": "dev",
       "aliases": [],
       "options": [
-        "adk",
         "apiUrl",
         "botpressHome",
         "check",
         "confirm",
         "json",
-        "local",
         "minify",
         "noSecretCaching",
         "port",
@@ -311,7 +302,6 @@
         "dev",
         "json",
         "judgeModel",
-        "local",
         "maxConcurrency",
         "minPassRate",
         "name",
@@ -335,7 +325,6 @@
         "dev",
         "json",
         "judgeModel",
-        "local",
         "maxConcurrency",
         "minPassRate",
         "name",
@@ -360,7 +349,6 @@
         "json",
         "latest",
         "limit",
-        "local",
         "nextToken",
         "profile",
         "runId",
@@ -443,7 +431,6 @@
         "confirm",
         "dev",
         "json",
-        "local",
         "profile",
         "ref",
         "verbose",
@@ -500,7 +487,6 @@
         "confirm",
         "dev",
         "json",
-        "local",
         "profile",
         "verbose",
         "webhookId",
@@ -566,7 +552,6 @@
         "json",
         "key",
         "keyStdin",
-        "local",
         "profile",
         "verbose",
         "workDir",
@@ -625,7 +610,6 @@
         "json",
         "level",
         "limit",
-        "local",
         "profile",
         "since",
         "until",
@@ -774,7 +758,6 @@
         "confirm",
         "dev",
         "json",
-        "local",
         "name",
         "profile",
         "valueFile",
@@ -810,7 +793,6 @@
         "error",
         "json",
         "limit",
-        "local",
         "name",
         "nextToken",
         "profile",
@@ -854,14 +836,12 @@
       "deploy": [
         "adk",
         "allowDestructiveTableChanges",
-        "local",
         "noBuild",
         "watch"
       ],
       "dev": [
         "check",
         "json",
-        "local",
         "port",
         "watch"
       ],
@@ -869,8 +849,7 @@
         "alias",
         "configFile",
         "configStdin",
-        "dev",
-        "local"
+        "dev"
       ],
       "integrations publish": [
         "apiUrl",
@@ -881,14 +860,12 @@
         "versionNumber"
       ],
       "integrations register": [
-        "dev",
-        "local"
+        "dev"
       ],
       "link": [
         "apiUrl",
         "botId",
         "keyStdin",
-        "local",
         "workspaceId"
       ],
       "login": [
@@ -901,8 +878,7 @@
         "botId",
         "conversationId",
         "follow",
-        "limit",
-        "local"
+        "limit"
       ],
       "traces": [
         "action",
@@ -910,7 +886,6 @@
         "dev",
         "error",
         "limit",
-        "local",
         "name",
         "nextToken",
         "since",
@@ -923,18 +898,15 @@
       "conversations list": [
         "dev",
         "limit",
-        "local",
         "nextToken",
         "since"
       ],
       "conversations show": [
-        "dev",
-        "local"
+        "dev"
       ],
       "eval": [
         "dev",
         "judgeModel",
-        "local",
         "maxConcurrency",
         "minPassRate",
         "repeat",
@@ -945,7 +917,6 @@
       "eval run": [
         "dev",
         "judgeModel",
-        "local",
         "maxConcurrency",
         "minPassRate",
         "repeat",
@@ -957,19 +928,16 @@
         "dev",
         "latest",
         "limit",
-        "local",
         "nextToken",
         "status",
         "verbose"
       ],
       "config set": [
         "dev",
-        "local",
         "valueFile"
       ],
       "secret set": [
         "dev",
-        "local",
         "valueFile"
       ]
     },
@@ -1015,6 +983,14 @@
       {
         "id": "cloud-authoritative-dependencies",
         "assertion": "brt dev and brt deploy --adk reconcile dependencies with the authoritative selected Cloud target",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "cloud-only-endpoint",
+        "assertion": "brt uses the botruntime cloud endpoint by default; optional URL overrides are for proxies and platform development, not a self-hosted product",
         "documents": [
           "overview",
           "reference"

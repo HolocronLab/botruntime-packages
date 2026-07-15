@@ -31,7 +31,7 @@ const dryRun = {
 
 const apiUrl = {
   type: 'string',
-  description: 'The URL of the botruntime server',
+  description: 'botruntime API URL override for proxies and platform development',
 } satisfies CommandOption
 
 const token = {
@@ -140,8 +140,9 @@ const cloudValueFile = {
 
 const cloudLocal = {
   type: 'boolean',
-  description: 'Use the local project link (agent.local.json for agent projects; bot.local.json for classic)',
+  description: 'Internal platform-development stack override',
   default: false,
+  hidden: true,
 } satisfies CommandOption
 
 const cloudDevTarget = {
