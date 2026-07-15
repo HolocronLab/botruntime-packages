@@ -121,7 +121,7 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
           const vanillaClient = new Client({
             botId: parsed.bot.id,
-            workspaceId: runtimeClientWorkspaceId(process.env),
+            workspaceId: runtimeClientWorkspaceId(process.env, parsed.bot.id),
             headers: {
               'x-multiple-integrations': 'true',
             },

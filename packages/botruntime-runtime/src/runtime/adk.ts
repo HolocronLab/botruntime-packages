@@ -35,7 +35,7 @@ function getStandaloneCognitive(): Cognitive {
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
-    const workspaceId = runtimeClientWorkspaceId(process.env)
+    const workspaceId = runtimeClientWorkspaceId(process.env, botId)
 
     // Create a vanilla client
     const vanillaClient = new Client({

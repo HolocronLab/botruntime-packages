@@ -65,7 +65,7 @@ function getStandaloneClient(): Client {
     }
 
     const apiUrl = process.env.ADK_API_URL || 'https://botruntime.ru'
-    const workspaceId = runtimeClientWorkspaceId(process.env)
+    const workspaceId = runtimeClientWorkspaceId(process.env, botId)
 
     return new Client({
       token,
