@@ -48,6 +48,7 @@ function developmentProductionTags(
   apiUrl: string | undefined,
   productionBotId: string | number | undefined
 ): Record<string, string> | undefined {
+  // This tag belongs to botruntime's grouping contract, not the upstream Botpress API.
   if (!apiUrl || agentLink.isBotpressCloudHost(apiUrl) || productionBotId === undefined) return undefined
   const value = String(productionBotId)
   if (!/^[1-9][0-9]*$/.test(value)) return undefined
@@ -736,6 +737,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     let target: DevBotTarget
     if (bot && productionTags) {
+      // botruntime createBot is idempotent by tunnel ID, so this restores the
+      // production link without replacing the dev runtime or its history.
       const response = await api.client
         .createBot({
           dev: true,
@@ -1658,6 +1661,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     if (bot && target && productionTags) {
+      // Reuse the idempotent create path to link a legacy dev target while
+      // preserving its numeric target ID and all bot-scoped data.
       const response = await api.client
         .createBot({
           dev: true,
