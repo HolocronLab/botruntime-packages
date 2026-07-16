@@ -1,0 +1,23 @@
+{
+  "name": "@botruntime/integration-territorial-jurisdiction",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "description": "Botruntime integration for finding Russian district courts and magistrate court districts by address or coordinates.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@holocronlab/botruntime-sdk": "^6.13.2",
+    "@holocronlab/botruntime-zui": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "bun": ">=1.3.3"
+  }
+}

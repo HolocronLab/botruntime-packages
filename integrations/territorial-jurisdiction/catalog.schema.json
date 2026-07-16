@@ -1,0 +1,9 @@
+{
+  "fields": {
+    "apiToken": {
+      "type": "string",
+      "required": true,
+      "secret": true
+    }
+  }
+}
