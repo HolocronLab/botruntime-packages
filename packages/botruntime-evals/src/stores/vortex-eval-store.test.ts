@@ -603,6 +603,25 @@ describe('VortexEvalStore strict hosted contract', () => {
     expect((caught as Error).message).not.toContain('CANARY_RAW_SERVER_SECRET')
   })
 
+  it('identifies the failed lifecycle operation without copying the response body', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(json({ error: 'CANARY_RAW_SERVER_SECRET' }, 409)))
+
+    let caught: unknown
+    try {
+      await store().finalizeEntry('10', '20', {
+        passed: false,
+        durationMs: 15,
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({ kind: 'internal', status: 409 })
+    expect((caught as Error).message).toContain('PATCH /v1/evals/runs/10/entries/20')
+    expect((caught as Error).message).toContain('HTTP 409')
+    expect((caught as Error).message).not.toContain('CANARY_RAW_SERVER_SECRET')
+  })
+
   it('projects read responses to safe metadata even if a legacy server includes content fields', async () => {
     vi.stubGlobal(
       'fetch',

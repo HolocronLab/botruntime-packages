@@ -18,7 +18,7 @@ jobs:
   integration-packages:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -48,9 +48,9 @@ jobs:
   runtime-package-registry-config:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -63,13 +63,13 @@ jobs:
   codegen-extensions:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -86,7 +86,7 @@ jobs:
   check-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -104,13 +104,13 @@ jobs:
   docs-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
@@ -148,6 +148,8 @@ jobs:
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
           cd packages/botruntime-evals
           bun install --no-save --ignore-scripts
+          bun run check:type
+          bun run test
           bun run build
 
       - name: Build the current botruntime-runtime package
@@ -199,6 +201,8 @@ jobs:
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
         run: |
+          bun run typecheck
+          bun run test
           bun run docs:contract:check
           bun run docs:contract:test
 

@@ -144,7 +144,7 @@ export interface GetBotLogsParams {
 }
 
 export interface TraceListParams {
-  conversationId: string
+  conversationId?: string
   pageSize: number
   status?: 'unset' | 'ok' | 'error'
   error?: boolean
@@ -764,10 +764,9 @@ function requestLabel(opts: RequestOpts): string {
 }
 
 function tracePath(basePath: string, params: TraceListParams): string {
-  const query = new URLSearchParams({
-    conversationId: params.conversationId,
-    pageSize: String(params.pageSize),
-  })
+  const query = new URLSearchParams()
+  if (params.conversationId !== undefined) query.set('conversationId', params.conversationId)
+  query.set('pageSize', String(params.pageSize))
   if (params.status !== undefined) query.set('status', params.status)
   if (params.error !== undefined) query.set('error', String(params.error))
   if (params.source !== undefined) query.set('source', params.source)

@@ -27,6 +27,7 @@ import * as errors from '../errors'
 import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
 import { buildDevWorkerEnvironment } from '../dev-worker-env'
 import { DevTraceIngestServer } from '../dev-trace-ingest'
+import { formatTunnelFailure, isTunnelUnavailableStatus } from '../dev-tunnel-diagnostics'
 import * as tables from '../tables'
 import type { CommandArgv } from '../typings'
 import * as utils from '../utils'
@@ -1064,7 +1065,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const cloudReadiness = parseCloudDependencyReadiness(report.bot)
 
     await client.requireEvalBotReady(devId).catch((thrown) => {
-      if (thrown instanceof errors.HTTPError && thrown.status === 503) {
+      if (thrown instanceof errors.HTTPError && isTunnelUnavailableStatus(thrown.status)) {
         throw new errors.BotpressCLIError(
           `development tunnel is not connected for dev bot "${devId}"; start or restart \`brt dev\`, then retry \`brt dev --check\``
         )
@@ -1737,6 +1738,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     this.logger.debug(`Forwarding request to ${axiosConfig.url}`)
     const response = await axios(axiosConfig)
+    this.logger.debug(
+      `Tunnel response ${request.method} ${request.path} -> HTTP ${response.status} (requestId=${request.id})`
+    )
+    if (response.status >= 400) {
+      this.logger.warn(formatTunnelFailure(request, response.status, response.data))
+    }
     this.logger.debug('Sending back response up the tunnel')
 
     return {

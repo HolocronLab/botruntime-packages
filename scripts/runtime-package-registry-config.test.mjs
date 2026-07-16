@@ -142,6 +142,26 @@ test('repository CI proves public packages without GitHub Packages credentials',
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
 
   assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|bunfig\.github-packages\.toml|GITHUB_TOKEN|read:packages/)
+  assert.match(workflow, /actions\/checkout@v6/)
+  assert.match(workflow, /actions\/setup-node@v6/)
+  assert.doesNotMatch(workflow, /actions\/(?:checkout|setup-node)@v4/)
+})
+
+test('repository CI runs changed eval and BRT checks before docs contract verification', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  const evalsBuild = workflow.indexOf('name: Build the current botruntime-evals package')
+  const runtimeBuild = workflow.indexOf('name: Build the current botruntime-runtime package')
+  const brtVerify = workflow.indexOf('name: Verify contract matches the command tree and schemas')
+
+  assert.ok(evalsBuild >= 0 && runtimeBuild > evalsBuild && brtVerify > runtimeBuild)
+  const evalsChecks = workflow.slice(evalsBuild, runtimeBuild)
+  assert.match(evalsChecks, /bun run check:type\s+          bun run test\s+          bun run build/)
+
+  const brtChecks = workflow.slice(brtVerify)
+  assert.match(
+    brtChecks,
+    /bun run typecheck\s+          bun run test\s+          bun run docs:contract:check\s+          bun run docs:contract:test/
+  )
 })
 
 test('the anonymous-consumer release train publishes every public package through OIDC', () => {
