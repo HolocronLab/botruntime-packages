@@ -16,6 +16,17 @@ const MAX_RUNS = 100
 const MAX_DURATION_MS = 86_400_000
 const POLL_INTERVAL_MS = 3_000
 
+const EVAL_DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
+  CHAT_PAYLOAD_INVALID:
+    'message payload could not be decoded for eval grading; upgrade to the latest brt, then inspect the correlated trace',
+  CHAT_LISTENER_FAILED:
+    'the response listener stopped during the turn; check tunnel connectivity and inspect the correlated trace',
+  EVAL_RELATION_NOT_FOUND:
+    'the declared conversation relation did not resolve; verify its integration, channel, and tag selectors',
+  EVAL_RELATION_AMBIGUOUS:
+    'the declared conversation relation matched more than one conversation; make its tag selector unique',
+}
+
 const RUN_STATUSES = ['pending', 'running', 'completed', 'failed'] as const
 const WORKFLOW_STATUSES = [
   'pending',
@@ -149,14 +160,18 @@ abstract class EvalCloudCommand<C extends EvalDefinition> extends CloudCommand<C
           this.logger.log(
             `    diagnostic code=${entry.errorCode}  phase=${entry.errorPhase}  turn=${entry.errorTurnIndex ?? '-'}`
           )
+          const hint = EVAL_DIAGNOSTIC_HINTS[entry.errorCode]
+          if (hint) this.logger.log(`    hint: ${hint}`)
         }
         const correlatedResult = entry.results.find((result) => result.conversationId)
         const correlation = entry.conversationId
           ? { conversationId: entry.conversationId, traceId: entry.traceId }
           : correlatedResult
         if (correlation?.conversationId) {
+          const targetFlag = target.output.environment === 'development' ? ' --dev' : ''
+          const traceFlag = correlation.traceId ? ` --trace-id ${correlation.traceId}` : ''
           this.logger.log(
-            `    inspect: brt traces --conversation-id ${correlation.conversationId}${correlation.traceId ? `  traceId=${correlation.traceId}` : ''}`
+            `    inspect: brt traces${targetFlag}${traceFlag} --conversation-id ${correlation.conversationId}`
           )
         }
         for (const result of entry.results) {

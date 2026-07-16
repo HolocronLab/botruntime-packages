@@ -2,7 +2,9 @@ import type { GraderResult } from './types'
 import type { ConversationRelationSelector } from './definition'
 import { chatPayloadToText } from './client'
 import type { Client as BotruntimeClient } from '@holocronlab/botruntime-client'
+import type { Message } from '@holocronlab/botruntime-chat'
 import { EvalRunnerError } from './errors'
+import { chatPayloadToPlatformMessage, platformMessageToChatPayload } from './message-codec'
 
 const DEFAULT_RESOLVE_TIMEOUT_MS = 5_000
 const DEFAULT_POLL_INTERVAL_MS = 100
@@ -15,6 +17,7 @@ type Conversation = {
 type PlatformMessage = {
   id: string
   direction: 'incoming' | 'outgoing'
+  type: string
   payload?: Record<string, unknown>
 }
 type ActorClient = Pick<
@@ -58,11 +61,12 @@ export class ActorRouter {
       type: 'text',
       text: input.message ?? '',
     }
+    const encoded = chatPayloadToPlatformMessage(payload as Message['payload'])
     await this.client.createMessage({
       conversationId,
       userId,
-      type: payload.type,
-      payload,
+      type: encoded.type,
+      payload: encoded.payload,
       tags: {},
       origin: 'synthetic',
     })
@@ -120,7 +124,11 @@ export class ActorRouter {
     const messages = await this.listAllMessages(await this.resolveTarget(target))
     return messages
       .filter((message) => message.direction === 'outgoing' && !baseline.has(message.id) && message.payload)
-      .map((message) => chatPayloadToText(message.payload as any))
+      .map((message) =>
+        chatPayloadToText(
+          platformMessageToChatPayload(message as PlatformMessage & { payload: Record<string, unknown> })
+        )
+      )
   }
 
   private async resolveActor(actor: string): Promise<string> {

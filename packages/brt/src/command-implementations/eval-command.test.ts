@@ -490,40 +490,53 @@ describe('brt eval public contract', () => {
   })
 
   it('prints execution diagnostics with an exact trace lookup command', async () => {
-    stubFetch(async () =>
-      json(
-        detail({
-          entries: [
-            entry({
-              passed: false,
-              errorKind: 'chat',
-              errorCode: 'CHAT_PAYLOAD_INVALID',
-              errorPhase: 'observation',
-              errorTurnIndex: 0,
-              conversationId: 'conv_eval_1',
-              traceId: '0123456789abcdef0123456789abcdef',
-              results: [
-                result({
+    writeDevTarget()
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({
+            bot: {
+              id: DEV_RUNTIME_BOT_ID,
+              dev: true,
+              tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID },
+            },
+          })
+        : json(
+            detail({
+              entries: [
+                entry({
                   passed: false,
+                  errorKind: 'chat',
+                  errorCode: 'CHAT_PAYLOAD_INVALID',
+                  errorPhase: 'observation',
+                  errorTurnIndex: 0,
                   conversationId: 'conv_eval_1',
                   traceId: '0123456789abcdef0123456789abcdef',
+                  results: [
+                    result({
+                      passed: false,
+                      conversationId: 'conv_eval_1',
+                      traceId: '0123456789abcdef0123456789abcdef',
+                    }),
+                  ],
                 }),
               ],
-            }),
-          ],
-        })
-      )
+            })
+          )
     )
 
     const response = await runsCommand({
+      dev: true,
       runId: '101',
       verbose: true,
     }).handler()
 
     expect(response.exitCode).toBe(0)
     expect(stdout).toMatch(/CHAT_PAYLOAD_INVALID.*observation.*turn=0/i)
-    expect(stdout).toContain('brt traces --conversation-id conv_eval_1')
-    expect(stdout).toContain('0123456789abcdef0123456789abcdef')
+    expect(stdout).toContain(
+      'brt traces --dev --trace-id 0123456789abcdef0123456789abcdef --conversation-id conv_eval_1'
+    )
+    expect(stdout).toMatch(/message payload.*latest brt/i)
+    expect(stdout).not.toContain('traceId=')
   })
 
   it('starts the hosted workflow with real Botpress-compatible filters and returns the persisted result', async () => {

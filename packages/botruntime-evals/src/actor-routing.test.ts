@@ -52,10 +52,39 @@ describe('multi-actor eval routing', () => {
       conversationId: 'hitl-1',
       userId: 'operator-user',
       type: 'text',
-      payload: { type: 'text', text: '/take' },
+      payload: { text: '/take' },
       tags: {},
       origin: 'synthetic',
     })
+  })
+
+  it('renders related-conversation responses from the platform message envelope', async () => {
+    const client = {
+      listConversations: vi.fn(),
+      createUser: vi.fn(),
+      createMessage: vi.fn(),
+      listMessages: vi.fn().mockResolvedValue({
+        messages: [
+          {
+            id: 'operator-ack',
+            direction: 'outgoing',
+            type: 'text',
+            payload: { text: 'Диалог перехвачен' },
+          },
+        ],
+        meta: {},
+      }),
+      getConversation: vi.fn(),
+    }
+    const router = new ActorRouter(client as any, {
+      primaryConversationId: 'client-1',
+      primaryUserId: 'client-user',
+      relations: {},
+    })
+
+    await router.startDeliveryObservation([])
+
+    await expect(router.responsesFor('client')).resolves.toEqual(['Диалог перехвачен'])
   })
 
   it('grades delivery and mode using only post-turn platform records', async () => {
