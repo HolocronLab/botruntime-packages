@@ -219,6 +219,12 @@ tunnel fails loudly with this remediation. Eval messages use the platform's
 native `botruntime/eval` conversation transport: no Chat integration,
 provider account, or provider API key is provisioned.
 
+On botruntime cloud, `brt dev` links the isolated development runtime to the
+canonical production bot shown in the console. The link is also restored for
+an existing development target the next time `brt dev` starts. The development
+bot keeps its runtime ID and hosted eval history; production and development
+data remain separate and the console only groups them for navigation.
+
 Repeated attempts are isolated runs; the aggregate
 contains pass rate, stable/flaky classification, p50/p95 duration, and a
 failure histogram keyed only by assertion kind. Fixture contents, signed URLs,

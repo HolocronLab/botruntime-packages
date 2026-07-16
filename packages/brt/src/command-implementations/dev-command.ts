@@ -40,8 +40,20 @@ const DEFAULT_INTEGRATION_PORT = 8076
 const TUNNEL_HELLO_INTERVAL = 5000
 const FILEWATCHER_DEBOUNCE_MS = 500
 const ADK_DEV_DEPENDENCY_ENV = 'dev' as const
+const PRODUCTION_BOT_ID_TAG = 'botruntime.productionBotId'
 const CANONICAL_PLUGIN_ALIAS_RE = /^[a-z][a-z0-9_-]{1,99}$/
 const INTEGRATION_INSTANCE_ALIAS_RE = /^(?:[a-z][a-z0-9_-]*\/)?[a-z][a-z0-9_-]*$/
+
+function developmentProductionTags(
+  apiUrl: string | undefined,
+  productionBotId: string | number | undefined
+): Record<string, string> | undefined {
+  // This tag belongs to botruntime's grouping contract, not the upstream Botpress API.
+  if (!apiUrl || agentLink.isBotpressCloudHost(apiUrl) || productionBotId === undefined) return undefined
+  const value = String(productionBotId)
+  if (!/^[1-9][0-9]*$/.test(value)) return undefined
+  return { [PRODUCTION_BOT_ID_TAG]: value }
+}
 
 type AgentDependencySnapshotReport =
   | { status: 'found'; env: typeof ADK_DEV_DEPENDENCY_ENV; path: string }
@@ -325,6 +337,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private _cacheDevRequestBody: apiUtils.UpdateBotRequestBody | apiUtils.UpdateIntegrationRequestBody | undefined
   private _buildContext: utils.esbuild.BuildCodeContext
   private _afterInitialDevBotDeploy: (() => Promise<void>) | undefined
+  private _productionBotId: string | undefined
 
   public constructor(...args: ConstructorParameters<typeof ProjectCommand<DevCommandDefinition>>) {
     super(...args)
@@ -702,6 +715,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const runtimeBotId = explicitRuntimeBotId ?? cached?.runtimeBotId ?? legacyRuntimeHint ?? uuid.v4()
     const cachedTarget = cached && runtimeBotId === cached.runtimeBotId ? cached.targetBotId : undefined
     const api = this.api.newClient(credentials, this.logger)
+    const productionTags = developmentProductionTags(
+      credentials.apiUrl,
+      agentLink.readAgentInfoIfPresent(dir)?.botId
+    )
     let bot: client.Bot | undefined
 
     if (
@@ -719,11 +736,29 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     let target: DevBotTarget
-    if (bot) {
+    if (bot && productionTags) {
+      // botruntime createBot is idempotent by tunnel ID, so this restores the
+      // production link without replacing the dev runtime or its history.
+      const response = await api.client
+        .createBot({
+          dev: true,
+          url: this._devTunnelHttpUrl(runtimeBotId),
+          tags: productionTags,
+        })
+        .catch((thrown) => {
+          throw errors.BotpressCLIError.wrap(thrown, 'Could not link agent dev bot to production')
+        })
+      bot = response.bot
+      target = resolveDevBotTarget(bot, runtimeBotId, cachedTarget)
+    } else if (bot) {
       target = resolveDevBotTarget(bot, runtimeBotId, cachedTarget)
     } else {
       const response = await api.client
-        .createBot({ dev: true, url: this._devTunnelHttpUrl(runtimeBotId) })
+        .createBot({
+          dev: true,
+          url: this._devTunnelHttpUrl(runtimeBotId),
+          ...(productionTags ? { tags: productionTags } : {}),
+        })
         .catch((thrown) => {
           throw errors.BotpressCLIError.wrap(thrown, 'Could not provision agent dev bot')
         })
@@ -889,6 +924,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     cloudInfo(`agent dev: starting classic tunnel dev on ${botPath} ...`)
     const nestedCommand = new DevCommand(this.api, this.prompt, this.logger, nestedArgv)
+    nestedCommand._productionBotId = agentLink.readAgentInfoIfPresent(dir)?.botId
     let parentSnapshotRefresh: Promise<void> | undefined
     nestedCommand._afterInitialDevBotDeploy = async () => {
       parentSnapshotRefresh ??= this._refreshAgentDevSnapshot(dir, credentials, devTarget)
@@ -1596,6 +1632,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     externalUrl: string
   ): Promise<{ bot: client.Bot; target: DevBotTarget }> {
     const expectedRuntimeBotId = this._runtimeBotIdFromDevUrl(externalUrl)
+    const productionTags = developmentProductionTags(
+      api.url,
+      this._productionBotId ?? cloudLink.loadLinkIfPresent(this.projectPaths.abs.workDir, 'prod')?.botId
+    )
     let devId = await this.projectCache.get('devId')
     let cachedTarget = await this.projectCache.get('devTargetBotId')
     if (devId && devId !== expectedRuntimeBotId) {
@@ -1620,6 +1660,22 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       }
     }
 
+    if (bot && target && productionTags) {
+      // Reuse the idempotent create path to link a legacy dev target while
+      // preserving its numeric target ID and all bot-scoped data.
+      const response = await api.client
+        .createBot({
+          dev: true,
+          url: externalUrl,
+          tags: productionTags,
+        })
+        .catch((thrown) => {
+          throw errors.BotpressCLIError.wrap(thrown, 'Could not link dev bot to production')
+        })
+      bot = response.bot
+      target = resolveDevBotTarget(bot, expectedRuntimeBotId, target.targetBotId)
+    }
+
     if (!bot || !target) {
       const createLine = this.logger.line()
       createLine.started('Creating dev bot...')
@@ -1627,6 +1683,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         .createBot({
           dev: true,
           url: externalUrl,
+          ...(productionTags ? { tags: productionTags } : {}),
         })
         .catch((thrown) => {
           throw errors.BotpressCLIError.wrap(thrown, 'Could not deploy dev bot')

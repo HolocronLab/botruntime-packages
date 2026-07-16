@@ -1601,7 +1601,7 @@ describe('DevCommand agent routing', () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
       JSON.stringify({
-        botId: 'prod_bot_must_not_be_used',
+        botId: '3',
         workspaceId: 'ws_123',
       })
     )
@@ -1629,6 +1629,11 @@ describe('DevCommand agent routing', () => {
     await (command as any)._runAgentTunnelDev()
 
     expect(createBot).toHaveBeenCalledOnce()
+    expect(createBot).toHaveBeenCalledWith({
+      dev: true,
+      url: `https://botruntime.ru/${runtimeBotId}`,
+      tags: { 'botruntime.productionBotId': '3' },
+    })
     expect(generateSpy).toHaveBeenCalledOnce()
     expect(createBot.mock.invocationCallOrder[0]!).toBeLessThan(generateSpy.mock.invocationCallOrder[0]!)
     expect(generateSpy).toHaveBeenCalledWith(workDir, expect.any(Function), {
@@ -1650,10 +1655,10 @@ describe('DevCommand agent routing', () => {
       devApiUrl: 'https://cloud.example',
       devWorkspaceId: 'ws_123',
     })
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
+    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('"botId":"3"')
   })
 
-  it('reuses agent.local dev identities but uses only the selected profile stack when non-local', async () => {
+  it('reuses agent.local dev identities and retroactively links the runtime to production', async () => {
     const runtimeBotId = 'dev_opaque'
     const devTargetBotId = '42'
     fs.writeFileSync(
@@ -1668,13 +1673,13 @@ describe('DevCommand agent routing', () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
       JSON.stringify({
-        botId: 'prod_bot_must_not_be_used',
+        botId: '3',
         workspaceId: 'prod_ws',
       })
     )
     const botPath = path.join(workDir, '.adk', 'bot')
     const generateSpy = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(botPath)
-    const createBot = vi.fn()
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot(runtimeBotId, devTargetBotId) })
     const getBot = vi.fn().mockResolvedValue({ bot: devBot(runtimeBotId, devTargetBotId) })
     const apiFactory = {
       newClient: vi.fn().mockReturnValue({
@@ -1695,7 +1700,11 @@ describe('DevCommand agent routing', () => {
 
     await (command as any)._runAgentTunnelDev()
 
-    expect(createBot).not.toHaveBeenCalled()
+    expect(createBot).toHaveBeenCalledWith({
+      dev: true,
+      url: `https://botruntime.ru/${runtimeBotId}`,
+      tags: { 'botruntime.productionBotId': '3' },
+    })
     expect(generateSpy).toHaveBeenCalledOnce()
     expect(generateSpy).toHaveBeenCalledWith(workDir, expect.any(Function), {
       adkCommand: 'adk-dev',
@@ -1852,13 +1861,14 @@ describe('DevCommand dev target routing', () => {
     const runtimeBotId = 'dev_opaque'
     const devTargetBotId = '42'
     writeProjectCacheState(workDir, { tunnelId: runtimeBotId })
+    fs.writeFileSync(path.join(workDir, 'bot.json'), JSON.stringify({ botId: 3 }))
     const createdBot = devBot(runtimeBotId, devTargetBotId)
     const createBot = vi.fn().mockResolvedValue({ bot: createdBot })
     const getBot = vi.fn()
     const updateBot = vi.fn().mockImplementation(async (body) => ({
       bot: { ...createdBot, ...body, tags: createdBot.tags },
     }))
-    const api = { client: { createBot, getBot, updateBot } }
+    const api = { url: 'https://botruntime.ru', client: { createBot, getBot, updateBot } }
     const tables = vi.spyOn(TablesPublisher.prototype, 'deployTables').mockResolvedValue(undefined)
     const command = new DevCommand({} as any, {} as any, new Logger(), {
       ...makeArgv(botpressHome, workDir),
@@ -1871,6 +1881,7 @@ describe('DevCommand dev target routing', () => {
     expect(createBot).toHaveBeenCalledWith({
       dev: true,
       url: `https://botruntime.ru/${runtimeBotId}`,
+      tags: { 'botruntime.productionBotId': '3' },
     })
     expect(updateBot).toHaveBeenCalledWith(expect.objectContaining({ id: runtimeBotId }))
     expect(tables).toHaveBeenCalledWith({
