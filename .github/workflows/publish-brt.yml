@@ -12,7 +12,7 @@ on:
       ref:
         description: "branch/sha to pack brt from"
         required: false
-        default: fork-botpress-deps
+        default: main
 
 permissions:
   contents: write
