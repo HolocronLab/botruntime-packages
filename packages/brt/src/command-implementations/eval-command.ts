@@ -18,7 +18,7 @@ const POLL_INTERVAL_MS = 3_000
 
 const EVAL_DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
   CHAT_PAYLOAD_INVALID:
-    'message payload could not be decoded for eval grading; upgrade to the latest brt, then inspect the correlated trace',
+    'message payload could not be decoded for eval grading; upgrade brt and @holocronlab/botruntime-evals together, rebuild the agent, then inspect the correlated trace',
   CHAT_LISTENER_FAILED:
     'the response listener stopped during the turn; check tunnel connectivity and inspect the correlated trace',
   EVAL_RELATION_NOT_FOUND:
