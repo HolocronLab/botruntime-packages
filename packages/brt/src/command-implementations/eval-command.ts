@@ -562,7 +562,10 @@ function requireNullableBoolean(value: unknown, field: string): boolean | null {
 
 function requireNullableDuration(value: unknown, field: string): number | null {
   if (value === null) return null
-  return requireIntegerInRange(field, value, 0, MAX_DURATION_MS)
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_DURATION_MS) {
+    throw new errors.BotpressCLIError(`${field} must be a finite number between 0 and ${MAX_DURATION_MS}`)
+  }
+  return value
 }
 
 function requireNullableScore(value: unknown): number | null {
