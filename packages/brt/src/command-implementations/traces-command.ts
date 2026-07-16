@@ -134,7 +134,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       const raw = await target.fetchPage({ ...query, pageSize, nextToken }).catch((thrown) => {
         throw errors.BotpressCLIError.wrap(
           thrown,
-          'could not fetch privacy-safe traces; check network connectivity, the API URL, and the selected target'
+          'could not fetch runtime traces; check network connectivity, the API URL, and the selected target'
         )
       })
       const page = parseTracePage(raw, pageSize)
@@ -271,7 +271,7 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
   }
   const source = input.source
   if (source !== undefined && !TRACE_FILTER_SOURCES.has(source)) {
-    throw new errors.BotpressCLIError('--source is not a supported privacy-safe trace source')
+    throw new errors.BotpressCLIError('--source is not a supported typed trace source')
   }
   const name = input.name
   if (name !== undefined && !TRACE_FILTER_NAMES.has(name)) {
