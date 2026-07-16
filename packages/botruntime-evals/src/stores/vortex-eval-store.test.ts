@@ -77,8 +77,8 @@ describe('VortexEvalStore strict hosted contract', () => {
         },
       ],
       pass: false,
-      botDuration: 25,
-      evalDuration: 7,
+      botDuration: 25.125,
+      evalDuration: 7.75,
     }
     await client.appendTurnResults(runId, entryId, turn)
     await client.appendOutcomeResults(runId, entryId, [
@@ -106,16 +106,16 @@ describe('VortexEvalStore strict hosted contract', () => {
       results: [
         {
           turnIndex: 0,
-          botDurationMs: 25,
-          graderDurationMs: 7,
+          botDurationMs: 25.125,
+          graderDurationMs: 7.75,
           assertionKind: 'response_contains',
           passed: true,
           skipped: false,
         },
         {
           turnIndex: 0,
-          botDurationMs: 25,
-          graderDurationMs: 7,
+          botDurationMs: 25.125,
+          graderDurationMs: 7.75,
           assertionKind: 'llm_judge',
           passed: false,
           skipped: true,
