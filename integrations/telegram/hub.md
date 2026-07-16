@@ -26,4 +26,11 @@ In order to receive a bot token, you will need to message the telegram BotFather
 3. Send a message with the title of your new bot.
 4. Send a message with the username of your new bot. Please make sure it ends with 'bot'.
 5. The BotFather account will respond with message containing your bot token.
-6. Paste the bot token in the "Bot Token" field in the Botpress Telegram configuration.
+6. Paste the bot token in the "Bot Token" field in the Botruntime Telegram configuration.
+
+## Forum topics
+
+Version 1.1.5 adds the `createForumTopic` action for forum-enabled Telegram supergroups. The action
+returns both the Telegram `threadId` and a routing-bound Botruntime `conversationId`; inbound and
+outbound messages for that conversation stay inside the topic. The bot must be a supergroup
+administrator with permission to manage topics.
