@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition, EvalProgressEvent, EvalReport, EvalRunReport } from '@holocronlab/botruntime-evals'
+import { createStepSignal } from '../../primitives/workflow-signal'
 import { HostedEvalLifecycle, type HostedEvalStep } from './hosted-eval-lifecycle'
 
 const alpha: EvalDefinition = { name: 'alpha', conversation: [{ user: 'hello' }] }
@@ -168,6 +169,19 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
 
     expect(caught).toBeInstanceOf(AggregateError)
     expect((caught as AggregateError).errors).toEqual([cause, terminalError])
+  })
+
+  it('propagates a workflow yield during failure reconciliation without terminalizing the workflow', async () => {
+    const store = mockStore()
+    const lifecycle = new HostedEvalLifecycle(store, '10', [alpha])
+    const cause = new Error('execution failed')
+    const yieldSignal = createStepSignal()
+    const yieldingStep: HostedEvalStep = async () => {
+      throw yieldSignal
+    }
+
+    await expect(lifecycle.terminalizeFailure(cause, yieldingStep)).rejects.toBe(yieldSignal)
+    expect(store.markRunComplete).not.toHaveBeenCalled()
   })
 
   it('propagates a live-ingest gap instead of logging and continuing', async () => {

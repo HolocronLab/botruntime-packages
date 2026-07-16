@@ -5,6 +5,7 @@ import {
   type VortexEvalErrorKind,
   type VortexEvalStore,
 } from '@holocronlab/botruntime-evals/stores/vortex'
+import { isStepSignal } from '../../primitives/workflow-signal'
 
 export type HostedEvalStep = <T>(name: string, action: () => Promise<T>) => Promise<T>
 
@@ -112,6 +113,7 @@ export class HostedEvalLifecycle {
         })
       )
     } catch (terminalError) {
+      if (isStepSignal(terminalError)) throw terminalError
       throw new AggregateError(
         [cause, terminalError],
         'Eval execution failed and the hosted run could not be terminalized'
