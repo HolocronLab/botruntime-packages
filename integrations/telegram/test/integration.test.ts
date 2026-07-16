@@ -115,5 +115,6 @@ describe('gaps wired on the integration', () => {
     }
     expect(typeof actions.startTypingIndicator).toBe('function')
     expect(typeof actions.stopTypingIndicator).toBe('function')
+    expect(typeof actions.createForumTopic).toBe('function')
   })
 })

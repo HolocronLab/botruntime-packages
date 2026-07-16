@@ -1,6 +1,7 @@
 import { Integration, type IntegrationProps } from '@holocronlab/botruntime-sdk'
 import { ok } from 'assert'
 import type { User } from 'telegraf/types'
+import { createForumTopic } from './forum-topics'
 import { makeTelegraf } from './misc/telegraf'
 import { getStoredBotToken } from './botToken'
 import {
@@ -19,6 +20,7 @@ import {
 } from './misc/message-handlers'
 import type { Context } from './bp'
 import type { Client, HandlerProps, TelegramMessage, TypingActionProps } from './misc/types'
+import { conversationTagId, threadExtra, topicThreadId } from './misc/threading'
 import {
   convertTelegramMessageToBotpressMessage,
   getChat,
@@ -80,7 +82,9 @@ const startTypingIndicator = async ({ input, ctx, client }: TypingActionProps) =
   const chat = getChat(conversation)
   const messageId = getMessageId(message)
 
-  await telegraf.telegram.sendChatAction(chat, 'typing').catch(mapToRuntimeErrorAndThrow('Fail to start typing'))
+  await telegraf.telegram
+    .sendChatAction(chat, 'typing', threadExtra(conversation))
+    .catch(mapToRuntimeErrorAndThrow('Fail to start typing'))
 
   if (ctx.configuration.typingIndicatorEmoji === false) {
     return {}
@@ -139,6 +143,7 @@ const webhookHandler = async (props: HandlerProps) =>
 
     const fromUser = message.from as User
     const userName = getUserNameFromTelegramUser(fromUser)
+    const threadId = topicThreadId(message)
 
     // Wrapped in mapToRuntimeErrorAndThrow (like every telegraf call below): the SDK's
     // handlerErrorToHttpResponse (@holocronlab/botruntime-sdk 6.13.0+) only preserves the original
@@ -150,11 +155,12 @@ const webhookHandler = async (props: HandlerProps) =>
       .getOrCreateConversation({
         channel: 'channel',
         tags: {
-          id: telegramConversationId.toString(),
+          id: conversationTagId(telegramConversationId.toString(), threadId),
           fromUserId: telegramUserId.toString(),
           fromUserUsername: fromUser.username,
           fromUserName: userName,
           chatId: telegramConversationId.toString(),
+          ...(threadId ? { threadId } : {}),
         },
         discriminateByTags: ['id'],
       })
@@ -200,7 +206,7 @@ const webhookHandler = async (props: HandlerProps) =>
 const impl = {
   register,
   unregister,
-  actions: { startTypingIndicator, stopTypingIndicator },
+  actions: { startTypingIndicator, stopTypingIndicator, createForumTopic },
   channels: {
     channel: {
       messages: {

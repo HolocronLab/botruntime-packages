@@ -33,7 +33,13 @@ export async function ackMessage(message: TelegramMessage, ack: AckFunction) {
   await ack({ tags: { id: `${message.message_id}` } })
 }
 
-export async function sendCard(payload: Card, client: Telegraf<Context<Update>>, chat: string, ack: AckFunction) {
+export async function sendCard(
+  payload: Card,
+  client: Telegraf<Context<Update>>,
+  chat: string,
+  ack: AckFunction,
+  thread: { message_thread_id?: number } = {},
+) {
   const text = `*${payload.title}*${payload.subtitle ? '\n' + payload.subtitle : ''}`
   const buttons = payload.actions
     .filter((item) => item.value && item.label)
@@ -54,6 +60,7 @@ export async function sendCard(payload: Card, client: Telegraf<Context<Update>>,
       .sendPhoto(chat, payload.imageUrl, {
         caption: text,
         parse_mode: 'MarkdownV2',
+        ...thread,
         ...Markup.inlineKeyboard(buttons),
       })
       .catch(mapToRuntimeErrorAndThrow('Fail to send photo'))
@@ -62,6 +69,7 @@ export async function sendCard(payload: Card, client: Telegraf<Context<Update>>,
     const message = await client.telegram
       .sendMessage(chat, text, {
         parse_mode: 'MarkdownV2',
+        ...thread,
         ...Markup.inlineKeyboard(buttons),
       })
       .catch(mapToRuntimeErrorAndThrow('Fail to send message'))
