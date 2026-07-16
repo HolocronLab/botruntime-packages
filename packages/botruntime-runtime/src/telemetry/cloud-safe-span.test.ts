@@ -32,6 +32,10 @@ describe('cloud-safe spans', () => {
       'ai.latency_ms': 125,
       conversationId: 'conv-safe_123',
       'error.kind': 'internal',
+      'error.name': 'TypeError',
+      'error.code': 'BLOC_ITEM_INVALID',
+      'error.message': "Cannot read properties of undefined (reading 'imageUrl')",
+      'error.stack': 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
     })
     expect(safe!.resource.attributes).toEqual({})
     expect(safe!.events).toEqual([])
@@ -39,6 +43,47 @@ describe('cloud-safe spans', () => {
     expect(safe!.status).toEqual({ code: SpanStatusCode.ERROR })
     expect(safe!.instrumentationScope).toEqual({ name: 'brt.cloud-safe' })
     expect(JSON.stringify(safe)).not.toContain('secret')
+  })
+
+  it('projects standard exception events and status messages at the export boundary', () => {
+    const fromException = sanitizeCloudSpan(
+      unsafeReadableSpan({
+        attributes: {},
+        status: { code: SpanStatusCode.ERROR, message: 'fallback status' },
+        events: [
+          {
+            name: 'exception',
+            time: [1, 3],
+            attributes: {
+              'exception.type': 'RangeError',
+              'exception.message': 'document index is out of range',
+              'exception.stacktrace': 'RangeError: document index is out of range\n    at handler.ts:42:7',
+            },
+          },
+        ],
+      })
+    )
+    expect(fromException!.attributes).toEqual({
+      'error.kind': 'internal',
+      'error.name': 'RangeError',
+      'error.code': 'RangeError',
+      'error.message': 'document index is out of range',
+      'error.stack': 'RangeError: document index is out of range\n    at handler.ts:42:7',
+    })
+
+    const fromStatus = sanitizeCloudSpan(
+      unsafeReadableSpan({
+        attributes: {},
+        events: [],
+        status: { code: SpanStatusCode.ERROR, message: 'workflow failed before callback' },
+      })
+    )
+    expect(fromStatus!.attributes).toEqual({
+      'error.kind': 'internal',
+      'error.name': 'Error',
+      'error.code': 'Error',
+      'error.message': 'workflow failed before callback',
+    })
   })
 
   it('drops unsupported span names, invalid ids, values outside bounds, and raw-looking strings', () => {

@@ -161,6 +161,10 @@ describe('VortexSpanSource cloud trace contract', () => {
         autonomousToolStatus: 'success',
         workflowName: 'answer',
         errorKind: 'raw-secret-error',
+        errorName: 'TypeError',
+        errorCode: 'BLOC_ITEM_INVALID',
+        errorMessage: "Cannot read properties of undefined (reading 'imageUrl')",
+        errorStack: 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
         prompt: 'must not cross the boundary',
         arbitrary: { secret: true },
       },
@@ -180,6 +184,10 @@ describe('VortexSpanSource cloud trace contract', () => {
           'autonomous.tool.name': 'search',
           'autonomous.tool.status': 'success',
           'workflow.name': 'answer',
+          'error.name': 'TypeError',
+          'error.code': 'BLOC_ITEM_INVALID',
+          'error.message': "Cannot read properties of undefined (reading 'imageUrl')",
+          'error.stack': 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
         },
       }),
     ])
@@ -188,6 +196,35 @@ describe('VortexSpanSource cloud trace contract', () => {
     expect(JSON.stringify(collector.getAllSpans())).not.toContain('must not cross')
     expect(JSON.stringify(collector.getAllSpans())).not.toContain('raw model')
     expect(JSON.stringify(collector.getAllSpans())).not.toContain('raw-secret-error')
+  })
+
+  it('enforces diagnostic limits in UTF-8 bytes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        json({
+          traces: [
+            trace({
+              metadata: {
+                errorName: 'я'.repeat(64),
+                errorCode: 'UNICODE_ERROR',
+                errorMessage: '🙂'.repeat(2_049),
+                errorStack: 'ё'.repeat(16_385),
+              },
+            }),
+          ],
+          meta: {},
+        })
+      )
+    )
+
+    const collector = humanSource()
+    await collector.connect({ conversationId: 'conv-1' })
+
+    expect(collector.getAllSpans()[0]?.data).toEqual({
+      'error.name': 'я'.repeat(64),
+      'error.code': 'UNICODE_ERROR',
+    })
   })
 
   it('maps the server unset status to a locally running span', async () => {

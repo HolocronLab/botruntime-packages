@@ -8,12 +8,37 @@ import {
   registerSpanOmittedPayloads,
   registerSpanPayloads,
 } from './trace-payloads'
+import {
+  boundedErrorString,
+  ERROR_CODE_LIMIT_BYTES,
+  ERROR_MESSAGE_LIMIT_BYTES,
+  ERROR_NAME_LIMIT_BYTES,
+  ERROR_STACK_LIMIT_BYTES,
+} from './error-diagnostics'
 
 export type Attributes = {
   [key: string]: AttributeValue
 }
 
 export const HandledErrorProp = '$$HANDLED'
+
+export function errorTraceAttributes(error: unknown): Attributes {
+  const object = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : undefined
+  const name = boundedErrorString(object?.name, ERROR_NAME_LIMIT_BYTES) ?? 'Error'
+  const message =
+    boundedErrorString(object?.message, ERROR_MESSAGE_LIMIT_BYTES) ??
+    boundedErrorString(error, ERROR_MESSAGE_LIMIT_BYTES) ??
+    name
+  const code = boundedErrorString(object?.code, ERROR_CODE_LIMIT_BYTES) ?? name
+  const stack = boundedErrorString(object?.stack, ERROR_STACK_LIMIT_BYTES)
+
+  return {
+    'error.name': name,
+    'error.code': code,
+    'error.message': message,
+    ...(stack ? { 'error.stack': stack } : {}),
+  }
+}
 
 const IMPORTANCE_TO_TIER: Record<string, string> = {
   high: 'concise',
@@ -48,7 +73,10 @@ export function addRemainingTimeAttribute(attributes: Attributes): void {
   } catch {}
 }
 
-export function createTypedSpanWrapper<T extends DefinedSpans['name']>(s: SpanWithContext): TypedSpan<T> {
+export function createTypedSpanWrapper<T extends DefinedSpans['name']>(
+  s: SpanWithContext,
+  onSetStatus?: () => void
+): TypedSpan<T> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typedSpan = s as any
 
@@ -77,6 +105,13 @@ export function createTypedSpanWrapper<T extends DefinedSpans['name']>(s: SpanWi
       }
       originalSetAttribute(stringKey, prepared.attribute)
     }
+    return typedSpan
+  }
+
+  const originalSetStatus = s.setStatus.bind(s)
+  typedSpan.setStatus = (status: Parameters<Span['setStatus']>[0]) => {
+    onSetStatus?.()
+    originalSetStatus(status)
     return typedSpan
   }
 
@@ -180,10 +215,13 @@ export function span<T extends DefinedSpans['name'], Output>(
       registerSpanOmittedPayloads(s, preparedAttributes.omittedPayloads)
 
       // Create typed wrapper with overridden methods
-      const typedSpan = createTypedSpanWrapper<T>(spanWithContext)
+      let explicitStatus = false
+      const typedSpan = createTypedSpanWrapper<T>(spanWithContext, () => {
+        explicitStatus = true
+      })
 
       const result = await handler(typedSpan)
-      s.setStatus({ code: 1 })
+      if (!explicitStatus) s.setStatus({ code: 1 })
       return result
     } catch (e: unknown) {
       if (typeof e === 'object' && e !== null && HandledErrorProp in e) {
@@ -191,6 +229,7 @@ export function span<T extends DefinedSpans['name'], Output>(
         throw e
       }
 
+      s.setAttributes(errorTraceAttributes(e))
       s.recordException(e instanceof Error ? e : String(e))
       s.setStatus({ code: 2, message: e instanceof Error ? e.message : String(e) })
       throw e

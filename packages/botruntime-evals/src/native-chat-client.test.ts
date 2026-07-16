@@ -44,7 +44,38 @@ describe('native eval chat client', () => {
       conversationId: 'c_eval',
       userId: 'u_eval',
       type: 'text',
-      payload: { type: 'text', text: 'hello' },
+      payload: { text: 'hello' },
+      tags: {},
+      origin: 'synthetic',
+    })
+
+    await connected.createMessage({
+      conversationId: conversation.id,
+      payload: {
+        type: 'bloc',
+        metadata: { source: 'fixture' },
+        items: [
+          { type: 'text', text: 'documents' },
+          { type: 'image', imageUrl: 'https://files.test/image.jpg' },
+          { type: 'file', fileUrl: 'https://files.test/document.pdf', title: 'document.pdf' },
+        ],
+      } as never,
+    })
+    expect(client.createMessage).toHaveBeenLastCalledWith({
+      conversationId: 'c_eval',
+      userId: 'u_eval',
+      type: 'bloc',
+      payload: {
+        metadata: { source: 'fixture' },
+        items: [
+          { type: 'text', payload: { text: 'documents' } },
+          { type: 'image', payload: { imageUrl: 'https://files.test/image.jpg' } },
+          {
+            type: 'file',
+            payload: { fileUrl: 'https://files.test/document.pdf', title: 'document.pdf' },
+          },
+        ],
+      },
       tags: {},
       origin: 'synthetic',
     })
@@ -64,6 +95,37 @@ describe('native eval chat client', () => {
         id: 'm_out',
         isBot: true,
         payload: { type: 'text', text: 'reply' },
+      })
+    )
+
+    messages.push({
+      id: 'm_bloc_out',
+      createdAt: '2026-07-15T00:00:01.000Z',
+      direction: 'outgoing',
+      conversationId: 'c_eval',
+      userId: 'u_eval',
+      type: 'bloc',
+      payload: {
+        metadata: { source: 'runtime' },
+        items: [
+          { type: 'text', payload: { type: 'image', text: 'reply' } },
+          { type: 'image', payload: { imageUrl: 'https://files.test/reply.jpg' } },
+        ],
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    expect(received).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'm_bloc_out',
+        isBot: true,
+        payload: {
+          type: 'bloc',
+          metadata: { source: 'runtime' },
+          items: [
+            { type: 'text', text: 'reply' },
+            { type: 'image', imageUrl: 'https://files.test/reply.jpg' },
+          ],
+        },
       })
     )
     await listener.disconnect()

@@ -2,6 +2,13 @@ import { SpanKind, SpanStatusCode, type AttributeValue, type Attributes, type Sp
 import { ExportResultCode } from '@opentelemetry/core'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base'
+import {
+  boundedErrorString,
+  ERROR_CODE_LIMIT_BYTES,
+  ERROR_MESSAGE_LIMIT_BYTES,
+  ERROR_NAME_LIMIT_BYTES,
+  ERROR_STACK_LIMIT_BYTES,
+} from './error-diagnostics'
 import { getSpanOmittedPayloads } from './trace-payloads'
 
 /**
@@ -51,6 +58,10 @@ export const CLOUD_SAFE_ATTRIBUTE_KEYS = new Set([
   'http.status_code',
   'payloads.omitted_count',
   'error.kind',
+  'error.name',
+  'error.code',
+  'error.message',
+  'error.stack',
 ])
 
 const TRACE_ID = /^[0-9a-f]{32}$/
@@ -132,6 +143,11 @@ function safeAttribute(key: string, value: AttributeValue): AttributeValue | und
   if (key === 'conversationId') return validString(value, CORRELATION_ID) ? value : undefined
   if (!CLOUD_SAFE_ATTRIBUTE_KEYS.has(key)) return undefined
 
+  if (key === 'error.name') return boundedErrorString(value, ERROR_NAME_LIMIT_BYTES)
+  if (key === 'error.code') return boundedErrorString(value, ERROR_CODE_LIMIT_BYTES)
+  if (key === 'error.message') return boundedErrorString(value, ERROR_MESSAGE_LIMIT_BYTES)
+  if (key === 'error.stack') return boundedErrorString(value, ERROR_STACK_LIMIT_BYTES)
+
   if (COUNT_KEYS.has(key)) return boundedInteger(value, 1_000_000_000) ? value : undefined
   if (MODEL_KEYS.has(key)) return validString(value, MODEL_ID) ? value : undefined
   if (CODE_KEYS.has(key)) return validString(value, CODE_ID) ? value : undefined
@@ -194,9 +210,37 @@ function validDuration(duration: ReadableSpan['duration']): boolean {
   return Number.isFinite(milliseconds) && milliseconds >= 0 && milliseconds <= 86_400_000
 }
 
+function enrichErrorAttributes(span: ReadableSpan, attributes: Attributes): void {
+  if (span.status.code !== SpanStatusCode.ERROR) return
+
+  attributes['error.kind'] ??= 'internal'
+  const exception = [...span.events].reverse().find((event) => event.name === 'exception')
+  const exceptionName = boundedErrorString(exception?.attributes?.['exception.type'], ERROR_NAME_LIMIT_BYTES)
+  const exceptionMessage = boundedErrorString(
+    exception?.attributes?.['exception.message'],
+    ERROR_MESSAGE_LIMIT_BYTES
+  )
+  const exceptionStack = boundedErrorString(
+    exception?.attributes?.['exception.stacktrace'],
+    ERROR_STACK_LIMIT_BYTES
+  )
+  const statusMessage = boundedErrorString(span.status.message, ERROR_MESSAGE_LIMIT_BYTES)
+  const message = attributes['error.message'] ?? exceptionMessage ?? statusMessage
+
+  if (message !== undefined) attributes['error.message'] = message
+  if (exceptionStack !== undefined && attributes['error.stack'] === undefined) {
+    attributes['error.stack'] = exceptionStack
+  }
+  if (message !== undefined || attributes['error.stack'] !== undefined) {
+    const name = attributes['error.name'] ?? exceptionName ?? 'Error'
+    attributes['error.name'] = name
+    attributes['error.code'] ??= name
+  }
+}
+
 /**
- * Returns a structurally valid OTEL span containing only the cloud-safe
- * projection. Invalid or unapproved spans fail closed and are not exported.
+ * Returns a structurally valid OTEL span containing only the managed-cloud
+ * allowlist. Invalid or unapproved spans fail closed and are not exported.
  */
 export function sanitizeCloudSpan(span: ReadableSpan): ReadableSpan | null {
   if (!VORTEX_EXPORTED_SPANS.has(span.name)) return null
@@ -211,9 +255,7 @@ export function sanitizeCloudSpan(span: ReadableSpan): ReadableSpan | null {
   if (omittedPayloadCount > 0 && boundedInteger(omittedPayloadCount, 1_000_000_000)) {
     attributes['payloads.omitted_count'] = omittedPayloadCount
   }
-  if (span.status.code === SpanStatusCode.ERROR && attributes['error.kind'] === undefined) {
-    attributes['error.kind'] = 'internal'
-  }
+  enrichErrorAttributes(span, attributes)
 
   return {
     name: span.name,
@@ -236,7 +278,7 @@ export function sanitizeCloudSpan(span: ReadableSpan): ReadableSpan | null {
   }
 }
 
-/** Applies the same safe projection used by the local exporter before OTLP encoding. */
+/** Applies the managed-cloud allowlist before OTLP encoding. */
 export class CloudSafeSpanExporter implements SpanExporter {
   public constructor(private readonly delegate: SpanExporter) {}
 

@@ -83,12 +83,15 @@ brt init my-bot && cd my-bot && brt build && brt deploy
 
 Requires **bun >= 1.3**.
 
-## Privacy-safe traces
+## Runtime traces
 
-`brt traces` reads the selected profile's trace API without exposing prompts,
-model responses, tool input/output, document content, or raw errors. The
-backend response is projected through a strict metadata allowlist before either
-human or JSON output is written.
+`brt traces` reads the selected profile's trace API. It exposes bounded runtime
+exception diagnostics (`name`, `code`, `message`, and `stack`) so a developer
+can diagnose a failed handler after the live process or dev tunnel has stopped.
+Exception message and stack text is not redacted and may contain sensitive data.
+Prompts, model responses, tool input/output, and document content remain outside
+this API. The backend response is projected through a strict allowlist before
+either human or JSON output is written.
 
 ```bash
 # Production target from agent.json (or bot.json for a classic project)
@@ -102,6 +105,7 @@ brt traces --conversation-id conv_123 --dev --local
 # Botpress-compatible tokens; workflow/action match rows, trace drills into a tree
 brt traces conversation=conv_123 workflow=onboarding
 brt traces conversation=conv_123 trace=0123456789abcdef0123456789abcdef
+brt traces conversation=conv_123 trace=0123456789abcdef0123456789abcdef --verbose
 
 # Extended typed API filters; --no-error selects effective non-error rows
 brt traces --conversation-id conv_123 --status ok --source otlp --name autonomous.tool
@@ -119,6 +123,10 @@ and `1h` are converted once to absolute RFC3339 bounds. Equivalent named flags
 are available, together with `--status`, `--source`, and `--name`. A
 conversation is always required. `workflow` and `action` filter matching rows;
 use a returned `traceId` with `trace=<id>` to fetch its full tree.
+
+Human output prints the exception code and message for failed spans; `--verbose`
+also prints the stack. JSON output always includes all available bounded error
+fields.
 
 The cloud API deliberately does not provide unscoped listing or follow mode.
 `trigger` remains unavailable until the server exposes a bounded typed trigger
@@ -162,8 +170,9 @@ strict positive-decimal server cursor. JSON list output contains only `id`,
 timestamps, `channel`, `integration`, and `messageCount`. JSON show output
 contains grouped trace IDs, timestamps, duration, typed status, typed trigger,
 tool metadata, and bounded error kinds. It never includes prompts, model
-responses, tool input/output, documents, message payloads, conversation tags,
-or raw errors.
+responses, tool input/output, documents, message payloads, or conversation
+tags. Use `brt traces conversation=<id> trace=<traceId> --verbose` to inspect the
+full bounded exception diagnostics for a failed turn.
 
 The Botpress local-only `--include-llm` option is deliberately absent: the
 cloud privacy boundary has no content bypass. Production and development use
@@ -172,7 +181,7 @@ the same fail-loud canonical target and profile-auth rules as `brt traces`.
 ## Hosted evals
 
 `brt eval` follows the current Botpress ADK eval/run-history shape while using
-the hosted runtime workflow and privacy-safe cloud persistence. A bare
+the hosted runtime workflow and bounded cloud persistence. A bare
 `brt eval [name]` and the explicit `brt eval run [name]` both start the deployed
 `builtin_eval_runner`; `runs` lists or inspects persisted results.
 

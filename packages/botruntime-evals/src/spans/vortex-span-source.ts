@@ -94,6 +94,11 @@ const AUTONOMOUS_STATUSES = new Set([
 ])
 const TOOL_STATUSES = new Set(['think', 'success', 'error'])
 const ERROR_KINDS = new Set(['disabled', 'payment_required', 'rate_limited', 'timeout', 'upstream', 'internal'])
+const ERROR_NAME_LIMIT = 128
+const ERROR_CODE_LIMIT = 128
+const ERROR_MESSAGE_LIMIT = 8_192
+const ERROR_STACK_LIMIT = 32_768
+const UTF8_ENCODER = new TextEncoder()
 const VORTEX_SPAN_NAMES = new Set([
   'request.incoming',
   'handler.conversation',
@@ -135,6 +140,10 @@ const METADATA_FIELDS = [
   ['httpStatusCode', 'http.status_code'],
   ['payloadsOmittedCount', 'payloads.omitted_count'],
   ['errorKind', 'error.kind'],
+  ['errorName', 'error.name'],
+  ['errorCode', 'error.code'],
+  ['errorMessage', 'error.message'],
+  ['errorStack', 'error.stack'],
 ] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -194,6 +203,14 @@ function safeMetadataValue(wireName: (typeof METADATA_FIELDS)[number][0], value:
       return typeof value === 'string' && TOOL_STATUSES.has(value) ? value : undefined
     case 'errorKind':
       return typeof value === 'string' && ERROR_KINDS.has(value) ? value : undefined
+    case 'errorName':
+      return boundedString(value, ERROR_NAME_LIMIT)
+    case 'errorCode':
+      return boundedString(value, ERROR_CODE_LIMIT)
+    case 'errorMessage':
+      return boundedString(value, ERROR_MESSAGE_LIMIT)
+    case 'errorStack':
+      return boundedString(value, ERROR_STACK_LIMIT)
     case 'aiMessagesCount':
     case 'aiInputLength':
     case 'aiInputTokens':
@@ -208,6 +225,12 @@ function safeMetadataValue(wireName: (typeof METADATA_FIELDS)[number][0], value:
     case 'aiCost':
       return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_COST ? value : undefined
   }
+}
+
+function boundedString(value: unknown, max: number): string | undefined {
+  return typeof value === 'string' && value.length > 0 && UTF8_ENCODER.encode(value).byteLength <= max
+    ? value
+    : undefined
 }
 
 function boundedInteger(value: unknown, min: number, max: number): number | undefined {

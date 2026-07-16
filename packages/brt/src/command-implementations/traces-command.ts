@@ -55,6 +55,11 @@ const AUTONOMOUS_STATUSES = new Set([
 ])
 const TOOL_STATUSES = new Set(['think', 'success', 'error'])
 const ERROR_KINDS = new Set(['disabled', 'payment_required', 'rate_limited', 'timeout', 'upstream', 'internal'])
+const ERROR_NAME_LIMIT = 128
+const ERROR_CODE_LIMIT = 128
+const ERROR_MESSAGE_LIMIT = 8_192
+const ERROR_STACK_LIMIT = 32_768
+const UTF8_ENCODER = new TextEncoder()
 
 const METADATA_FIELDS = {
   endpoint: { kind: 'enum', values: ENDPOINTS },
@@ -82,6 +87,10 @@ const METADATA_FIELDS = {
   httpStatusCode: { kind: 'integer', min: 100, max: 599 },
   payloadsOmittedCount: { kind: 'integer', min: 0, max: MAX_COUNT },
   errorKind: { kind: 'enum', values: ERROR_KINDS },
+  errorName: { kind: 'string', max: ERROR_NAME_LIMIT },
+  errorCode: { kind: 'string', max: ERROR_CODE_LIMIT },
+  errorMessage: { kind: 'string', max: ERROR_MESSAGE_LIMIT },
+  errorStack: { kind: 'string', max: ERROR_STACK_LIMIT },
 } as const
 
 type TraceMetadata = Partial<Record<keyof typeof METADATA_FIELDS, string | number>>
@@ -203,6 +212,20 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     this.logger.log(
       `${entry.createdAt} ${entry.status.toUpperCase()} ${entry.durationMs}ms ${entry.source}/${entry.name}${suffix}`
     )
+    const errorMessage = typeof metadata.errorMessage === 'string' ? metadata.errorMessage : undefined
+    if (errorMessage !== undefined) {
+      const identity =
+        typeof metadata.errorCode === 'string'
+          ? metadata.errorCode
+          : typeof metadata.errorName === 'string'
+            ? metadata.errorName
+            : 'Error'
+      this.logger.log(`  ${identity}: ${errorMessage}`)
+    }
+    const errorStack = typeof metadata.errorStack === 'string' ? metadata.errorStack : undefined
+    if (this.argv.verbose && errorStack !== undefined) {
+      for (const line of errorStack.split('\n')) this.logger.log(`  ${line}`)
+    }
   }
 }
 
@@ -494,6 +517,9 @@ function parseMetadata(value: unknown, prefix: string): TraceMetadata {
       case 'number':
         safe[field] = requiredNumber(candidate, path, rule.min, rule.max)
         break
+      case 'string':
+        safe[field] = requiredBoundedString(candidate, path, rule.max)
+        break
     }
   }
   return safe
@@ -508,6 +534,14 @@ function requiredString(value: unknown, field: string, pattern?: RegExp): string
     throw new errors.BotpressCLIError(`${field} is malformed`)
   }
   return value
+}
+
+function requiredBoundedString(value: unknown, field: string, max: number): string {
+  const result = requiredString(value, field)
+  if (result.length === 0 || UTF8_ENCODER.encode(result).byteLength > max) {
+    throw new errors.BotpressCLIError(`${field} is malformed`)
+  }
+  return result
 }
 
 function optionalString(value: unknown, field: string, pattern: RegExp): string | undefined {

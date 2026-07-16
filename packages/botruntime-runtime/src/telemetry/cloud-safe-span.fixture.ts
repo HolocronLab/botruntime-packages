@@ -36,6 +36,10 @@ export function unsafeReadableSpan(overrides: Partial<ReadableSpan> = {}): Reada
       'session.id': 'session-secret',
       'http.url': 'https://example.test/private?q=secret',
       payload: '{"raw":"secret"}',
+      'error.name': 'TypeError',
+      'error.code': 'BLOC_ITEM_INVALID',
+      'error.message': "Cannot read properties of undefined (reading 'imageUrl')",
+      'error.stack': 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
     },
     links: [
       {
