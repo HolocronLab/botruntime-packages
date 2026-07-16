@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as adkBundle from '../adk-bundle'
 import * as adkDevId from '../adk-dev-id'
 import { CloudapiClient } from '../api/cloudapi-client'
+import { HTTPError } from '../errors'
 import { Logger } from '../logger'
 import { TablesPublisher } from '../tables'
 import * as utils from '../utils'
@@ -356,6 +357,7 @@ describe('DevCommand --check', () => {
         },
       },
     }))
+    vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady').mockResolvedValue({ ready: true })
   })
 
   afterEach(() => {
@@ -389,7 +391,7 @@ describe('DevCommand --check', () => {
     expect(out.read()).not.toContain('provision chat')
   })
 
-  it('uses only authoritative GET and leaves remote and local state unchanged', async () => {
+  it('uses only authoritative read probes and leaves remote and local state unchanged', async () => {
     vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
       bot: {
         id: 'dev_abc',
@@ -403,6 +405,7 @@ describe('DevCommand --check', () => {
       },
     })
     const getSpy = vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget')
+    const tunnelSpy = vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady')
     const cachePath = path.join(workDir, '.botpress', 'project.cache.json')
     const profilePath = path.join(botpressHome, 'profiles.json')
     const cacheBefore = fs.readFileSync(cachePath, 'utf8')
@@ -415,11 +418,28 @@ describe('DevCommand --check', () => {
 
     expect(result.exitCode).toBe(0)
     expect(getSpy).toHaveBeenCalledOnce()
+    expect(tunnelSpy).toHaveBeenCalledOnce()
+    expect(tunnelSpy).toHaveBeenCalledWith('dev_abc')
     expect(fs.readFileSync(cachePath, 'utf8')).toBe(cacheBefore)
     expect(fs.readFileSync(profilePath, 'utf8')).toBe(profileBefore)
     expect(fs.statSync(cachePath).mtimeMs).toBe(cacheMtimeBefore)
     expect(fs.statSync(profilePath).mtimeMs).toBe(profileMtimeBefore)
     expect(fs.existsSync(path.join(botpressHome, 'global.cache.json'))).toBe(false)
+  })
+
+  it('fails readiness when the cached dev bot exists but its tunnel is disconnected', async () => {
+    vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady').mockRejectedValue(
+      new HTTPError(503, 'development tunnel is not connected')
+    )
+    const out = captureStream()
+    const err = captureStream()
+    const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
+
+    const result = await cmd.handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(out.read()).not.toContain('Eval transport: ready')
+    expect(err.read()).toContain('development tunnel is not connected')
   })
 
   it('agent dev --check uses an unscoped runtime only as a read-only hint and ignores its stale numeric target', async () => {
