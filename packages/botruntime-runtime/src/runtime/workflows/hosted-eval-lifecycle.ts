@@ -5,6 +5,7 @@ import {
   type VortexEvalErrorKind,
   type VortexEvalStore,
 } from '@holocronlab/botruntime-evals/stores/vortex'
+import { isStepSignal } from '../../primitives/workflow-signal'
 
 export type HostedEvalStep = <T>(name: string, action: () => Promise<T>) => Promise<T>
 
@@ -25,9 +26,8 @@ export type HostedEvalCompletion = {
 }
 
 /**
- * Owns the hosted eval persistence state machine independently from the
- * workflow transport. This makes failure/abort reconciliation deterministic
- * and testable without starting a bot runtime.
+ * Owns the hosted eval persistence state machine. Workflow yields are transport
+ * control signals, so they must escape without reclassification or terminalization.
  */
 export class HostedEvalLifecycle {
   private readonly definitions: EvalDefinition[]
@@ -97,6 +97,7 @@ export class HostedEvalLifecycle {
   }
 
   async terminalizeFailure(cause: unknown, step: HostedEvalStep): Promise<never> {
+    if (isStepSignal(cause)) throw cause
     const errorKind: VortexEvalErrorKind = this.signal?.aborted ? 'aborted' : classifyVortexEvalError(cause)
     try {
       await step('reconcile-failed-run', async () => {
@@ -112,6 +113,7 @@ export class HostedEvalLifecycle {
         })
       )
     } catch (terminalError) {
+      if (isStepSignal(terminalError)) throw terminalError
       throw new AggregateError(
         [cause, terminalError],
         'Eval execution failed and the hosted run could not be terminalized'
