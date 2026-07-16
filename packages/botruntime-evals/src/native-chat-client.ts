@@ -1,6 +1,7 @@
 import type { Client as BotruntimeClient } from '@holocronlab/botruntime-client'
 import type { AuthenticatedClient, Message, SignalListener, Signals } from '@holocronlab/botruntime-chat'
 import type { ChatClient } from './types'
+import { chatPayloadToPlatformMessage, platformMessageToChatPayload } from './message-codec'
 
 const NATIVE_EVAL_INTEGRATION = 'botruntime/eval'
 const POLL_INTERVAL_MS = 50
@@ -14,41 +15,6 @@ type PlatformMessage = {
   userId: string
   type: Message['payload']['type']
   payload: Record<string, unknown>
-}
-
-type RuntimeBlocItem = {
-  type: string
-  payload: Record<string, unknown>
-}
-
-function chatPayloadToRuntime(payload: Message['payload']): Record<string, unknown> {
-  const { type, ...content } = payload
-  if (type !== 'bloc') return content
-
-  return {
-    ...content,
-    items: payload.items.map((item) => {
-      const { type: itemType, ...itemPayload } = item
-      return { type: itemType, payload: itemPayload }
-    }),
-  }
-}
-
-function runtimePayloadToChat(
-  type: PlatformMessage['type'],
-  payload: Record<string, unknown>
-): Message['payload'] {
-  if (type !== 'bloc') return { ...payload, type } as Message['payload']
-
-  const items = Array.isArray(payload.items) ? (payload.items as RuntimeBlocItem[]) : []
-  return {
-    ...payload,
-    type: 'bloc',
-    items: items.map((item) => ({ ...item.payload, type: item.type })) as Extract<
-      Message['payload'],
-      { type: 'bloc' }
-    >['items'],
-  }
 }
 
 class NativeConversationListener {
@@ -109,7 +75,7 @@ class NativeConversationListener {
         this.emit('message_created', {
           id: message.id,
           createdAt: message.createdAt,
-          payload: runtimePayloadToChat(message.type, message.payload),
+          payload: platformMessageToChatPayload(message),
           userId: message.userId,
           conversationId: message.conversationId,
           isBot: true,
@@ -164,15 +130,17 @@ export function createNativeEvalChatClient(client: BotruntimeClient): ChatClient
               id: `eval:${Date.now()}:${Math.random().toString(36).slice(2)}`,
             },
           }),
-        createMessage: async ({ conversationId, payload }: { conversationId: string; payload: Message['payload'] }) =>
-          client.createMessage({
+        createMessage: async ({ conversationId, payload }: { conversationId: string; payload: Message['payload'] }) => {
+          const encoded = chatPayloadToPlatformMessage(payload)
+          return client.createMessage({
             conversationId,
             userId: user.id,
-            type: payload.type,
-            payload: chatPayloadToRuntime(payload),
+            type: encoded.type,
+            payload: encoded.payload,
             tags: {},
             origin: 'synthetic',
-          }),
+          })
+        },
         createEvent: async ({
           conversationId,
           payload,
