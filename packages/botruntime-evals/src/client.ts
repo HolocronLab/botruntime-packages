@@ -58,6 +58,12 @@ export function chatPayloadToText(payload: ChatPayload): string {
       return payload.markdown
     case 'bloc':
       return payload.items.map((item) => chatPayloadToText(item)).join('\n')
+    default:
+      throw new EvalRunnerError({
+        code: 'CHAT_PAYLOAD_INVALID',
+        message: 'Outgoing platform message has no supported payload type.',
+        expected: true,
+      })
   }
 }
 
@@ -100,8 +106,7 @@ export class ChatSession {
     // ("Adapter 'http' is not available in the build"), so the injected client is
     // required there.
     const ChatClientCtor =
-      this._chatClient ??
-      (await import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat' as string)).Client
+      this._chatClient ?? (await import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat' as string)).Client
 
     this.client = await ChatClientCtor.connect({
       webhookId,
@@ -206,7 +211,9 @@ export class ChatSession {
   private async setConversation(conversationId: string): Promise<void> {
     const client = this.assertConnected()
     this.assertListenerHealthy()
-    const nextListener = await client.listenConversation({ id: conversationId })
+    const nextListener = await client.listenConversation({
+      id: conversationId,
+    })
     const previousListener = this.listener
     const previousErrorHandler = this.listenerErrorHandler
     const nextErrorHandler = (error: Error) => {
@@ -236,10 +243,7 @@ export class ChatSession {
     if (this.listenerError) throw this.listenerError
   }
 
-  private async closeListener(
-    listener: SignalListener,
-    errorHandler: ((error: Error) => void) | null
-  ): Promise<void> {
+  private async closeListener(listener: SignalListener, errorHandler: ((error: Error) => void) | null): Promise<void> {
     listener.off('message_created', this.handleMessageCreated)
     if (errorHandler) listener.off('error', errorHandler)
     listener.cleanup?.()
@@ -390,7 +394,9 @@ export async function assertChatChannelBound(
   try {
     const res = await fetch(`${devServerUrl}/api/agent`, { headers })
     if (!res.ok) return // Dev server unreachable — skip, let downstream errors surface
-    const agent = (await res.json()) as { conversations?: ConversationSummary[] }
+    const agent = (await res.json()) as {
+      conversations?: ConversationSummary[]
+    }
     conversations = agent.conversations ?? []
   } catch (err) {
     // Soft pre-flight only — a missing dev server is normal (e.g. prod bots),

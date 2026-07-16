@@ -10,6 +10,7 @@ const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/
 const CURSOR = /^[A-Za-z0-9_-]+$/
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
+const TRACE_ID = /^[0-9a-f]{32}$/i
 const MAX_DATABASE_ID = 9_223_372_036_854_775_807n
 const MAX_RUNS = 100
 const MAX_DURATION_MS = 86_400_000
@@ -36,6 +37,7 @@ const ERROR_KINDS = [
   'upstream',
   'internal',
 ] as const
+const ERROR_PHASES = ['setup', 'routing', 'dispatch', 'observation', 'grading'] as const
 const ASSERTION_KINDS = [
   'response',
   'no_response',
@@ -88,6 +90,8 @@ type EvalResult = {
   score: number | null
   botDurationMs: number | null
   graderDurationMs: number | null
+  conversationId?: string | null
+  traceId?: string | null
   createdAt: string
 }
 
@@ -100,6 +104,11 @@ type EvalEntry = {
   passed: boolean | null
   durationMs: number | null
   errorKind: ErrorKind | null
+  errorCode?: string | null
+  errorPhase?: (typeof ERROR_PHASES)[number] | null
+  errorTurnIndex?: number | null
+  conversationId?: string | null
+  traceId?: string | null
   createdAt: string
   results: EvalResult[]
 }
@@ -136,6 +145,20 @@ abstract class EvalCloudCommand<C extends EvalDefinition> extends CloudCommand<C
       const verdict = entry.passed === null ? 'RUNNING' : entry.passed ? 'PASS' : 'FAIL'
       this.logger.log(`  ${verdict}  ${entry.evalName}  type=${entry.evalType}  durationMs=${entry.durationMs ?? '-'}`)
       if (this.argv.verbose) {
+        if (entry.errorCode && entry.errorPhase) {
+          this.logger.log(
+            `    diagnostic code=${entry.errorCode}  phase=${entry.errorPhase}  turn=${entry.errorTurnIndex ?? '-'}`
+          )
+        }
+        const correlatedResult = entry.results.find((result) => result.conversationId)
+        const correlation = entry.conversationId
+          ? { conversationId: entry.conversationId, traceId: entry.traceId }
+          : correlatedResult
+        if (correlation?.conversationId) {
+          this.logger.log(
+            `    inspect: brt traces --conversation-id ${correlation.conversationId}${correlation.traceId ? `  traceId=${correlation.traceId}` : ''}`
+          )
+        }
         for (const result of entry.results) {
           const resultVerdict = result.skipped ? 'SKIP' : result.passed ? 'PASS' : 'FAIL'
           this.logger.log(
@@ -339,6 +362,11 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
         }
       }
       if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
+        if (current.failureCode === 'delivery_unavailable') {
+          throw new errors.BotpressCLIError(
+            'hosted eval workflow delivery unavailable; verify that `brt dev` is still running and the development tunnel is connected, then retry'
+          )
+        }
         throw new errors.BotpressCLIError(
           `hosted eval workflow ${current.status}; redeploy the bot to refresh its eval manifest, then inspect privacy-safe traces and retry`
         )
@@ -416,6 +444,27 @@ function parseEvalEntry(value: unknown, runId: string): EvalEntry {
     passed: requireNullableBoolean(value.passed, 'passed'),
     durationMs: requireNullableDuration(value.durationMs, 'durationMs'),
     errorKind: requireNullableEnum(value.errorKind, ERROR_KINDS, 'errorKind'),
+    ...(value.errorCode !== undefined
+      ? {
+          errorCode: requireOptionalNullableIdentifier(value.errorCode, 'errorCode', 64),
+        }
+      : {}),
+    ...(value.errorPhase !== undefined
+      ? {
+          errorPhase: requireOptionalNullableEnum(value.errorPhase, ERROR_PHASES, 'errorPhase'),
+        }
+      : {}),
+    ...(value.errorTurnIndex !== undefined
+      ? {
+          errorTurnIndex: requireOptionalNullableInteger(value.errorTurnIndex, 'errorTurnIndex', 0, 1_023),
+        }
+      : {}),
+    ...(value.conversationId !== undefined
+      ? {
+          conversationId: requireOptionalNullableIdentifier(value.conversationId, 'conversationId', 128),
+        }
+      : {}),
+    ...(value.traceId !== undefined ? { traceId: requireOptionalNullableTraceId(value.traceId) } : {}),
     createdAt: requireTimestamp(value.createdAt, 'createdAt'),
     results: value.results.map((item) => parseEvalResult(item, id)),
   }
@@ -436,6 +485,12 @@ function parseEvalResult(value: unknown, entryId: string): EvalResult {
     score: requireNullableScore(value.score),
     botDurationMs: requireNullableDuration(value.botDurationMs, 'botDurationMs'),
     graderDurationMs: requireNullableDuration(value.graderDurationMs, 'graderDurationMs'),
+    ...(value.conversationId !== undefined
+      ? {
+          conversationId: requireOptionalNullableIdentifier(value.conversationId, 'conversationId', 128),
+        }
+      : {}),
+    ...(value.traceId !== undefined ? { traceId: requireOptionalNullableTraceId(value.traceId) } : {}),
     createdAt: requireTimestamp(value.createdAt, 'createdAt'),
   }
 }
@@ -444,6 +499,7 @@ function parseWorkflowResponse(value: unknown): {
   id: string
   status: (typeof WORKFLOW_STATUSES)[number]
   output: Record<string, unknown>
+  failureCode?: 'delivery_unavailable'
 } {
   if (!isRecord(value) || !isRecord(value.workflow)) {
     throw new errors.BotpressCLIError('hosted eval workflow response is malformed')
@@ -455,6 +511,9 @@ function parseWorkflowResponse(value: unknown): {
     id: requireIdentifier(value.workflow.id, 'workflow id', 128),
     status: requireEnum(value.workflow.status, WORKFLOW_STATUSES, 'workflow status'),
     output: value.workflow.output,
+    ...(value.workflow.failureReason === 'workflow delivery unavailable'
+      ? { failureCode: 'delivery_unavailable' as const }
+      : {}),
   }
 }
 
@@ -574,6 +633,33 @@ function requireNullableScore(value: unknown): number | null {
     throw new errors.BotpressCLIError('hosted eval score is malformed')
   }
   return value
+}
+
+function requireOptionalNullableIdentifier(value: unknown, field: string, max: number): string | null {
+  if (value === null) return null
+  return requireIdentifier(value, field, max)
+}
+
+function requireOptionalNullableTraceId(value: unknown): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string' || !TRACE_ID.test(value)) {
+    throw new errors.BotpressCLIError('hosted eval traceId is malformed')
+  }
+  return value.toLowerCase()
+}
+
+function requireOptionalNullableInteger(value: unknown, field: string, min: number, max: number): number | null {
+  if (value === null) return null
+  return requireIntegerInRange(field, value, min, max)
+}
+
+function requireOptionalNullableEnum<const T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  field: string
+): T[number] | null {
+  if (value === null) return null
+  return requireEnum(value, allowed, field)
 }
 
 function requireEnum<const T extends readonly string[]>(value: unknown, allowed: T, field: string): T[number] {

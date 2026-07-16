@@ -16,6 +16,7 @@ import type {
   EvalFilter,
   GraderResult,
   TurnReport,
+  EvalExecutionPhase,
   BotConnection,
   EvalSetup,
   SpanSourceCapabilities,
@@ -53,10 +54,7 @@ class EvalProgressSinkError extends Error {
   }
 }
 
-async function emitEvalProgress(
-  sink: EvalRunnerConfig['onProgress'],
-  event: EvalProgressEvent
-): Promise<void> {
+async function emitEvalProgress(sink: EvalRunnerConfig['onProgress'], event: EvalProgressEvent): Promise<void> {
   if (!sink) return
   try {
     await sink(event)
@@ -90,10 +88,7 @@ function unsupportedObservation(evalDef: EvalDefinition, location: string, capab
 }
 
 /** Fail before writes when an eval asks the selected trace source for data it cannot expose. */
-export function validateEvalCapabilities(
-  evals: EvalDefinition[],
-  capabilities: SpanSourceCapabilities
-): void {
+export function validateEvalCapabilities(evals: EvalDefinition[], capabilities: SpanSourceCapabilities): void {
   for (const evalDef of evals) {
     for (let turnIndex = 0; turnIndex < evalDef.conversation.length; turnIndex++) {
       const assertions = evalDef.conversation[turnIndex]?.assert
@@ -248,7 +243,12 @@ export async function runEval(
      * different copy of that module, so initializing it here guarantees the instance grading consults.
      */
     judge?: {
-      credentials: { token: string; apiUrl: string; botId: string; workspaceId?: string }
+      credentials: {
+        token: string
+        apiUrl: string
+        botId: string
+        workspaceId?: string
+      }
       model?: string
       failClosed?: boolean
     }
@@ -299,6 +299,10 @@ export async function runEval(
   let outcomeAssertions: GraderResult[] = []
   let session: ChatSession | undefined
   let controlsUsed = false
+  let currentConversationId: string | undefined
+  let currentTraceId: string | undefined
+  let currentTurnIndex: number | undefined
+  let currentPhase: EvalExecutionPhase = 'setup'
 
   try {
     session = new ChatSession(
@@ -313,6 +317,7 @@ export async function runEval(
     let conversationId = ''
     if (evalDef.setup?.state?.conversation || evalDef.setup?.workflow) {
       conversationId = await session.ensureConversation()
+      currentConversationId = conversationId
     }
 
     await seedEvalState(
@@ -337,6 +342,7 @@ export async function runEval(
     // Ensure we have a conversation before connecting the collector
     if (!conversationId && evalDef.conversation.length > 0) {
       conversationId = await session.ensureConversation()
+      currentConversationId = conversationId
     }
 
     // Connect the collector filtered by conversationId
@@ -349,11 +355,15 @@ export async function runEval(
       })
     }
     let collectorConversationId = conversationId
-    let actorRouter = new ActorRouter(connection.client, {
-      primaryConversationId: conversationId,
-      primaryUserId: session.userId,
-      relations: evalDef.setup?.relations ?? {},
-    })
+    let actorRouter = new ActorRouter(
+      connection.client,
+      {
+        primaryConversationId: conversationId,
+        primaryUserId: session.userId,
+        relations: evalDef.setup?.relations ?? {},
+      },
+      { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
+    )
 
     for (let i = 0; i < evalDef.conversation.length; i++) {
       // Bail mid-eval the moment the caller signals abort, so a long
@@ -361,6 +371,8 @@ export async function runEval(
       if (options.signal?.aborted) break
 
       const turn = evalDef.conversation[i]!
+      currentTurnIndex = i
+      currentPhase = 'routing'
       const turnMessage = turn.message ?? turn.user
       const actor = turn.actor ?? 'client'
       const target = turn.target?.relation ?? 'client'
@@ -432,29 +444,31 @@ export async function runEval(
       // Cross a conversation boundary under the same user. Ignored on the first turn.
       if (turn.newConversation && i > 0) {
         const newConversationId = await session.newConversation()
+        currentConversationId = newConversationId
         await collector.repoint({ conversationId: newConversationId })
         collectorConversationId = newConversationId
-        actorRouter = new ActorRouter(connection.client, {
-          primaryConversationId: newConversationId,
-          primaryUserId: session.userId,
-          relations: evalDef.setup?.relations ?? {},
-        })
+        actorRouter = new ActorRouter(
+          connection.client,
+          {
+            primaryConversationId: newConversationId,
+            primaryUserId: session.userId,
+            relations: evalDef.setup?.relations ?? {},
+          },
+          { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
+        )
       }
 
       const activeConversationId = directActorTurn
         ? await actorRouter.conversationId(target)
         : await session.ensureConversation()
+      currentConversationId = activeConversationId
       if (activeConversationId !== collectorConversationId) {
         await collector.repoint({ conversationId: activeConversationId })
         collectorConversationId = activeConversationId
       }
       const deliveredTo = normalizeTargets(turn.assert?.deliveredTo)
       const notDeliveredTo = normalizeTargets(turn.assert?.notDeliveredTo)
-      const observedTargets = [
-        ...(directActorTurn ? [target] : []),
-        ...deliveredTo,
-        ...notDeliveredTo,
-      ]
+      const observedTargets = [...(directActorTurn ? [target] : []), ...deliveredTo, ...notDeliveredTo]
       if (observedTargets.length > 0) {
         await actorRouter.startDeliveryObservation(observedTargets)
       }
@@ -462,6 +476,7 @@ export async function runEval(
       // Mark turn boundary, emit message, wait for handler completion via traces
       collector.startTurn()
       if (hasInput && !directActorTurn) session.startTurn()
+      currentPhase = 'dispatch'
 
       if (turn.control) {
         controlsUsed = true
@@ -492,26 +507,27 @@ export async function runEval(
         await session.sendMessage(turnMessage!)
       }
 
+      currentPhase = 'observation'
       try {
         // A user-message turn completes via handler.conversation; an event turn
         // via handler.event. Scoping the wait keeps async noise (e.g. a workflow
         // callback's silent handler.event) from releasing the turn early.
         const completion = hasInput
           ? collector.waitForTurnComplete({
-            timeout: idleTimeout,
-            acceptSpanNames:
-              turn.event || parallel.some((item) => item.event)
-                ? new Set(['handler.event'])
-                : new Set(['handler.conversation']),
-            // Long quiet window: a tool-started workflow and its callback only run
-            // AFTER the handler closes; sending the next message into that window
-            // can get it absorbed by their transcript saves and silently skipped.
-            settleQuietMs: 1_500,
-            settleMaxMs: 15_000,
-            // Event turns fail fast when nothing is subscribed (see the constant).
-            ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
-            ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
-          })
+              timeout: idleTimeout,
+              acceptSpanNames:
+                turn.event || parallel.some((item) => item.event)
+                  ? new Set(['handler.event'])
+                  : new Set(['handler.conversation']),
+              // Long quiet window: a tool-started workflow and its callback only run
+              // AFTER the handler closes; sending the next message into that window
+              // can get it absorbed by their transcript saves and silently skipped.
+              settleQuietMs: 1_500,
+              settleMaxMs: 15_000,
+              // Event turns fail fast when nothing is subscribed (see the constant).
+              ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
+              ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+            })
           : Promise.resolve()
         await (directActorTurn || !hasInput ? completion : session.raceWithListenerError(completion))
       } catch (err) {
@@ -532,34 +548,35 @@ export async function runEval(
           if (!expectsPositive) continue
           const wfSignal = wfAssert.completed ? 'completed' : 'entered'
           const workflowWait = collector.waitForWorkflow(wfAssert.name, {
-                signal: wfSignal,
-                timeout: idleTimeout,
-                ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
-              })
-          await (directActorTurn ? workflowWait : session.raceWithListenerError(workflowWait))
-            .catch((error) => {
-              if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
-              // Timeout is OK — the grader will report the failure
-            })
+            signal: wfSignal,
+            timeout: idleTimeout,
+            ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+          })
+          await (directActorTurn ? workflowWait : session.raceWithListenerError(workflowWait)).catch((error) => {
+            if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
+            // Timeout is OK — the grader will report the failure
+          })
         }
       }
 
       // Transform turn spans into grader-friendly data
-      let turnData = transformSpans(collector.getTurnSpans())
+      const turnSpans = collector.getTurnSpans()
+      currentTraceId =
+        turnSpans.find((span) => span.name.startsWith('handler.'))?.id.trace ??
+        turnSpans[turnSpans.length - 1]?.id.trace
+      let turnData = transformSpans(turnSpans)
       let responseMessages = !hasInput
         ? []
         : directActorTurn
-        ? await actorRouter.responsesFor(target)
-        : session.getTurnResponses()
+          ? await actorRouter.responsesFor(target)
+          : session.getTurnResponses()
 
       // The chat signal can land just after the trace completion snapshot.
       if (hasInput && !turn.expectSilence && responseMessages.length === 0 && turnData.handlerDuration > 0) {
         for (let waited = 0; waited < 600 && responseMessages.length === 0; waited += 150) {
           const delay = new Promise<void>((resolve) => setTimeout(resolve, 150))
           await (directActorTurn ? delay : session.raceWithListenerError(delay))
-          responseMessages = directActorTurn
-            ? await actorRouter.responsesFor(target)
-            : session.getTurnResponses()
+          responseMessages = directActorTurn ? await actorRouter.responsesFor(target) : session.getTurnResponses()
           if (turn.event) turnData = transformSpans(collector.getTurnSpans())
         }
       }
@@ -568,6 +585,7 @@ export async function runEval(
       const botDuration = turnData.handlerDuration
 
       const evalStart = Date.now()
+      currentPhase = 'grading'
       let assertions: GraderResult[] = []
       const noResponse = hasInput && !turn.expectSilence && responseMessages.length === 0
 
@@ -654,6 +672,8 @@ export async function runEval(
 
       const turnReport: TurnReport = {
         turnIndex: i,
+        conversationId: activeConversationId,
+        ...(currentTraceId ? { traceId: currentTraceId } : {}),
         ...(actor !== 'client' ? { actor } : {}),
         ...(target !== 'client' ? { target } : {}),
         userMessage: turnLabel,
@@ -673,6 +693,7 @@ export async function runEval(
         totalTurns: evalDef.conversation.length,
         turnReport,
       })
+      currentTraceId = undefined
     }
 
     // Outcome assertions (after all turns)
@@ -731,6 +752,21 @@ export async function runEval(
     // is reconciled, making the replay terminally impossible.
     if (err instanceof EvalProgressSinkError) throw err.sinkCause
 
+    // A timeout or listener failure can happen after the platform emitted a
+    // handler span but before the normal observation snapshot. Recover the
+    // trace correlation best-effort without letting diagnostics mask the
+    // original eval failure.
+    if (!currentTraceId && currentTurnIndex !== undefined) {
+      try {
+        const failureSpans = collector.getTurnSpans()
+        currentTraceId =
+          failureSpans.find((span) => span.name.startsWith('handler.'))?.id.trace ??
+          failureSpans[failureSpans.length - 1]?.id.trace
+      } catch {
+        // The original typed failure remains authoritative.
+      }
+    }
+
     // Preserve the stable code/expected flag on the report instead of
     // flattening everything to a message string. Unexpected (internal-bug)
     // failures are logged AND reported to the injected exception hook —
@@ -759,6 +795,13 @@ export async function runEval(
       duration: Date.now() - start,
       error: (err as Error).message,
       ...(evalErr ? { errorCode: evalErr.code } : {}),
+      diagnostic: {
+        code: evalErr?.code ?? 'EVAL_INTERNAL',
+        phase: currentPhase,
+        ...(currentTurnIndex !== undefined ? { turnIndex: currentTurnIndex } : {}),
+        ...(currentConversationId ? { conversationId: currentConversationId } : {}),
+        ...(currentTraceId ? { traceId: currentTraceId } : {}),
+      },
     }
   } finally {
     if (controlsUsed) {
@@ -818,7 +861,11 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
     }
   } else {
     validateEvalCapabilities(evals, LocalSpanSource.capabilities)
-    await assertChatChannelBound(config.devServerUrl || DEFAULT_DEV_SERVER_URL, config.devServerHeaders ?? {}, config.logger)
+    await assertChatChannelBound(
+      config.devServerUrl || DEFAULT_DEV_SERVER_URL,
+      config.devServerHeaders ?? {},
+      config.logger
+    )
     await assertTraceStreamReadable(config.devServerUrl || DEFAULT_DEV_SERVER_URL, config.devServerHeaders ?? {})
   }
 
@@ -876,7 +923,12 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
         ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
         sourcePreflighted: true,
       })
-      await config.onProgress?.({ type: 'eval_complete', evalName: evalDef.name, index: i, report })
+      await config.onProgress?.({
+        type: 'eval_complete',
+        evalName: evalDef.name,
+        index: i,
+        report,
+      })
       return report
     }
 

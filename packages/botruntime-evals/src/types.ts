@@ -68,6 +68,10 @@ export interface ToolCall {
 
 export interface TurnReport {
   turnIndex: number
+  /** Opaque platform correlation identifier; safe to persist, unlike message payloads. */
+  conversationId?: string
+  /** Correlates the turn with an existing trace without persisting span payloads in the eval report. */
+  traceId?: string
   actor?: string
   target?: string
   userMessage: string
@@ -82,6 +86,16 @@ export interface TurnReport {
 
 // --- Single eval report ---
 
+export type EvalExecutionPhase = 'setup' | 'routing' | 'dispatch' | 'observation' | 'grading'
+
+export interface EvalDiagnostic {
+  code: EvalErrorCode
+  phase: EvalExecutionPhase
+  turnIndex?: number
+  conversationId?: string
+  traceId?: string
+}
+
 export interface EvalReport {
   name: string
   description?: string
@@ -94,6 +108,8 @@ export interface EvalReport {
   error?: string
   /** Stable EvalErrorCode when `error` came from a typed EvalRunnerError — lets consumers distinguish setup/config failures from bot failures. */
   errorCode?: EvalErrorCode
+  /** Privacy-safe execution context. Raw messages, evaluator evidence, and error text are intentionally excluded. */
+  diagnostic?: EvalDiagnostic
 }
 
 // --- Progress event for real-time UI updates ---
@@ -117,7 +133,12 @@ export type EvalProgressEvent =
       totalTurns: number
       turnReport: TurnReport
     }
-  | { type: 'eval_complete'; evalName: string; index: number; report: EvalReport }
+  | {
+      type: 'eval_complete'
+      evalName: string
+      index: number
+      report: EvalReport
+    }
   | { type: 'suite_complete'; report: EvalRunReport; error?: string }
 
 // --- Eval run report (full suite) ---
@@ -242,7 +263,10 @@ export interface EvalRunnerConfig {
 }
 
 export interface EvalControl {
-  advanceClock(input: { milliseconds: number; runDueWorkflows?: boolean }): Promise<{ virtualNow: string; releasedJobs: number }>
+  advanceClock(input: {
+    milliseconds: number
+    runDueWorkflows?: boolean
+  }): Promise<{ virtualNow: string; releasedJobs: number }>
   configureFaults(faults: NonNullable<NonNullable<_ConversationTurn['control']>['faults']>): Promise<void>
   clearFaults(): Promise<void>
 }

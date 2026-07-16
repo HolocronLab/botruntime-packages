@@ -107,7 +107,11 @@ describe('brt eval public contract', () => {
     stdout = ''
     stderr = ''
     originalFetch = globalThis.fetch
-    prepareHostedEvalManifest.mockReset().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
+    prepareHostedEvalManifest.mockReset().mockResolvedValue({
+      manifestFileId: 'manifest_1',
+      evals: 1,
+      fixtures: 0,
+    })
 
     fs.writeFileSync(
       path.join(botpressHome, 'profiles.json'),
@@ -167,8 +171,14 @@ describe('brt eval public contract', () => {
               }),
               judgeModel: expect.objectContaining({ type: 'string' }),
               repeat: expect.objectContaining({ type: 'number', default: 1 }),
-              maxConcurrency: expect.objectContaining({ type: 'number', default: 1 }),
-              minPassRate: expect.objectContaining({ type: 'number', default: 1 }),
+              maxConcurrency: expect.objectContaining({
+                type: 'number',
+                default: 1,
+              }),
+              minPassRate: expect.objectContaining({
+                type: 'number',
+                default: 1,
+              }),
               dev: expect.objectContaining({ type: 'boolean' }),
             }),
           }),
@@ -415,7 +425,11 @@ describe('brt eval public contract', () => {
                 entry({
                   durationMs: 1_000.5,
                   results: [
-                    result({ assertionKind: 'delivered_to', botDurationMs: 100.125, graderDurationMs: 5.75 }),
+                    result({
+                      assertionKind: 'delivered_to',
+                      botDurationMs: 100.125,
+                      graderDurationMs: 5.75,
+                    }),
                   ],
                 }),
               ],
@@ -473,6 +487,43 @@ describe('brt eval public contract', () => {
 
     expect(response.exitCode).toBe(0)
     expect(stdout).toMatch(/101.*completed.*manual.*2026-07-10T10:00:00\.000Z/i)
+  })
+
+  it('prints privacy-safe execution diagnostics with an exact trace lookup command', async () => {
+    stubFetch(async () =>
+      json(
+        detail({
+          entries: [
+            entry({
+              passed: false,
+              errorKind: 'chat',
+              errorCode: 'CHAT_PAYLOAD_INVALID',
+              errorPhase: 'observation',
+              errorTurnIndex: 0,
+              conversationId: 'conv_eval_1',
+              traceId: '0123456789abcdef0123456789abcdef',
+              results: [
+                result({
+                  passed: false,
+                  conversationId: 'conv_eval_1',
+                  traceId: '0123456789abcdef0123456789abcdef',
+                }),
+              ],
+            }),
+          ],
+        })
+      )
+    )
+
+    const response = await runsCommand({
+      runId: '101',
+      verbose: true,
+    }).handler()
+
+    expect(response.exitCode).toBe(0)
+    expect(stdout).toMatch(/CHAT_PAYLOAD_INVALID.*observation.*turn=0/i)
+    expect(stdout).toContain('brt traces --conversation-id conv_eval_1')
+    expect(stdout).toContain('0123456789abcdef0123456789abcdef')
   })
 
   it('starts the hosted workflow with real Botpress-compatible filters and returns the persisted result', async () => {
@@ -593,7 +644,13 @@ describe('brt eval public contract', () => {
           workflow: {
             id: 'wf_1',
             status: 'completed',
-            output: { runId: '101', passed: 1, failed: 0, total: 1, duration: 100 },
+            output: {
+              runId: '101',
+              passed: 1,
+              failed: 0,
+              total: 1,
+              duration: 100,
+            },
           },
         })
       if (index === 2) return json(detail())
@@ -603,7 +660,13 @@ describe('brt eval public contract', () => {
           workflow: {
             id: 'wf_2',
             status: 'completed',
-            output: { runId: '102', passed: 0, failed: 1, total: 1, duration: 300 },
+            output: {
+              runId: '102',
+              passed: 0,
+              failed: 1,
+              total: 1,
+              duration: 300,
+            },
           },
         })
       return json(
@@ -696,6 +759,43 @@ describe('brt eval public contract', () => {
     expect(response.exitCode).toBe(1)
     expect(stderr).toMatch(/workflow failed|redeploy|traces/i)
     expect(stdout + stderr).not.toContain('customer secret')
+  })
+
+  it('turns the allowlisted delivery failure into dev-tunnel remediation', async () => {
+    writeDevTarget()
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({
+            bot: {
+              id: DEV_RUNTIME_BOT_ID,
+              dev: true,
+              tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID },
+            },
+          })
+        : index === 1
+          ? json({ ready: true })
+          : index === 2
+            ? json(
+                {
+                  workflow: { id: 'workflow_1', status: 'pending', output: {} },
+                },
+                201
+              )
+            : json({
+                workflow: {
+                  id: 'workflow_1',
+                  status: 'failed',
+                  output: {},
+                  failureReason: 'workflow delivery unavailable',
+                },
+              })
+    )
+
+    const response = await runCommand({ dev: true, verbose: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(stderr).toMatch(/delivery unavailable.*brt dev.*tunnel/i)
+    expect(stderr).not.toMatch(/redeploy the bot/i)
   })
 
   it.each([

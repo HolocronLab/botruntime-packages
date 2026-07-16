@@ -12,6 +12,7 @@ type PlatformMessage = {
   direction: 'incoming' | 'outgoing'
   conversationId: string
   userId: string
+  type: Message['payload']['type']
   payload: Message['payload']
 }
 
@@ -73,7 +74,10 @@ class NativeConversationListener {
         this.emit('message_created', {
           id: message.id,
           createdAt: message.createdAt,
-          payload: message.payload,
+          payload: {
+            ...message.payload,
+            type: message.type,
+          } as Message['payload'],
           userId: message.userId,
           conversationId: message.conversationId,
           isBot: true,
@@ -114,14 +118,19 @@ class NativeConversationListener {
 export function createNativeEvalChatClient(client: BotruntimeClient): ChatClient {
   return {
     connect: async () => {
-      const { user } = await client.createUser({ name: `eval:${Date.now()}`, tags: {} })
+      const { user } = await client.createUser({
+        name: `eval:${Date.now()}`,
+        tags: {},
+      })
       return {
         user,
         createConversation: async () =>
           client.createConversation({
             channel: 'eval',
             integrationName: NATIVE_EVAL_INTEGRATION,
-            tags: { id: `eval:${Date.now()}:${Math.random().toString(36).slice(2)}` },
+            tags: {
+              id: `eval:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+            },
           }),
         createMessage: async ({ conversationId, payload }: { conversationId: string; payload: Message['payload'] }) =>
           client.createMessage({
@@ -132,8 +141,19 @@ export function createNativeEvalChatClient(client: BotruntimeClient): ChatClient
             tags: {},
             origin: 'synthetic',
           }),
-        createEvent: async ({ conversationId, payload }: { conversationId: string; payload: Record<string, unknown> }) =>
-          client.createEvent({ type: 'eval:event', payload, conversationId, userId: user.id }),
+        createEvent: async ({
+          conversationId,
+          payload,
+        }: {
+          conversationId: string
+          payload: Record<string, unknown>
+        }) =>
+          client.createEvent({
+            type: 'eval:event',
+            payload,
+            conversationId,
+            userId: user.id,
+          }),
         listenConversation: ({ id }: { id: string }) => NativeConversationListener.connect(client, id),
       } as unknown as AuthenticatedClient
     },

@@ -1,5 +1,15 @@
 import type { EvalDefinition } from '../definition'
-import type { EvalFilter, EvalProgressEvent, EvalReport, EvalRunReport, TurnReport, GraderResult } from '../types'
+import type {
+  EvalDiagnostic,
+  EvalExecutionPhase,
+  EvalFilter,
+  EvalProgressEvent,
+  EvalReport,
+  EvalRunReport,
+  TurnReport,
+  GraderResult,
+} from '../types'
+import { EVAL_ERROR_CODES } from '../errors'
 import type {
   EvalStore,
   EvalSummary,
@@ -38,6 +48,8 @@ interface VortexEvalResult {
   score: number | null
   botDurationMs: number | null
   graderDurationMs: number | null
+  conversationId: string | null
+  traceId: string | null
   createdAt: string
 }
 
@@ -51,6 +63,11 @@ interface VortexEvalEntry {
   passed: boolean | null
   durationMs: number | null
   errorKind: VortexEvalErrorKind | null
+  errorCode: EvalDiagnostic['code'] | null
+  errorPhase: EvalExecutionPhase | null
+  errorTurnIndex: number | null
+  conversationId: string | null
+  traceId: string | null
   createdAt: string
   results: VortexEvalResult[]
 }
@@ -64,6 +81,8 @@ interface VortexResultInput {
   score?: number
   botDurationMs?: number
   graderDurationMs?: number
+  conversationId?: string
+  traceId?: string
 }
 
 type VortexRunWithEntries = VortexEvalRun & { entries: VortexEvalEntry[] }
@@ -129,6 +148,7 @@ export interface VortexEvalStoreConfig {
 }
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+const TRACE_ID = /^[0-9a-f]{32}$/i
 const MAX_EVALS_PER_RUN = 128
 const MAX_TURNS_PER_EVAL = 1024
 const MAX_RESULTS_PER_BATCH = 64
@@ -138,6 +158,8 @@ const MAX_TAGS_PER_EVAL = 32
 const MAX_EVAL_NAME_BYTES = 128
 const MAX_TAG_BYTES = 64
 const MAX_DURATION_MS = 86_400_000
+const EVAL_ERROR_CODE_SET = new Set<string>(EVAL_ERROR_CODES)
+const EVAL_EXECUTION_PHASES = new Set<EvalExecutionPhase>(['setup', 'routing', 'dispatch', 'observation', 'grading'])
 
 function configFailure(message: string): never {
   throw new VortexEvalStoreError(message, 'configuration')
@@ -145,6 +167,28 @@ function configFailure(message: string): never {
 
 function isSafeIdentifier(value: unknown, maxBytes: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxBytes && SAFE_IDENTIFIER.test(value)
+}
+
+function validateCorrelation(conversationId?: string, traceId?: string): void {
+  if (conversationId !== undefined && !isSafeIdentifier(conversationId, 128)) {
+    configFailure('hosted eval conversationId is invalid')
+  }
+  if (traceId !== undefined && !TRACE_ID.test(traceId)) {
+    configFailure('hosted eval traceId is invalid')
+  }
+}
+
+function validateDiagnostic(diagnostic?: EvalDiagnostic): void {
+  if (diagnostic === undefined) return
+  if (!EVAL_ERROR_CODE_SET.has(diagnostic.code)) configFailure('hosted eval error code is invalid')
+  if (!EVAL_EXECUTION_PHASES.has(diagnostic.phase)) configFailure('hosted eval error phase is invalid')
+  if (
+    diagnostic.turnIndex !== undefined &&
+    (!Number.isInteger(diagnostic.turnIndex) || diagnostic.turnIndex < 0 || diagnostic.turnIndex >= MAX_TURNS_PER_EVAL)
+  ) {
+    configFailure('hosted eval error turnIndex must be between 0 and 1023')
+  }
+  validateCorrelation(diagnostic.conversationId, diagnostic.traceId)
 }
 
 function assertionArrayLength(value: unknown, field: string): number {
@@ -167,7 +211,11 @@ function conversationModeAssertionLength(value: unknown): number {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     configFailure('conversation mode assertion must be an object')
   }
-  const assertion = value as { target?: unknown; equals?: unknown; property?: unknown }
+  const assertion = value as {
+    target?: unknown
+    equals?: unknown
+    property?: unknown
+  }
   if (
     typeof assertion.target !== 'string' ||
     assertion.target.length === 0 ||
@@ -197,7 +245,10 @@ function projectedTurnResults(turn: unknown): number {
       conversationMode?: unknown
     }
   }
-  if (value.assert !== undefined && (value.assert === null || typeof value.assert !== 'object' || Array.isArray(value.assert))) {
+  if (
+    value.assert !== undefined &&
+    (value.assert === null || typeof value.assert !== 'object' || Array.isArray(value.assert))
+  ) {
     configFailure('hosted eval turn assertions must be an object')
   }
   const response = assertionArrayLength(value.assert?.response, 'response assertions')
@@ -287,11 +338,11 @@ function validDuration(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_DURATION_MS
 }
 
-function validateEntryProjection(meta: {
-  evalName: unknown
-  evalType?: unknown
-  tags?: unknown
-}): asserts meta is { evalName: string; evalType?: 'capability' | 'regression'; tags?: string[] } {
+function validateEntryProjection(meta: { evalName: unknown; evalType?: unknown; tags?: unknown }): asserts meta is {
+  evalName: string
+  evalType?: 'capability' | 'regression'
+  tags?: string[]
+} {
   if (!isSafeIdentifier(meta.evalName, MAX_EVAL_NAME_BYTES)) {
     configFailure('hosted eval names must be safe ASCII identifiers of at most 128 bytes')
   }
@@ -338,6 +389,7 @@ function validateResultBatch(results: VortexResultInput[]): void {
     if (result.graderDurationMs !== undefined && !validDuration(result.graderDurationMs)) {
       configFailure('hosted eval graderDurationMs is invalid')
     }
+    validateCorrelation(result.conversationId, result.traceId)
   }
 }
 
@@ -348,7 +400,11 @@ function validateReportProjection(reports: EvalReport[]): void {
   const names = new Set<string>()
   let totalResults = 0
   for (const report of reports) {
-    validateEntryProjection({ evalName: report.name, evalType: report.type, tags: report.tags })
+    validateEntryProjection({
+      evalName: report.name,
+      evalType: report.type,
+      tags: report.tags,
+    })
     if (names.has(report.name)) configFailure('hosted eval report names must be unique')
     names.add(report.name)
     if (!validDuration(report.duration)) configFailure('hosted eval duration is invalid')
@@ -409,6 +465,8 @@ function vortexEntryToEvalReport(entry: VortexEvalEntry): EvalReport {
       const first = results[0]!
       return {
         turnIndex,
+        ...(first.conversationId ? { conversationId: first.conversationId } : {}),
+        ...(first.traceId ? { traceId: first.traceId } : {}),
         userMessage: '',
         botResponse: '',
         assertions,
@@ -427,6 +485,18 @@ function vortexEntryToEvalReport(entry: VortexEvalEntry): EvalReport {
     pass: entry.passed ?? false,
     duration: entry.durationMs ?? 0,
     error: entry.errorKind ?? undefined,
+    ...(entry.errorCode ? { errorCode: entry.errorCode } : {}),
+    ...(entry.errorCode && entry.errorPhase
+      ? {
+          diagnostic: {
+            code: entry.errorCode,
+            phase: entry.errorPhase,
+            ...(typeof entry.errorTurnIndex === 'number' ? { turnIndex: entry.errorTurnIndex } : {}),
+            ...(entry.conversationId ? { conversationId: entry.conversationId } : {}),
+            ...(entry.traceId ? { traceId: entry.traceId } : {}),
+          },
+        }
+      : {}),
   }
 }
 
@@ -448,19 +518,32 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (it
 function turnToResultRows(turn: TurnReport): VortexResultInput[] {
   const context = {
     turnIndex: turn.turnIndex,
+    ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
+    ...(turn.traceId ? { traceId: turn.traceId } : {}),
     botDurationMs: turn.botDuration,
     graderDurationMs: turn.evalDuration,
   }
   if (turn.assertions.length === 0) {
-    return [{ ...context, assertionKind: 'response', passed: turn.pass, skipped: false }]
+    return [
+      {
+        ...context,
+        assertionKind: 'response',
+        passed: turn.pass,
+        skipped: false,
+      },
+    ]
   }
   return graderResultsToRows(turn.assertions, context)
 }
 
 function outcomeToResultRows(assertions: GraderResult[]): VortexResultInput[] {
-  return graderResultsToRows(assertions, {
-    turnIndex: OUTCOME_TURN_INDEX,
-  }, 'outcome')
+  return graderResultsToRows(
+    assertions,
+    {
+      turnIndex: OUTCOME_TURN_INDEX,
+    },
+    'outcome'
+  )
 }
 
 function graderResultsToRows(
@@ -557,6 +640,9 @@ const CONFIGURATION_ERROR_CODES = new Set([
   'EVAL_SEED_NO_CONVERSATION',
   'EVAL_NO_CONVERSATION_ID',
   'EVAL_TURN_CONFIG_INVALID',
+  'EVAL_RELATION_UNDECLARED',
+  'EVAL_RELATION_NOT_FOUND',
+  'EVAL_RELATION_AMBIGUOUS',
   'EVAL_OBSERVATION_UNSUPPORTED',
 ])
 const TRACE_READER_ERROR_CODES = new Set(['SSE_CONNECT_FAILED', 'SSE_NO_BODY'])
@@ -566,6 +652,7 @@ const CHAT_ERROR_CODES = new Set([
   'CHAT_LISTENER_FAILED',
   'CHAT_INTEGRATION_MISSING',
   'CHAT_CHANNEL_UNBOUND',
+  'CHAT_PAYLOAD_INVALID',
 ])
 
 function errorCodeOf(value: unknown): string | undefined {
@@ -585,9 +672,7 @@ export function classifyVortexEvalError(error: unknown): VortexEvalErrorKind {
   return 'internal'
 }
 
-export function classifyVortexEvalReport(
-  report: EvalReport
-): VortexEvalErrorKind | undefined {
+export function classifyVortexEvalReport(report: EvalReport): VortexEvalErrorKind | undefined {
   if (report.error === undefined) return undefined
   if (report.errorCode === 'EVAL_ABORTED') return 'aborted'
   if (report.errorCode && CONFIGURATION_ERROR_CODES.has(report.errorCode)) return 'configuration'
@@ -657,10 +742,7 @@ export class VortexEvalStore implements EvalStore {
 
   // ── Run lifecycle — write ───────────────────────────────────────────
 
-  async createRun(
-    runType: 'manual' | 'scheduled' = 'scheduled',
-    options?: EvalRunCreateOptions
-  ): Promise<string> {
+  async createRun(runType: 'manual' | 'scheduled' = 'scheduled', options?: EvalRunCreateOptions): Promise<string> {
     if (runType !== 'manual' && runType !== 'scheduled') {
       throw new VortexEvalStoreError('Vortex eval triggerType is malformed', 'configuration')
     }
@@ -671,8 +753,7 @@ export class VortexEvalStore implements EvalStore {
       throw new VortexEvalStoreError('hosted eval definitions are required before creating a run', 'configuration')
     }
     validateHostedEvalDefinitions(options.definitions)
-    const evalManifestId =
-      typeof this._evalManifestId === 'function' ? this._evalManifestId() : this._evalManifestId
+    const evalManifestId = typeof this._evalManifestId === 'function' ? this._evalManifestId() : this._evalManifestId
     if (!isSafeIdentifier(evalManifestId, MAX_EVAL_NAME_BYTES)) {
       throw new VortexEvalStoreError('evalManifestId is required to create a Vortex eval run', 'configuration')
     }
@@ -711,9 +792,7 @@ export class VortexEvalStore implements EvalStore {
     await this.reconcileRunResults(runId, report)
     const firstExecutionError = report.aborted
       ? 'aborted'
-      : report.evals
-          .map((evalReport) => classifyVortexEvalReport(evalReport))
-          .find((kind) => kind !== undefined)
+      : report.evals.map((evalReport) => classifyVortexEvalReport(evalReport)).find((kind) => kind !== undefined)
     await this.markRunComplete(runId, {
       ...(report.aborted ? { aborted: true } : {}),
       ...(firstExecutionError ? { errorKind: firstExecutionError } : {}),
@@ -735,6 +814,7 @@ export class VortexEvalStore implements EvalStore {
       passed: evalReport.pass,
       durationMs: evalReport.duration,
       ...(errorKind ? { errorKind } : {}),
+      ...(evalReport.diagnostic ? { diagnostic: evalReport.diagnostic } : {}),
     })
   }
 
@@ -751,7 +831,11 @@ export class VortexEvalStore implements EvalStore {
   /** Create an in-progress entry (metadata only, no results) and return its server id. */
   async startEntry(
     runId: string,
-    meta: { evalName: string; evalType?: 'capability' | 'regression'; tags?: string[] }
+    meta: {
+      evalName: string
+      evalType?: 'capability' | 'regression'
+      tags?: string[]
+    }
   ): Promise<string> {
     validateEntryProjection(meta)
     const safeRunId = this.requireDatabaseId(runId, 'run')
@@ -810,13 +894,22 @@ export class VortexEvalStore implements EvalStore {
   async finalizeEntry(
     runId: string,
     entryId: string,
-    verdict: { passed: boolean; durationMs?: number; errorKind?: VortexEvalErrorKind }
+    verdict: {
+      passed: boolean
+      durationMs?: number
+      errorKind?: VortexEvalErrorKind
+      diagnostic?: EvalDiagnostic
+    }
   ): Promise<void> {
     if (verdict.durationMs !== undefined && !validDuration(verdict.durationMs)) {
       configFailure('hosted eval durationMs is invalid')
     }
     if (verdict.errorKind !== undefined && !ERROR_KIND_SET.has(verdict.errorKind)) {
       configFailure('hosted eval errorKind is invalid')
+    }
+    validateDiagnostic(verdict.diagnostic)
+    if (verdict.diagnostic !== undefined && (verdict.passed || verdict.errorKind === undefined)) {
+      configFailure('hosted eval diagnostic requires passed=false and an errorKind')
     }
     const safeRunId = this.requireDatabaseId(runId, 'run')
     const safeEntryId = this.requireDatabaseId(entryId, 'entry')
@@ -827,6 +920,17 @@ export class VortexEvalStore implements EvalStore {
         passed: verdict.passed,
         ...(verdict.durationMs !== undefined ? { durationMs: verdict.durationMs } : {}),
         ...(verdict.errorKind !== undefined ? { errorKind: verdict.errorKind } : {}),
+        ...(verdict.diagnostic !== undefined
+          ? {
+              errorCode: verdict.diagnostic.code,
+              errorPhase: verdict.diagnostic.phase,
+              ...(verdict.diagnostic.turnIndex !== undefined ? { errorTurnIndex: verdict.diagnostic.turnIndex } : {}),
+              ...(verdict.diagnostic.conversationId !== undefined
+                ? { conversationId: verdict.diagnostic.conversationId }
+                : {}),
+              ...(verdict.diagnostic.traceId !== undefined ? { traceId: verdict.diagnostic.traceId } : {}),
+            }
+          : {}),
       }),
     })
     await this.requireOkResponse(res, 'finalize entry')
@@ -1014,7 +1118,12 @@ export class VortexEvalStore implements EvalStore {
 
           if (!startedEvals.has(entry.evalName)) {
             startedEvals.add(entry.evalName)
-            yield { type: 'eval_start', evalName: entry.evalName, index: i, totalTurns }
+            yield {
+              type: 'eval_start',
+              evalName: entry.evalName,
+              index: i,
+              totalTurns,
+            }
           }
           for (const turn of evalReport.turns) {
             const turnKey = `${entry.evalName}::${turn.turnIndex}`
@@ -1032,7 +1141,12 @@ export class VortexEvalStore implements EvalStore {
           // Verdict set (passed non-null) → the eval is done.
           if (entry.passed != null && !finalizedEvals.has(entry.evalName)) {
             finalizedEvals.add(entry.evalName)
-            yield { type: 'eval_complete', evalName: entry.evalName, index: i, report: evalReport }
+            yield {
+              type: 'eval_complete',
+              evalName: entry.evalName,
+              index: i,
+              report: evalReport,
+            }
           } else if (entry.passed == null && !terminal) {
             // Still running: announce the next expected turn so the UI renders
             // the in-flight turn (its user message + spinner) instead of jumping
@@ -1062,7 +1176,12 @@ export class VortexEvalStore implements EvalStore {
             const evalReport = finalReport.evals[i]!
             if (finalizedEvals.has(evalReport.name)) continue
             finalizedEvals.add(evalReport.name)
-            yield { type: 'eval_complete', evalName: evalReport.name, index: i, report: evalReport }
+            yield {
+              type: 'eval_complete',
+              evalName: evalReport.name,
+              index: i,
+              report: evalReport,
+            }
           }
           yield {
             type: 'suite_complete',
@@ -1132,7 +1251,10 @@ export class VortexEvalStore implements EvalStore {
       return new Map(
         defs.map((d) => [
           d.name,
-          { totalTurns: d.conversation.length, userMessages: d.conversation.map((t) => t.user ?? '') },
+          {
+            totalTurns: d.conversation.length,
+            userMessages: d.conversation.map((t) => t.user ?? ''),
+          },
         ])
       )
     } catch {
@@ -1197,11 +1319,7 @@ export class VortexEvalStore implements EvalStore {
     }
   }
 
-  private requireDatabaseId(
-    value: unknown,
-    operation: string,
-    kind: VortexEvalErrorKind = 'configuration'
-  ): string {
+  private requireDatabaseId(value: unknown, operation: string, kind: VortexEvalErrorKind = 'configuration'): string {
     if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) {
       throw new VortexEvalStoreError(`Vortex ${operation} has a malformed id`, kind)
     }

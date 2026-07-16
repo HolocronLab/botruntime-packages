@@ -73,6 +73,7 @@ export class HostedEvalLifecycle {
       passed: event.report.pass,
       durationMs: event.report.duration,
       ...(errorKind ? { errorKind } : {}),
+      ...(event.report.diagnostic ? { diagnostic: event.report.diagnostic } : {}),
     })
   }
 
@@ -92,9 +93,7 @@ export class HostedEvalLifecycle {
   completionOf(report: EvalRunReport): HostedEvalCompletion {
     const errorKind = report.aborted
       ? 'aborted'
-      : report.evals
-          .map((evalReport) => classifyVortexEvalReport(evalReport))
-          .find((kind) => kind !== undefined)
+      : report.evals.map((evalReport) => classifyVortexEvalReport(evalReport)).find((kind) => kind !== undefined)
     return {
       ...(report.aborted ? { aborted: true } : {}),
       ...(errorKind ? { errorKind } : {}),
@@ -145,10 +144,7 @@ export class HostedEvalLifecycle {
     return entryId
   }
 
-  private async finalizeMissingDefinitions(
-    presentNames: Set<string>,
-    errorKind: VortexEvalErrorKind
-  ): Promise<void> {
+  private async finalizeMissingDefinitions(presentNames: Set<string>, errorKind: VortexEvalErrorKind): Promise<void> {
     for (const definition of this.definitions) {
       if (presentNames.has(definition.name)) continue
       const entryId = await this.startDefinition(definition)

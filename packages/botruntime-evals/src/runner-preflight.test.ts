@@ -4,11 +4,21 @@ import { CognitiveBeta } from '@holocronlab/botruntime-cognitive'
 import { describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition, Span, SpanSource, SpanSourceCapabilities } from './types'
 import type { ChatClient } from './types'
-import { isPartialEvalSuiteAbort, runEval, runEvalSuite, validateEvalCapabilities, validateEvalControlCapabilities } from './runner'
+import {
+  isPartialEvalSuiteAbort,
+  runEval,
+  runEvalSuite,
+  validateEvalCapabilities,
+  validateEvalControlCapabilities,
+} from './runner'
 
 function completedHandler(): Span {
   return {
-    id: { trace: '0123456789abcdef0123456789abcdef', span: '0123456789abcdef', parent: null },
+    id: {
+      trace: '0123456789abcdef0123456789abcdef',
+      span: '0123456789abcdef',
+      parent: null,
+    },
     name: 'handler.conversation',
     label: 'handler.conversation',
     status: 'ok',
@@ -62,17 +72,30 @@ function chatHarness(response = 'listener response') {
     }),
     createEvent: vi.fn().mockResolvedValue({}),
   }
-  const chatClient = { connect: vi.fn().mockResolvedValue(authenticatedClient) } as unknown as ChatClient
+  const chatClient = {
+    connect: vi.fn().mockResolvedValue(authenticatedClient),
+  } as unknown as ChatClient
   return { authenticatedClient, chatClient }
 }
 
 const basicEval: EvalDefinition = {
   name: 'listener-observation',
-  conversation: [{ user: 'hello', assert: { response: [{ contains: 'listener response' }] } }],
+  conversation: [
+    {
+      user: 'hello',
+      assert: { response: [{ contains: 'listener response' }] },
+    },
+  ],
 }
 
-const cloudCapabilities: SpanSourceCapabilities = { toolParameters: false, stateMutations: false }
-const localCapabilities: SpanSourceCapabilities = { toolParameters: true, stateMutations: true }
+const cloudCapabilities: SpanSourceCapabilities = {
+  toolParameters: false,
+  stateMutations: false,
+}
+const localCapabilities: SpanSourceCapabilities = {
+  toolParameters: true,
+  stateMutations: true,
+}
 
 function validSuiteClient(): BpClient {
   return {
@@ -80,7 +103,10 @@ function validSuiteClient(): BpClient {
     callAction: vi.fn(),
     config: {
       apiUrl: 'https://api.example',
-      headers: { 'x-bot-id': 'runtime-bot', Authorization: 'Bearer runtime-token' },
+      headers: {
+        'x-bot-id': 'runtime-bot',
+        Authorization: 'Bearer runtime-token',
+      },
     },
   } as unknown as BpClient
 }
@@ -101,14 +127,26 @@ describe('eval observation capability preflight', () => {
     [
       {
         name: 'tool-input',
-        conversation: [{ user: 'x', assert: { tools: [{ called: 'search', params: { q: 'private' } }] } }],
+        conversation: [
+          {
+            user: 'x',
+            assert: { tools: [{ called: 'search', params: { q: 'private' } }] },
+          },
+        ],
       },
       /tool parameter/i,
     ],
     [
       {
         name: 'turn-state',
-        conversation: [{ user: 'x', assert: { state: [{ path: 'conversation.private', changed: true }] } }],
+        conversation: [
+          {
+            user: 'x',
+            assert: {
+              state: [{ path: 'conversation.private', changed: true }],
+            },
+          },
+        ],
       },
       /state assertion/i,
     ],
@@ -128,19 +166,22 @@ describe('eval observation capability preflight', () => {
 
   it('keeps safe tool name assertions available', () => {
     expect(() =>
-      validateEvalCapabilities([
-        {
-          name: 'safe-tools',
-          conversation: [
-            {
-              user: 'x',
-              assert: {
-                tools: [{ called: 'search' }, { not_called: 'delete' }, { call_order: ['search', 'answer'] }],
+      validateEvalCapabilities(
+        [
+          {
+            name: 'safe-tools',
+            conversation: [
+              {
+                user: 'x',
+                assert: {
+                  tools: [{ called: 'search' }, { not_called: 'delete' }, { call_order: ['search', 'answer'] }],
+                },
               },
-            },
-          ],
-        },
-      ], cloudCapabilities)
+            ],
+          },
+        ],
+        cloudCapabilities
+      )
     ).not.toThrow()
   })
 
@@ -150,7 +191,10 @@ describe('eval observation capability preflight', () => {
       conversation: [
         {
           parallel: [{ message: 'a' }, { message: 'b' }],
-          control: { advanceClock: { milliseconds: 72 * 60 * 60 * 1000 }, faults: [{ point: 'workflow.after_dispatch' }] },
+          control: {
+            advanceClock: { milliseconds: 72 * 60 * 60 * 1000 },
+            faults: [{ point: 'workflow.after_dispatch' }],
+          },
         },
       ],
     }
@@ -183,7 +227,14 @@ describe('eval observation capability preflight', () => {
   it('rejects undeclared tool output assertion syntax even when local payloads are rich', () => {
     const definition = {
       name: 'unsupported-output-syntax',
-      conversation: [{ user: 'x', assert: { tools: [{ called: 'search', output: { contains: 'secret' } }] } }],
+      conversation: [
+        {
+          user: 'x',
+          assert: {
+            tools: [{ called: 'search', output: { contains: 'secret' } }],
+          },
+        },
+      ],
     } as unknown as EvalDefinition
 
     expect(() => validateEvalCapabilities([definition], localCapabilities)).toThrow(/tool input\/output/i)
@@ -191,15 +242,21 @@ describe('eval observation capability preflight', () => {
 
   it('fails trace-reader auth before listener or message mutations in direct runEval', async () => {
     const readerError = new Error('Vortex trace reader failed with HTTP 403')
-    const source = spanSource({ assertReadable: vi.fn().mockRejectedValue(readerError) })
+    const source = spanSource({
+      assertReadable: vi.fn().mockRejectedValue(readerError),
+    })
     const { authenticatedClient, chatClient } = chatHarness()
 
     await expect(
-      runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, {
-        spanSource: source,
-        chatClient,
-        chatWebhookId: 'webhook',
-      })
+      runEval(
+        basicEval,
+        { client: {} as BpClient, botId: 'runtime-bot' },
+        {
+          spanSource: source,
+          chatClient,
+          chatWebhookId: 'webhook',
+        }
+      )
     ).rejects.toThrow(/HTTP 403/)
 
     expect(chatClient.connect).not.toHaveBeenCalled()
@@ -211,16 +268,59 @@ describe('eval observation capability preflight', () => {
     const source = spanSource()
     const { authenticatedClient, chatClient } = chatHarness()
 
-    const report = await runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, {
-      spanSource: source,
-      chatClient,
-      chatWebhookId: 'webhook',
-    })
+    const report = await runEval(
+      basicEval,
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      {
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+      }
+    )
 
     expect(report.error).toBeUndefined()
-    expect(report.turns[0]).toMatchObject({ botResponse: 'listener response', pass: true })
+    expect(report.turns[0]).toMatchObject({
+      botResponse: 'listener response',
+      pass: true,
+      conversationId: 'conv-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    })
     expect(authenticatedClient.createMessage).toHaveBeenCalledOnce()
     expect(source.disconnect).toHaveBeenCalledOnce()
+  })
+
+  it('returns safe execution diagnostics when a turn fails before traces are available', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    authenticatedClient.createMessage.mockImplementationOnce(async () => {
+      const listener = await authenticatedClient.listenConversation.mock.results[0]?.value
+      void listener
+      throw Object.assign(new Error('invalid response payload'), {
+        code: 'CHAT_PAYLOAD_INVALID',
+        expected: true,
+      })
+    })
+
+    const report = await runEval(
+      basicEval,
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      {
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+      }
+    )
+
+    expect(report).toMatchObject({
+      pass: false,
+      diagnostic: {
+        code: 'EVAL_INTERNAL',
+        phase: 'dispatch',
+        turnIndex: 0,
+        conversationId: 'conv-1',
+      },
+    })
+    expect(report.diagnostic).not.toHaveProperty('message')
   })
 
   it('resolves attachments before the turn and sends no signed URL to progress or reports', async () => {
@@ -242,7 +342,13 @@ describe('eval observation capability preflight', () => {
         conversation: [{ user: 'document', attachments: [{ fixture: 'ddu-valid' }] }],
       },
       { client: {} as BpClient, botId: 'runtime-bot' },
-      { spanSource: source, chatClient, chatWebhookId: 'webhook', resolveFixture, onProgress }
+      {
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        resolveFixture,
+        onProgress,
+      }
     )
 
     expect(resolveFixture).toHaveBeenCalledWith('ddu-valid', expect.objectContaining({ botId: 'runtime-bot' }))
@@ -252,7 +358,11 @@ describe('eval observation capability preflight', () => {
         type: 'bloc',
         items: [
           { type: 'text', text: 'document' },
-          { type: 'file', fileUrl: 'https://signed.example/file?token=secret', title: 'D.pdf' },
+          {
+            type: 'file',
+            fileUrl: 'https://signed.example/file?token=secret',
+            title: 'D.pdf',
+          },
         ],
       },
     })
@@ -270,7 +380,13 @@ describe('eval observation capability preflight', () => {
     ])
     const client = {
       listConversations: vi.fn().mockResolvedValue({
-        conversations: [{ id: 'hitl-1', tags: { root: 'conv-1' }, properties: { mode: 'manual' } }],
+        conversations: [
+          {
+            id: 'hitl-1',
+            tags: { root: 'conv-1' },
+            properties: { mode: 'manual' },
+          },
+        ],
       }),
       createUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
       createMessage: vi.fn(async () => {
@@ -286,14 +402,20 @@ describe('eval observation capability preflight', () => {
         meta: {},
       })),
       getConversation: vi.fn().mockResolvedValue({
-        conversation: { id: 'hitl-1', tags: {}, properties: { mode: 'manual' } },
+        conversation: {
+          id: 'hitl-1',
+          tags: {},
+          properties: { mode: 'manual' },
+        },
       }),
     } as unknown as BpClient
 
     const report = await runEval(
       {
         name: 'hitl-relay',
-        setup: { relations: { hitl_thread: { tags: { root: '$conversationId' } } } },
+        setup: {
+          relations: { hitl_thread: { tags: { root: '$conversationId' } } },
+        },
         conversation: [
           {
             actor: 'operator',
@@ -312,9 +434,17 @@ describe('eval observation capability preflight', () => {
     )
 
     expect(report).toMatchObject({ pass: true })
-    expect(report.turns[0]).toMatchObject({ actor: 'operator', target: 'hitl_thread', pass: true })
+    expect(report.turns[0]).toMatchObject({
+      actor: 'operator',
+      target: 'hitl_thread',
+      pass: true,
+    })
     expect(client.createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ origin: 'synthetic', conversationId: 'hitl-1', userId: 'operator-user' })
+      expect.objectContaining({
+        origin: 'synthetic',
+        conversationId: 'hitl-1',
+        userId: 'operator-user',
+      })
     )
     expect(source.repoint).toHaveBeenCalledWith({ conversationId: 'hitl-1' })
   })
@@ -323,7 +453,10 @@ describe('eval observation capability preflight', () => {
     const source = spanSource()
     const { authenticatedClient, chatClient } = chatHarness()
     const evalControl = {
-      advanceClock: vi.fn().mockResolvedValue({ virtualNow: '2026-07-20T00:00:00Z', releasedJobs: 2 }),
+      advanceClock: vi.fn().mockResolvedValue({
+        virtualNow: '2026-07-20T00:00:00Z',
+        releasedJobs: 2,
+      }),
       configureFaults: vi.fn().mockResolvedValue(undefined),
       clearFaults: vi.fn().mockResolvedValue(undefined),
     }
@@ -335,7 +468,13 @@ describe('eval observation capability preflight', () => {
             parallel: [{ message: 'first' }, { message: 'duplicate' }],
             control: {
               advanceClock: { milliseconds: 1_000, runDueWorkflows: true },
-              faults: [{ point: 'workflow.after_dispatch', mode: 'lost_ack', times: 1 }],
+              faults: [
+                {
+                  point: 'workflow.after_dispatch',
+                  mode: 'lost_ack',
+                  times: 1,
+                },
+              ],
             },
           },
         ],
@@ -347,7 +486,10 @@ describe('eval observation capability preflight', () => {
     expect(report.error).toBeUndefined()
     expect(authenticatedClient.createMessage).toHaveBeenCalledTimes(2)
     expect(evalControl.configureFaults).toHaveBeenCalledOnce()
-    expect(evalControl.advanceClock).toHaveBeenCalledWith({ milliseconds: 1_000, runDueWorkflows: true })
+    expect(evalControl.advanceClock).toHaveBeenCalledWith({
+      milliseconds: 1_000,
+      runDueWorkflows: true,
+    })
     expect(evalControl.clearFaults).toHaveBeenCalledOnce()
   })
 
@@ -360,12 +502,16 @@ describe('eval observation capability preflight', () => {
     const directSource = spanSource()
     const directChat = chatHarness()
     await expect(
-      runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, {
-        spanSource: directSource,
-        chatClient: directChat.chatClient,
-        chatWebhookId: 'webhook',
-        onProgress: failTurnComplete,
-      })
+      runEval(
+        basicEval,
+        { client: {} as BpClient, botId: 'runtime-bot' },
+        {
+          spanSource: directSource,
+          chatClient: directChat.chatClient,
+          chatWebhookId: 'webhook',
+          onProgress: failTurnComplete,
+        }
+      )
     ).rejects.toBe(sinkError)
     expect(directSource.disconnect).toHaveBeenCalledOnce()
 
@@ -399,13 +545,20 @@ describe('eval observation capability preflight', () => {
     })
     const directChat = chatHarness()
 
-    const directReport = await runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, {
-      spanSource: directSource,
-      chatClient: directChat.chatClient,
-      chatWebhookId: 'webhook',
-      signal: directController.signal,
+    const directReport = await runEval(
+      basicEval,
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      {
+        spanSource: directSource,
+        chatClient: directChat.chatClient,
+        chatWebhookId: 'webhook',
+        signal: directController.signal,
+      }
+    )
+    expect(directReport).toMatchObject({
+      pass: false,
+      errorCode: 'EVAL_ABORTED',
     })
-    expect(directReport).toMatchObject({ pass: false, errorCode: 'EVAL_ABORTED' })
 
     vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
     const suiteController = new AbortController()
@@ -460,7 +613,9 @@ describe('eval observation capability preflight', () => {
   })
 
   it('preflights a suite source before initializing any chat session', async () => {
-    const source = spanSource({ assertReadable: vi.fn().mockRejectedValue(new Error('HTTP 404 foreign scope')) })
+    const source = spanSource({
+      assertReadable: vi.fn().mockRejectedValue(new Error('HTTP 404 foreign scope')),
+    })
     const { authenticatedClient, chatClient } = chatHarness()
 
     await expect(
@@ -483,7 +638,14 @@ describe('eval observation capability preflight', () => {
     const source = spanSource()
     const progress: string[] = []
     const checkpointEval = vi.fn(
-      async ({ definition, index }: { definition: EvalDefinition; index: number; execute: () => Promise<unknown> }) => ({
+      async ({
+        definition,
+        index,
+      }: {
+        definition: EvalDefinition
+        index: number
+        execute: () => Promise<unknown>
+      }) => ({
         name: definition.name,
         turns: [],
         outcomeAssertions: [],
@@ -513,7 +675,9 @@ describe('eval observation capability preflight', () => {
   })
 
   it('validates only filtered definitions before reader preflight', async () => {
-    const source = spanSource({ assertReadable: vi.fn().mockRejectedValue(new Error('reader-preflight-marker')) })
+    const source = spanSource({
+      assertReadable: vi.fn().mockRejectedValue(new Error('reader-preflight-marker')),
+    })
     const unsupported: EvalDefinition = {
       name: 'unselected-unsupported',
       conversation: [{ user: 'x', assert: { state: [{ path: 'private', changed: true }] } }],
