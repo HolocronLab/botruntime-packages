@@ -22,6 +22,10 @@ describe('dev tunnel diagnostics', () => {
     expect(isTunnelUnavailableStatus(status)).toBe(false)
   })
 
+  it.each([undefined, null, '503'])('does not classify a non-numeric status %s as unavailable', (status) => {
+    expect(isTunnelUnavailableStatus(status)).toBe(false)
+  })
+
   it('reports the local method, path, status, request ID, and response', () => {
     const diagnostic = formatTunnelFailure(request(), 500, '{"id":"err_123","message":"update workflow failed"}')
 

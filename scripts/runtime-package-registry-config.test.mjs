@@ -142,6 +142,9 @@ test('repository CI proves public packages without GitHub Packages credentials',
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
 
   assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|bunfig\.github-packages\.toml|GITHUB_TOKEN|read:packages/)
+  assert.match(workflow, /actions\/checkout@v6/)
+  assert.match(workflow, /actions\/setup-node@v6/)
+  assert.doesNotMatch(workflow, /actions\/(?:checkout|setup-node)@v4/)
 })
 
 test('repository CI runs changed eval and BRT checks before docs contract verification', () => {

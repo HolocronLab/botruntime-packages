@@ -2,7 +2,7 @@ import type { TunnelRequest } from '@holocronlab/botruntime-tunnel'
 
 const MAX_TUNNEL_FAILURE_BODY_CHARS = 2_048
 
-export function isTunnelUnavailableStatus(status: number): boolean {
+export function isTunnelUnavailableStatus(status: unknown): boolean {
   return status === 502 || status === 503 || status === 504
 }
 
