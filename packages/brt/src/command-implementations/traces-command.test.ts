@@ -381,14 +381,40 @@ describe('brt traces public contract', () => {
   })
 
   it('prints a readable metadata-only line in human mode', async () => {
-    stubFetch(async () => json({ traces: [trace()], meta: {} }))
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            status: 'error',
+            metadata: {
+              aiModel: 'openai:gpt-5',
+              workflowName: 'answer',
+              errorKind: 'internal',
+              errorName: 'TypeError',
+              errorCode: 'BLOC_ITEM_INVALID',
+              errorMessage: "Cannot read properties of undefined (reading 'imageUrl')",
+              errorStack: 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
+            },
+          }),
+        ],
+        meta: {},
+      })
+    )
 
     const result = await command().handler()
 
     expect(result.exitCode).toBe(0)
-    expect(stdout).toMatch(/2026-07-10T10:00:00\.000Z.*OK.*125ms.*handler\.conversation/i)
+    expect(stdout).toMatch(/2026-07-10T10:00:00\.000Z.*ERROR.*125ms.*handler\.conversation/i)
     expect(stdout).toContain('model=openai:gpt-5')
     expect(stdout).toContain('workflow=answer')
+    expect(stdout).toContain('BLOC_ITEM_INVALID')
+    expect(stdout).toContain("Cannot read properties of undefined (reading 'imageUrl')")
+    expect(stdout).not.toContain('chat.ts:381')
+
+    stdout = ''
+    const verboseResult = await command({ verbose: true }).handler()
+    expect(verboseResult.exitCode).toBe(0)
+    expect(stdout).toContain('chat.ts:381')
   })
 
   it('prints a stable JSON envelope containing only allow-listed trace metadata', async () => {

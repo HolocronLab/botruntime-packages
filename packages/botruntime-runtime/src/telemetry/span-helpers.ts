@@ -8,12 +8,37 @@ import {
   registerSpanOmittedPayloads,
   registerSpanPayloads,
 } from './trace-payloads'
+import {
+  boundedErrorString,
+  ERROR_CODE_LIMIT_BYTES,
+  ERROR_MESSAGE_LIMIT_BYTES,
+  ERROR_NAME_LIMIT_BYTES,
+  ERROR_STACK_LIMIT_BYTES,
+} from './error-diagnostics'
 
 export type Attributes = {
   [key: string]: AttributeValue
 }
 
 export const HandledErrorProp = '$$HANDLED'
+
+export function errorTraceAttributes(error: unknown): Attributes {
+  const object = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : undefined
+  const name = boundedErrorString(object?.name, ERROR_NAME_LIMIT_BYTES) ?? 'Error'
+  const message =
+    boundedErrorString(object?.message, ERROR_MESSAGE_LIMIT_BYTES) ??
+    boundedErrorString(error, ERROR_MESSAGE_LIMIT_BYTES) ??
+    name
+  const code = boundedErrorString(object?.code, ERROR_CODE_LIMIT_BYTES) ?? name
+  const stack = boundedErrorString(object?.stack, ERROR_STACK_LIMIT_BYTES)
+
+  return {
+    'error.name': name,
+    'error.code': code,
+    'error.message': message,
+    ...(stack ? { 'error.stack': stack } : {}),
+  }
+}
 
 const IMPORTANCE_TO_TIER: Record<string, string> = {
   high: 'concise',
@@ -191,6 +216,7 @@ export function span<T extends DefinedSpans['name'], Output>(
         throw e
       }
 
+      s.setAttributes(errorTraceAttributes(e))
       s.recordException(e instanceof Error ? e : String(e))
       s.setStatus({ code: 2, message: e instanceof Error ? e.message : String(e) })
       throw e

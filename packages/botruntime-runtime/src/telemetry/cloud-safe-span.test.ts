@@ -32,6 +32,10 @@ describe('cloud-safe spans', () => {
       'ai.latency_ms': 125,
       conversationId: 'conv-safe_123',
       'error.kind': 'internal',
+      'error.name': 'TypeError',
+      'error.code': 'BLOC_ITEM_INVALID',
+      'error.message': "Cannot read properties of undefined (reading 'imageUrl')",
+      'error.stack': 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
     })
     expect(safe!.resource.attributes).toEqual({})
     expect(safe!.events).toEqual([])

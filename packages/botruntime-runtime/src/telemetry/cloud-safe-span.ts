@@ -2,6 +2,13 @@ import { SpanKind, SpanStatusCode, type AttributeValue, type Attributes, type Sp
 import { ExportResultCode } from '@opentelemetry/core'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base'
+import {
+  boundedErrorString,
+  ERROR_CODE_LIMIT_BYTES,
+  ERROR_MESSAGE_LIMIT_BYTES,
+  ERROR_NAME_LIMIT_BYTES,
+  ERROR_STACK_LIMIT_BYTES,
+} from './error-diagnostics'
 import { getSpanOmittedPayloads } from './trace-payloads'
 
 /**
@@ -51,6 +58,10 @@ export const CLOUD_SAFE_ATTRIBUTE_KEYS = new Set([
   'http.status_code',
   'payloads.omitted_count',
   'error.kind',
+  'error.name',
+  'error.code',
+  'error.message',
+  'error.stack',
 ])
 
 const TRACE_ID = /^[0-9a-f]{32}$/
@@ -131,6 +142,11 @@ function safeAttribute(key: string, value: AttributeValue): AttributeValue | und
   // user/message/session identifier is allowed through this boundary.
   if (key === 'conversationId') return validString(value, CORRELATION_ID) ? value : undefined
   if (!CLOUD_SAFE_ATTRIBUTE_KEYS.has(key)) return undefined
+
+  if (key === 'error.name') return boundedErrorString(value, ERROR_NAME_LIMIT_BYTES)
+  if (key === 'error.code') return boundedErrorString(value, ERROR_CODE_LIMIT_BYTES)
+  if (key === 'error.message') return boundedErrorString(value, ERROR_MESSAGE_LIMIT_BYTES)
+  if (key === 'error.stack') return boundedErrorString(value, ERROR_STACK_LIMIT_BYTES)
 
   if (COUNT_KEYS.has(key)) return boundedInteger(value, 1_000_000_000) ? value : undefined
   if (MODEL_KEYS.has(key)) return validString(value, MODEL_ID) ? value : undefined

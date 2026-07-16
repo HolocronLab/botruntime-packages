@@ -48,12 +48,9 @@ export interface SpanResource {
 export type SpanTier = 'concise' | 'standard' | 'verbose'
 
 /**
- * Privacy-safe metadata returned by the Vortex trace reader.
- *
- * The cloud contract is intentionally closed: adding an arbitrary record here
- * would let prompts, messages, tool I/O, or raw errors cross the trace storage
- * boundary. Property names are camelCase on the wire; VortexSpanSource maps
- * them to the dotted names used by the in-process span consumers.
+ * Typed metadata returned by the Vortex trace reader. Property names are
+ * camelCase on the wire; VortexSpanSource maps them to the dotted names used by
+ * the in-process span consumers.
  */
 export interface TraceMetadata {
   endpoint?: '/v2/cognitive/generate-text' | '/v1/chat/actions'
@@ -90,6 +87,10 @@ export interface TraceMetadata {
   httpStatusCode?: number
   payloadsOmittedCount?: number
   errorKind?: 'disabled' | 'payment_required' | 'rate_limited' | 'timeout' | 'upstream' | 'internal'
+  errorName?: string
+  errorCode?: string
+  errorMessage?: string
+  errorStack?: string
 }
 
 export interface Span {

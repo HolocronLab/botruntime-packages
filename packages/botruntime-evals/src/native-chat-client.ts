@@ -13,7 +13,40 @@ type PlatformMessage = {
   conversationId: string
   userId: string
   type: Message['payload']['type']
-  payload: Message['payload']
+  payload: Record<string, unknown>
+}
+
+type RuntimeBlocItem = {
+  type: string
+  payload: Record<string, unknown>
+}
+
+function chatPayloadToRuntime(payload: Message['payload']): Record<string, unknown> {
+  const { type, ...content } = payload
+  if (type !== 'bloc') return content
+
+  return {
+    items: payload.items.map((item) => {
+      const { type: itemType, ...itemPayload } = item
+      return { type: itemType, payload: itemPayload }
+    }),
+  }
+}
+
+function runtimePayloadToChat(
+  type: PlatformMessage['type'],
+  payload: Record<string, unknown>
+): Message['payload'] {
+  if (type !== 'bloc') return { ...payload, type } as Message['payload']
+
+  const items = Array.isArray(payload.items) ? (payload.items as RuntimeBlocItem[]) : []
+  return {
+    type: 'bloc',
+    items: items.map((item) => ({ type: item.type, ...item.payload })) as Extract<
+      Message['payload'],
+      { type: 'bloc' }
+    >['items'],
+  }
 }
 
 class NativeConversationListener {
@@ -74,10 +107,7 @@ class NativeConversationListener {
         this.emit('message_created', {
           id: message.id,
           createdAt: message.createdAt,
-          payload: {
-            ...message.payload,
-            type: message.type,
-          } as Message['payload'],
+          payload: runtimePayloadToChat(message.type, message.payload),
           userId: message.userId,
           conversationId: message.conversationId,
           isBot: true,
@@ -137,7 +167,7 @@ export function createNativeEvalChatClient(client: BotruntimeClient): ChatClient
             conversationId,
             userId: user.id,
             type: payload.type,
-            payload,
+            payload: chatPayloadToRuntime(payload),
             tags: {},
             origin: 'synthetic',
           }),
