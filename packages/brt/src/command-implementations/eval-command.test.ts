@@ -409,7 +409,18 @@ describe('brt eval public contract', () => {
     stubFetch(async (_url, index) =>
       index === 0
         ? json({ runs: [run()] })
-        : json(detail({ entries: [entry({ results: [result({ assertionKind: 'delivered_to' })] })] }))
+        : json(
+            detail({
+              entries: [
+                entry({
+                  durationMs: 1_000.5,
+                  results: [
+                    result({ assertionKind: 'delivered_to', botDurationMs: 100.125, graderDurationMs: 5.75 }),
+                  ],
+                }),
+              ],
+            })
+          )
     )
 
     const response = await runsCommand({
@@ -431,7 +442,7 @@ describe('brt eval public contract', () => {
       evalType: 'regression',
       tags: ['smoke'],
       passed: true,
-      durationMs: 1000,
+      durationMs: 1000.5,
       errorKind: null,
       createdAt: '2026-07-10T10:00:00.000Z',
       results: [
@@ -444,8 +455,8 @@ describe('brt eval public contract', () => {
           passed: true,
           skipped: false,
           score: null,
-          botDurationMs: 100,
-          graderDurationMs: 5,
+          botDurationMs: 100.125,
+          graderDurationMs: 5.75,
           createdAt: '2026-07-10T10:00:01.000Z',
         },
       ],
