@@ -30,7 +30,9 @@ function sessionHarness() {
   let conversation = 0
   const authenticatedClient = {
     user: { id: 'user-1' },
-    createConversation: vi.fn(async () => ({ conversation: { id: `conv-${++conversation}` } })),
+    createConversation: vi.fn(async () => ({
+      conversation: { id: `conv-${++conversation}` },
+    })),
     listenConversation: vi.fn(async () => {
       const listener = listenerHarness()
       listeners.push(listener)
@@ -68,7 +70,9 @@ describe('ChatSession response observation', () => {
     await session.connect()
     await session.ensureConversation()
 
-    expect(authenticatedClient.listenConversation).toHaveBeenCalledWith({ id: 'conv-1' })
+    expect(authenticatedClient.listenConversation).toHaveBeenCalledWith({
+      id: 'conv-1',
+    })
     session.startTurn()
     await session.sendMessage('hello')
     expect(authenticatedClient.listenConversation.mock.invocationCallOrder[0]).toBeLessThan(
@@ -111,10 +115,21 @@ describe('ChatSession response observation', () => {
       [{ type: 'text', text: 'plain' }, 'plain'],
       [{ type: 'markdown', markdown: '**rich**' }, '**rich**'],
       [
-        { type: 'choice', text: 'Choose', options: [{ label: 'One', value: '1' }] },
+        {
+          type: 'choice',
+          text: 'Choose',
+          options: [{ label: 'One', value: '1' }],
+        },
         'Choose\nOne (1)',
       ],
-      [{ type: 'file', fileUrl: 'https://files.example/a.pdf', title: 'A.pdf' }, 'A.pdf'],
+      [
+        {
+          type: 'file',
+          fileUrl: 'https://files.example/a.pdf',
+          title: 'A.pdf',
+        },
+        'A.pdf',
+      ],
       [
         {
           type: 'card',
@@ -139,6 +154,14 @@ describe('ChatSession response observation', () => {
     for (const [payload, expected] of cases) {
       expect(chatPayloadToText(payload)).toBe(expected)
     }
+  })
+
+  it('rejects an untyped platform payload instead of grading an empty response', () => {
+    expect(() =>
+      chatPayloadToText({
+        text: 'wire payload without its envelope type',
+      } as unknown as MessagePayload)
+    ).toThrow(expect.objectContaining({ code: 'CHAT_PAYLOAD_INVALID' }))
   })
 
   it('removes and disconnects the active listener during cleanup', async () => {
@@ -166,7 +189,9 @@ describe('ChatSession response observation', () => {
     const monitored = session.raceWithListenerError(pending)
     listeners[0]!.emitError(new Error('stream disconnected'))
 
-    await expect(monitored).rejects.toMatchObject({ code: 'CHAT_LISTENER_FAILED' })
+    await expect(monitored).rejects.toMatchObject({
+      code: 'CHAT_LISTENER_FAILED',
+    })
     expect(() => session.getTurnResponses()).toThrow(/listener.*stream disconnected/i)
     release()
   })

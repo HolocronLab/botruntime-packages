@@ -11,23 +11,35 @@ describe('native eval chat client', () => {
         throw new Error('native transport must not discover a chat webhook')
       }),
       createUser: vi.fn(async () => ({ user: { id: 'u_eval' } })),
-      createConversation: vi.fn(async () => ({ conversation: { id: 'c_eval' } })),
+      createConversation: vi.fn(async () => ({
+        conversation: { id: 'c_eval' },
+      })),
       createMessage: vi.fn(async (input: Record<string, unknown>) => ({
         message: { id: 'm_in', direction: 'incoming', ...input },
       })),
       listMessages: vi.fn(async () => ({ messages, meta: {} })),
     } as unknown as Client
 
-    const connected = await createNativeEvalChatClient(client).connect({ webhookId: '' })
+    const connected = await createNativeEvalChatClient(client).connect({
+      webhookId: '',
+    })
     const { conversation } = await connected.createConversation({})
     expect(client.createConversation).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'eval', integrationName: 'botruntime/eval' })
+      expect.objectContaining({
+        channel: 'eval',
+        integrationName: 'botruntime/eval',
+      })
     )
 
-    const listener = await connected.listenConversation({ id: conversation.id })
+    const listener = await connected.listenConversation({
+      id: conversation.id,
+    })
     const received = vi.fn()
     listener.on('message_created', received)
-    await connected.createMessage({ conversationId: conversation.id, payload: { type: 'text', text: 'hello' } })
+    await connected.createMessage({
+      conversationId: conversation.id,
+      payload: { type: 'text', text: 'hello' },
+    })
     expect(client.createMessage).toHaveBeenCalledWith({
       conversationId: 'c_eval',
       userId: 'u_eval',
@@ -43,10 +55,17 @@ describe('native eval chat client', () => {
       direction: 'outgoing',
       conversationId: 'c_eval',
       userId: 'u_eval',
-      payload: { type: 'text', text: 'reply' },
+      type: 'text',
+      payload: { text: 'reply' },
     })
     await new Promise((resolve) => setTimeout(resolve, 120))
-    expect(received).toHaveBeenCalledWith(expect.objectContaining({ id: 'm_out', isBot: true }))
+    expect(received).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'm_out',
+        isBot: true,
+        payload: { type: 'text', text: 'reply' },
+      })
+    )
     await listener.disconnect()
 
     const session = new ChatSession(client, 'runtime-bot', undefined, undefined, createNativeEvalChatClient(client))

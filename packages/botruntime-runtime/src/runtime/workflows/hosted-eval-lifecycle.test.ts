@@ -3,8 +3,16 @@ import type { EvalDefinition, EvalProgressEvent, EvalReport, EvalRunReport } fro
 import { createStepSignal, isStepSignal } from '../../primitives/workflow-signal'
 import { HostedEvalLifecycle, type HostedEvalStep } from './hosted-eval-lifecycle'
 
-const alpha: EvalDefinition = { name: 'alpha', conversation: [{ user: 'hello' }] }
-const beta: EvalDefinition = { name: 'beta', type: 'regression', tags: ['nightly'], conversation: [] }
+const alpha: EvalDefinition = {
+  name: 'alpha',
+  conversation: [{ user: 'hello' }],
+}
+const beta: EvalDefinition = {
+  name: 'beta',
+  type: 'regression',
+  tags: ['nightly'],
+  conversation: [],
+}
 
 const alphaReport: EvalReport = {
   name: 'alpha',
@@ -61,7 +69,10 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       { passed: false, durationMs: 0, errorKind: 'aborted' },
     ])
     expect(store.reconcileRunResults).toHaveBeenCalledWith('10', report)
-    expect(lifecycle.completionOf(report)).toEqual({ aborted: true, errorKind: 'aborted' })
+    expect(lifecycle.completionOf(report)).toEqual({
+      aborted: true,
+      errorKind: 'aborted',
+    })
   })
 
   it('reconciles an exact completed report and never overwrites its successful verdict during catch terminalization', async () => {
@@ -69,8 +80,18 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
     const steps: string[] = []
     const lifecycle = new HostedEvalLifecycle(store, '10', [alpha, beta])
 
-    await lifecycle.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 })
-    await lifecycle.onProgress({ type: 'eval_complete', evalName: 'alpha', index: 0, report: alphaReport })
+    await lifecycle.onProgress({
+      type: 'eval_start',
+      evalName: 'alpha',
+      index: 0,
+      totalTurns: 1,
+    })
+    await lifecycle.onProgress({
+      type: 'eval_complete',
+      evalName: 'alpha',
+      index: 0,
+      report: alphaReport,
+    })
     const cause = new Error('execution failed')
 
     await expect(lifecycle.terminalizeFailure(cause, recordingStep(steps))).rejects.toBe(cause)
@@ -82,7 +103,9 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       ['10', 'entry-alpha', { passed: true, durationMs: 12 }],
       ['10', 'entry-beta', { passed: false, durationMs: 0, errorKind: 'internal' }],
     ])
-    expect(store.markRunComplete).toHaveBeenCalledWith('10', { errorKind: 'internal' })
+    expect(store.markRunComplete).toHaveBeenCalledWith('10', {
+      errorKind: 'internal',
+    })
   })
 
   it('uses aborted authority in the catch path and terminalizes all missing definitions', async () => {
@@ -99,7 +122,10 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       durationMs: 0,
       errorKind: 'aborted',
     })
-    expect(store.markRunComplete).toHaveBeenCalledWith('10', { aborted: true, errorKind: 'aborted' })
+    expect(store.markRunComplete).toHaveBeenCalledWith('10', {
+      aborted: true,
+      errorKind: 'aborted',
+    })
   })
 
   it('remembers a replayed eval checkpoint for later failure reconciliation', async () => {
@@ -128,9 +154,24 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       pass: false,
       error: 'local chat detail',
       errorCode: 'CHAT_NOT_CONNECTED',
+      diagnostic: {
+        code: 'CHAT_NOT_CONNECTED',
+        phase: 'setup',
+        conversationId: 'conv_eval_1',
+      },
     }
-    await lifecycle.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 })
-    await lifecycle.onProgress({ type: 'eval_complete', evalName: 'alpha', index: 0, report: chatFailure })
+    await lifecycle.onProgress({
+      type: 'eval_start',
+      evalName: 'alpha',
+      index: 0,
+      totalTurns: 1,
+    })
+    await lifecycle.onProgress({
+      type: 'eval_complete',
+      evalName: 'alpha',
+      index: 0,
+      report: chatFailure,
+    })
     controller.abort()
     const report: EvalRunReport = {
       id: 'local',
@@ -146,23 +187,49 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
     await lifecycle.reconcileForCompletion(report, recordingStep([]))
 
     expect(store.finalizeEntry.mock.calls).toEqual([
-      ['10', 'entry-alpha', { passed: false, durationMs: 12, errorKind: 'chat' }],
+      [
+        '10',
+        'entry-alpha',
+        {
+          passed: false,
+          durationMs: 12,
+          errorKind: 'chat',
+          diagnostic: {
+            code: 'CHAT_NOT_CONNECTED',
+            phase: 'setup',
+            conversationId: 'conv_eval_1',
+          },
+        },
+      ],
       ['10', 'entry-beta', { passed: false, durationMs: 0, errorKind: 'aborted' }],
     ])
     expect(store.reconcileRunResults).toHaveBeenCalledWith('10', report)
-    expect(lifecycle.completionOf(report)).toEqual({ aborted: true, errorKind: 'aborted' })
+    expect(lifecycle.completionOf(report)).toEqual({
+      aborted: true,
+      errorKind: 'aborted',
+    })
   })
 
   it('yields before persisting an eval_complete produced by a sandbox abort', async () => {
     const store = mockStore()
     const controller = new AbortController()
     const lifecycle = new HostedEvalLifecycle(store, '10', [alpha], controller.signal)
-    await lifecycle.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 })
+    await lifecycle.onProgress({
+      type: 'eval_start',
+      evalName: 'alpha',
+      index: 0,
+      totalTurns: 1,
+    })
     controller.abort()
 
     let caught: unknown
     try {
-      await lifecycle.onProgress({ type: 'eval_complete', evalName: 'alpha', index: 0, report: alphaReport })
+      await lifecycle.onProgress({
+        type: 'eval_complete',
+        evalName: 'alpha',
+        index: 0,
+        report: alphaReport,
+      })
     } catch (error) {
       caught = error
     }
@@ -220,7 +287,12 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
     const ingestError = new Error('append failed')
     store.appendTurnResults.mockRejectedValueOnce(ingestError)
     const lifecycle = new HostedEvalLifecycle(store, '10', [alpha])
-    await lifecycle.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 })
+    await lifecycle.onProgress({
+      type: 'eval_start',
+      evalName: 'alpha',
+      index: 0,
+      totalTurns: 1,
+    })
     const event: EvalProgressEvent = {
       type: 'turn_complete',
       evalName: 'alpha',
@@ -246,6 +318,8 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       durationMs: 0,
       errorKind: 'internal',
     })
-    expect(store.markRunComplete).toHaveBeenCalledWith('10', { errorKind: 'internal' })
+    expect(store.markRunComplete).toHaveBeenCalledWith('10', {
+      errorKind: 'internal',
+    })
   })
 })

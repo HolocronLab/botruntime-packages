@@ -50,7 +50,10 @@ describe('VortexEvalStore strict hosted contract', () => {
     vi.stubGlobal('fetch', fetchMock)
     const client = store()
 
-    const runId = await client.createRun('scheduled', { workflowId: 'wf_1', definitions: [basicDefinition] })
+    const runId = await client.createRun('scheduled', {
+      workflowId: 'wf_1',
+      definitions: [basicDefinition],
+    })
     const entryId = await client.startEntry(runId, {
       evalName: 'greeting',
       evalType: 'capability',
@@ -59,6 +62,8 @@ describe('VortexEvalStore strict hosted contract', () => {
     })
     const turn: TurnReport = {
       turnIndex: 0,
+      conversationId: 'conv_eval_1',
+      traceId: '0123456789abcdef0123456789abcdef',
       userMessage: 'CANARY_USER_MESSAGE',
       botResponse: 'CANARY_BOT_RESPONSE',
       assertions: [
@@ -89,7 +94,18 @@ describe('VortexEvalStore strict hosted contract', () => {
         actual: 'CANARY_OUTCOME_ACTUAL',
       },
     ])
-    await client.finalizeEntry(runId, entryId, { passed: false, durationMs: 32, errorKind: 'chat' })
+    await client.finalizeEntry(runId, entryId, {
+      passed: false,
+      durationMs: 32,
+      errorKind: 'chat',
+      diagnostic: {
+        code: 'CHAT_PAYLOAD_INVALID',
+        phase: 'observation',
+        turnIndex: 0,
+        conversationId: 'conv_eval_1',
+        traceId: '0123456789abcdef0123456789abcdef',
+      },
+    })
     await client.markRunComplete(runId, { errorKind: 'chat' })
 
     expect(runId).toBe('9007199254740993')
@@ -106,6 +122,8 @@ describe('VortexEvalStore strict hosted contract', () => {
       results: [
         {
           turnIndex: 0,
+          conversationId: 'conv_eval_1',
+          traceId: '0123456789abcdef0123456789abcdef',
           botDurationMs: 25.125,
           graderDurationMs: 7.75,
           assertionKind: 'response_contains',
@@ -114,6 +132,8 @@ describe('VortexEvalStore strict hosted contract', () => {
         },
         {
           turnIndex: 0,
+          conversationId: 'conv_eval_1',
+          traceId: '0123456789abcdef0123456789abcdef',
           botDurationMs: 25.125,
           graderDurationMs: 7.75,
           assertionKind: 'llm_judge',
@@ -123,9 +143,25 @@ describe('VortexEvalStore strict hosted contract', () => {
       ],
     })
     expect(bodyOf(fetchMock.mock.calls[3]!)).toEqual({
-      results: [{ turnIndex: -1, assertionKind: 'outcome', passed: false, skipped: false }],
+      results: [
+        {
+          turnIndex: -1,
+          assertionKind: 'outcome',
+          passed: false,
+          skipped: false,
+        },
+      ],
     })
-    expect(bodyOf(fetchMock.mock.calls[4]!)).toEqual({ passed: false, durationMs: 32, errorKind: 'chat' })
+    expect(bodyOf(fetchMock.mock.calls[4]!)).toEqual({
+      passed: false,
+      durationMs: 32,
+      errorKind: 'chat',
+      errorCode: 'CHAT_PAYLOAD_INVALID',
+      errorPhase: 'observation',
+      errorTurnIndex: 0,
+      conversationId: 'conv_eval_1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    })
     expect(bodyOf(fetchMock.mock.calls[5]!)).toEqual({ errorKind: 'chat' })
 
     for (const [, init] of fetchMock.mock.calls) {
@@ -152,7 +188,10 @@ describe('VortexEvalStore strict hosted contract', () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json({ id: '1' }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await store(true).createRun('manual', { workflowId: 'wf_dev', definitions: [basicDefinition] })
+    await store(true).createRun('manual', {
+      workflowId: 'wf_dev',
+      definitions: [basicDefinition],
+    })
 
     expect(requestPath(fetchMock.mock.calls[0]!)).toBe('/v1/evals/bot/dev_runtime%3A7/runs')
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
@@ -165,12 +204,21 @@ describe('VortexEvalStore strict hosted contract', () => {
     ['unsafe tag', () => [{ ...basicDefinition, tags: ['private/tag'] }], /tags.*safe ASCII/i],
     [
       'eval capacity',
-      () => Array.from({ length: 129 }, (_, index) => ({ ...basicDefinition, name: `eval_${index}` })),
+      () =>
+        Array.from({ length: 129 }, (_, index) => ({
+          ...basicDefinition,
+          name: `eval_${index}`,
+        })),
       /between 1 and 128 evals/i,
     ],
     [
       'turn capacity',
-      () => [{ ...basicDefinition, conversation: Array.from({ length: 1025 }, () => ({ user: 'x' })) }],
+      () => [
+        {
+          ...basicDefinition,
+          conversation: Array.from({ length: 1025 }, () => ({ user: 'x' })),
+        },
+      ],
       /at most 1024 turns/i,
     ],
     [
@@ -181,7 +229,11 @@ describe('VortexEvalStore strict hosted contract', () => {
           conversation: [
             {
               user: 'x',
-              assert: { tools: Array.from({ length: 64 }, (_, index) => ({ called: `tool_${index}` })) },
+              assert: {
+                tools: Array.from({ length: 64 }, (_, index) => ({
+                  called: `tool_${index}`,
+                })),
+              },
             },
           ],
         },
@@ -210,7 +262,11 @@ describe('VortexEvalStore strict hosted contract', () => {
           conversation: [
             {
               user: 'x',
-              assert: { tools: Array.from({ length: 63 }, (_, index) => ({ called: `tool_${index}` })) },
+              assert: {
+                tools: Array.from({ length: 63 }, (_, index) => ({
+                  called: `tool_${index}`,
+                })),
+              },
             },
           ],
         })),
@@ -220,9 +276,12 @@ describe('VortexEvalStore strict hosted contract', () => {
     const fetchMock = vi.fn<typeof fetch>()
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(store().createRun('scheduled', { workflowId: 'wf_1', definitions: definitions() })).rejects.toThrow(
-      expected
-    )
+    await expect(
+      store().createRun('scheduled', {
+        workflowId: 'wf_1',
+        definitions: definitions(),
+      })
+    ).rejects.toThrow(expected)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -230,14 +289,18 @@ describe('VortexEvalStore strict hosted contract', () => {
     const fetchMock = vi.fn<typeof fetch>()
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(store(false, 'invalid manifest').createRun('scheduled', {
-      workflowId: 'wf_1',
-      definitions: [basicDefinition],
-    })).rejects.toThrow(/evalManifestId/i)
-    await expect(store().createRun('scheduled', {
-      workflowId: 'invalid workflow',
-      definitions: [basicDefinition],
-    })).rejects.toThrow(/workflowId/i)
+    await expect(
+      store(false, 'invalid manifest').createRun('scheduled', {
+        workflowId: 'wf_1',
+        definitions: [basicDefinition],
+      })
+    ).rejects.toThrow(/evalManifestId/i)
+    await expect(
+      store().createRun('scheduled', {
+        workflowId: 'invalid workflow',
+        definitions: [basicDefinition],
+      })
+    ).rejects.toThrow(/workflowId/i)
     await expect(store().startEntry('1', { evalName: 'invalid/name' })).rejects.toThrow(/safe ASCII/i)
     await expect(
       store().appendTurnResults('1', '2', {
@@ -250,13 +313,29 @@ describe('VortexEvalStore strict hosted contract', () => {
         evalDuration: 1,
       })
     ).rejects.toThrow(/turnIndex/i)
+    await expect(
+      store().finalizeEntry('1', '2', {
+        passed: false,
+        diagnostic: { code: 'CHAT_PAYLOAD_INVALID', phase: 'observation' },
+      })
+    ).rejects.toThrow(/requires passed=false and an errorKind/i)
+    await expect(
+      store().finalizeEntry('1', '2', {
+        passed: true,
+        errorKind: 'chat',
+        diagnostic: { code: 'CHAT_PAYLOAD_INVALID', phase: 'observation' },
+      })
+    ).rejects.toThrow(/requires passed=false and an errorKind/i)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('accepts the exact 1024-result per-eval boundary before create', () => {
     expect(() =>
       validateHostedEvalDefinitions([
-        { ...basicDefinition, conversation: Array.from({ length: 1024 }, () => ({ user: 'x' })) },
+        {
+          ...basicDefinition,
+          conversation: Array.from({ length: 1024 }, () => ({ user: 'x' })),
+        },
       ])
     ).not.toThrow()
     expect(() =>
@@ -278,7 +357,9 @@ describe('VortexEvalStore strict hosted contract', () => {
           conversation: [
             {
               user: 'x',
-              assert: { deliveredTo: Array.from({ length: 63 }, (_, index) => `relation_${index}`) },
+              assert: {
+                deliveredTo: Array.from({ length: 63 }, (_, index) => `relation_${index}`),
+              },
             },
           ],
         },
@@ -291,7 +372,9 @@ describe('VortexEvalStore strict hosted contract', () => {
           conversation: [
             {
               user: 'x',
-              assert: { deliveredTo: Array.from({ length: 64 }, (_, index) => `relation_${index}`) },
+              assert: {
+                deliveredTo: Array.from({ length: 64 }, (_, index) => `relation_${index}`),
+              },
             },
           ],
         },
@@ -305,9 +388,24 @@ describe('VortexEvalStore strict hosted contract', () => {
       userMessage: '',
       botResponse: '',
       assertions: [
-        { assertion: 'delivered_to:lawyer', pass: true, expected: '', actual: '' },
-        { assertion: 'not_delivered_to:client', pass: true, expected: '', actual: '' },
-        { assertion: 'conversation_mode:client', pass: true, expected: '', actual: '' },
+        {
+          assertion: 'delivered_to:lawyer',
+          pass: true,
+          expected: '',
+          actual: '',
+        },
+        {
+          assertion: 'not_delivered_to:client',
+          pass: true,
+          expected: '',
+          actual: '',
+        },
+        {
+          assertion: 'conversation_mode:client',
+          pass: true,
+          expected: '',
+          actual: '',
+        },
       ],
       pass: true,
       botDuration: 8,
@@ -340,7 +438,14 @@ describe('VortexEvalStore strict hosted contract', () => {
       turnIndex: 1,
       userMessage: 'CANARY_SILENCE_USER',
       botResponse: '',
-      assertions: [{ assertion: 'no_response', pass: true, expected: 'CANARY', actual: 'CANARY' }],
+      assertions: [
+        {
+          assertion: 'no_response',
+          pass: true,
+          expected: 'CANARY',
+          actual: 'CANARY',
+        },
+      ],
       pass: true,
       botDuration: 4,
       evalDuration: 1,
@@ -393,14 +498,26 @@ describe('VortexEvalStore strict hosted contract', () => {
               turnIndex: 0,
               userMessage: 'CANARY_RECONCILE_USER',
               botResponse: 'CANARY_RECONCILE_BOT',
-              assertions: [{ assertion: 'response', pass: true, expected: 'CANARY', actual: 'CANARY' }],
+              assertions: [
+                {
+                  assertion: 'response',
+                  pass: true,
+                  expected: 'CANARY',
+                  actual: 'CANARY',
+                },
+              ],
               pass: true,
               botDuration: 5,
               evalDuration: 2,
             },
           ],
           outcomeAssertions: [
-            { assertion: 'workflow: secret completed', pass: true, expected: 'CANARY', actual: 'CANARY' },
+            {
+              assertion: 'workflow: secret completed',
+              pass: true,
+              expected: 'CANARY',
+              actual: 'CANARY',
+            },
           ],
           pass: true,
           duration: 7,
@@ -460,7 +577,10 @@ describe('VortexEvalStore strict hosted contract', () => {
       durationMs: 0,
       errorKind: 'chat',
     })
-    expect(bodyOf(fetchMock.mock.calls.at(-1)!)).toEqual({ aborted: true, errorKind: 'aborted' })
+    expect(bodyOf(fetchMock.mock.calls.at(-1)!)).toEqual({
+      aborted: true,
+      errorKind: 'aborted',
+    })
     expect(fetchMock.mock.calls.map((call) => String(call[1]?.body ?? '')).join('\n')).not.toContain(
       'CANARY_ABORT_DETAIL'
     )
@@ -471,7 +591,10 @@ describe('VortexEvalStore strict hosted contract', () => {
 
     let caught: unknown
     try {
-      await store().createRun('scheduled', { workflowId: 'wf_1', definitions: [basicDefinition] })
+      await store().createRun('scheduled', {
+        workflowId: 'wf_1',
+        definitions: [basicDefinition],
+      })
     } catch (error) {
       caught = error
     }
@@ -544,7 +667,15 @@ describe('VortexEvalStore strict hosted contract', () => {
         {
           userMessage: '',
           botResponse: '',
-          assertions: [{ assertion: 'response', expected: '', actual: '', pass: true, skipped: true }],
+          assertions: [
+            {
+              assertion: 'response',
+              expected: '',
+              actual: '',
+              pass: true,
+              skipped: true,
+            },
+          ],
         },
       ],
     })
