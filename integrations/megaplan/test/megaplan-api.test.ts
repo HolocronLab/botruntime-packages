@@ -77,6 +77,29 @@ test('constructor requires baseUrl/username/password', () => {
   expect(() => new MegaplanApiClient({ baseUrl: 'https://x.megaplan.ru', username: 'u', password: '' })).toThrow()
 })
 
+test('auth error surfaces a meta-envelope account refusal', async () => {
+  const env = makeEnv(
+    () => json(200, wrap('{}')),
+    () =>
+      json(
+        403,
+        '{"meta":{"status":403,"errors":[{"field":"","type":"NotGrantedException","message":"Your 14-day free trial period has officially ended","trace":[]}]},"data":[]}',
+      ),
+  )
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    let error: unknown
+    try {
+      await c.getDeal('42')
+    } catch (thrown) {
+      error = thrown
+    }
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(403)
+    expect((error as Error).message).toContain('trial period')
+  })
+})
+
 // Token issued lazily on first call, reused after — Megaplan recommends storing it.
 test('token obtained once and reused', async () => {
   const env = makeEnv((req) => {
