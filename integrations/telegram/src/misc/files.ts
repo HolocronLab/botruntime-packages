@@ -27,15 +27,18 @@ function cloudApi(): CloudApi {
   }
 }
 
-export type TelegramDocument = string | { source: Buffer; filename: string }
+export type TelegramMedia = string | { source: Buffer; filename: string }
+export type TelegramDocument = TelegramMedia
 
-const MAX_TELEGRAM_DOCUMENT_BYTES = 20 << 20
+const MAX_PROTECTED_MEDIA_BYTES = 20 << 20
 
 // Telegram's servers cannot fetch our protected file-store URLs because they do not have the
 // runtime bearer token. Fetch only the canonical file-download route owned by this Botruntime
-// deployment, then hand the bytes to Telegram. Every other URL remains a URL, so credentials can
-// never reach another origin or an unrelated Botruntime API route.
-export async function resolveTelegramDocument(fileUrl: string, title?: string): Promise<TelegramDocument> {
+// deployment, then hand the bytes to Telegram. This applies to every outbound media kind, not only
+// documents: Telegraf's sendPhoto/sendAudio/sendVideo URL path has the same authentication gap.
+// Every other URL remains a URL, so credentials can never reach another origin or an unrelated
+// Botruntime API route.
+export async function resolveTelegramMedia(fileUrl: string, title?: string): Promise<TelegramMedia> {
   const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
   const trusted = trustedBases.some((base) => isBotruntimeFileDownload(fileUrl, base))
   if (!trusted) return fileUrl
@@ -53,12 +56,15 @@ export async function resolveTelegramDocument(fileUrl: string, title?: string): 
   if (!response.ok) {
     throw new Error(`telegram: protected file download -> ${response.status}`)
   }
-  const source = await readDocumentCapped(response)
+  const source = await readProtectedMediaCapped(response)
   if (source.byteLength === 0) {
     throw new Error('telegram: protected file download returned an empty document')
   }
   return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
 }
+
+// Compatibility name retained for callers/tests that model the file-message subtype explicitly.
+export const resolveTelegramDocument = resolveTelegramMedia
 
 function isBotruntimeFileDownload(url: string, base: string | undefined): boolean {
   if (!sameOrigin(url, base)) return false
@@ -70,9 +76,9 @@ function isBotruntimeFileDownload(url: string, base: string | undefined): boolea
   }
 }
 
-async function readDocumentCapped(response: Response): Promise<Buffer> {
+async function readProtectedMediaCapped(response: Response): Promise<Buffer> {
   const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > MAX_TELEGRAM_DOCUMENT_BYTES) throw documentTooLarge()
+  if (Number.isFinite(declared) && declared > MAX_PROTECTED_MEDIA_BYTES) throw mediaTooLarge()
   if (!response.body) return Buffer.alloc(0)
 
   const reader = response.body.getReader()
@@ -83,7 +89,7 @@ async function readDocumentCapped(response: Response): Promise<Buffer> {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_TELEGRAM_DOCUMENT_BYTES) throw documentTooLarge()
+      if (total > MAX_PROTECTED_MEDIA_BYTES) throw mediaTooLarge()
       chunks.push(value)
     }
   } finally {
@@ -98,8 +104,8 @@ async function readDocumentCapped(response: Response): Promise<Buffer> {
   return output
 }
 
-function documentTooLarge(): Error {
-  return new Error('telegram: document exceeds the 20 MiB limit')
+function mediaTooLarge(): Error {
+  return new Error('telegram: protected media exceeds the 20 MiB limit')
 }
 
 function sameOrigin(url: string, base: string | undefined): boolean {

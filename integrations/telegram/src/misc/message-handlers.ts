@@ -1,7 +1,7 @@
 import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { Markup, Telegraf, Telegram } from 'telegraf'
 import { getStoredBotToken } from '../botToken'
-import { resolveTelegramDocument, type TelegramDocument } from './files'
+import { resolveTelegramMedia, type TelegramMedia } from './files'
 import { makeTelegraf } from './telegraf'
 import { markdownHtmlToTelegramPayloads, stdMarkdownToTelegramHtml } from './markdown-to-telegram-html'
 import type { AckFunction, MessageHandlerProps, TelegramMessage } from './types'
@@ -25,7 +25,7 @@ const sendHtmlTextMessage = async (
 
 type SendMediaMethod = (
   chatId: number | string,
-  media: TelegramDocument,
+  media: TelegramMedia,
   extra?: { caption?: string } & ThreadExtra,
 ) => Promise<TelegramMessage>
 
@@ -38,7 +38,7 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
 }: {
   props: MessageHandlerProps<T>
   url: string
-  media?: TelegramDocument
+  media?: TelegramMedia
   send: (telegram: Telegram) => SendMediaMethod
   fallback?: () => Promise<void>
 }) => {
@@ -51,10 +51,12 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
   const caption = 'caption' in payload ? (payload as { caption?: string }).caption : undefined
   const opts = { ...(caption ? { caption } : {}), ...thread }
   logger.forBot().debug(`calling ${sendFn.name} to Telegram chat ${chat}: ${url}`)
+  const title = 'title' in payload ? (payload as { title?: string }).title : undefined
+  const resolvedMedia = media ?? await resolveTelegramMedia(url, title)
   let message: TelegramMessage
   try {
     message = await sendFn
-      .call(telegraf.telegram, chat, media ?? url, opts)
+      .call(telegraf.telegram, chat, resolvedMedia, opts)
       .catch(mapToRuntimeErrorAndThrow(`Failed to ${sendFn.name}`))
   } catch (err) {
     if (fallback) {
@@ -63,7 +65,7 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
     }
     // A buffered document came from an authenticated Botruntime URL. Re-sending that URL as text
     // would give the recipient a link they cannot open, so preserve the delivery failure instead.
-    if (media !== undefined && typeof media !== 'string') throw err
+    if (typeof resolvedMedia !== 'string') throw err
     logger
       .forBot()
       .warn(
@@ -122,8 +124,7 @@ export const handleVideoMessage = async (props: MessageHandlerProps<'video'>) =>
 }
 
 export const handleFileMessage = async (props: MessageHandlerProps<'file'>) => {
-  const media = await resolveTelegramDocument(props.payload.fileUrl, props.payload.title)
-  await sendContentOrFallback({ props, url: props.payload.fileUrl, media, send: (t) => t.sendDocument })
+  await sendContentOrFallback({ props, url: props.payload.fileUrl, send: (t) => t.sendDocument })
 }
 
 export const handleLocationMessage = async ({

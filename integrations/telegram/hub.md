@@ -34,3 +34,10 @@ Version 1.1.5 adds the `createForumTopic` action for forum-enabled Telegram supe
 returns both the Telegram `threadId` and a routing-bound Botruntime `conversationId`; inbound and
 outbound messages for that conversation stay inside the topic. The bot must be a supergroup
 administrator with permission to manage topics.
+
+## Protected media
+
+Version 1.1.6 delivers images, audio, video, documents, and card images from Botruntime's protected
+file store without exposing runtime credentials. The integration downloads the canonical file URL
+with the bot's credentials and uploads the bytes to Telegram; public third-party URLs keep using
+Telegram's normal URL delivery.

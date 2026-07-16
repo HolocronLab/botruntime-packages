@@ -4,7 +4,7 @@ import { ok } from 'assert'
 import _ from 'lodash'
 import { Context, Markup, Telegraf, Telegram, TelegramError } from 'telegraf'
 import type { Update, User, Sticker } from 'telegraf/types'
-import { ingestTelegramFileLink } from './files'
+import { ingestTelegramFileLink, resolveTelegramMedia } from './files'
 import { telegramTextMsgToStdMarkdown } from './telegram-to-markdown'
 import type {
   AckFunction,
@@ -56,8 +56,9 @@ export async function sendCard(
       }
     })
   if (payload.imageUrl) {
+    const media = await resolveTelegramMedia(payload.imageUrl)
     const message = await client.telegram
-      .sendPhoto(chat, payload.imageUrl, {
+      .sendPhoto(chat, media, {
         caption: text,
         parse_mode: 'MarkdownV2',
         ...thread,
