@@ -148,6 +148,8 @@ jobs:
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
           cd packages/botruntime-evals
           bun install --no-save --ignore-scripts
+          bun run check:type
+          bun run test
           bun run build
 
       - name: Build the current botruntime-runtime package
@@ -199,6 +201,8 @@ jobs:
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
         run: |
+          bun run typecheck
+          bun run test
           bun run docs:contract:check
           bun run docs:contract:test
 
