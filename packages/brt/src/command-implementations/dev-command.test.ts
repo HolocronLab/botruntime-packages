@@ -87,6 +87,10 @@ function devBot(runtimeBotId: string, devTargetBotId: string) {
 
 function writeAgentProject(workDir: string): void {
   fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
+  fs.writeFileSync(
+    path.join(workDir, 'agent.json'),
+    JSON.stringify({ botId: '3', workspaceId: 'ws_123', apiUrl: 'https://cloud.example' })
+  )
   fs.writeFileSync(path.join(workDir, 'agent.local.json'), JSON.stringify({ devId: 'dev_agent', devTargetBotId: '42' }))
 }
 
@@ -1271,6 +1275,7 @@ describe('DevCommand agent routing', () => {
       newClient: vi.fn().mockReturnValue({
         client: {
           getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
+          createBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
         },
       }),
     }
@@ -1393,7 +1398,7 @@ describe('DevCommand agent routing', () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
       JSON.stringify({
-        botId: 'prod_bot_must_not_be_used',
+        botId: '3',
         workspaceId: 'ws_123',
       })
     )
@@ -1418,6 +1423,7 @@ describe('DevCommand agent routing', () => {
       newClient: vi.fn().mockReturnValue({
         client: {
           getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
+          createBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
         },
       }),
     }
@@ -1441,7 +1447,6 @@ describe('DevCommand agent routing', () => {
     expect(generateSpy).toHaveBeenCalledTimes(2)
     expect(generateSpy).toHaveBeenNthCalledWith(1, workDir, expect.any(Function), expectedTarget)
     expect(generateSpy).toHaveBeenNthCalledWith(2, workDir, expect.any(Function), expectedTarget)
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
     expect(close).toHaveBeenCalledOnce()
   })
 
@@ -1460,9 +1465,10 @@ describe('DevCommand agent routing', () => {
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
     const getBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
     const apiFactory = {
       newClient: vi.fn().mockImplementation(() => {
-        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot } }
+        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot, createBot } }
         throw new Error('nested credential probe complete')
       }),
     }
@@ -1526,9 +1532,10 @@ describe('DevCommand agent routing', () => {
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
     const getBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
     const apiFactory = {
       newClient: vi.fn().mockImplementation(() => {
-        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot } }
+        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot, createBot } }
         throw new Error('nested credential probe complete')
       }),
     }
@@ -1554,7 +1561,7 @@ describe('DevCommand agent routing', () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
       JSON.stringify({
-        botId: 'prod_bot_must_not_be_used',
+        botId: '3',
         workspaceId: 'ws_123',
       })
     )
@@ -1613,7 +1620,6 @@ describe('DevCommand agent routing', () => {
         },
       },
     })
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
   })
 
   it('provisions and persists the complete dev target before the first agent generation', async () => {
@@ -1678,7 +1684,7 @@ describe('DevCommand agent routing', () => {
     expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('"botId":"3"')
   })
 
-  it('reuses agent.local dev identities and retroactively links the runtime to production', async () => {
+  it('reuses agent.local dev identities and revalidates their production project', async () => {
     const runtimeBotId = 'dev_opaque'
     const devTargetBotId = '42'
     fs.writeFileSync(
@@ -1747,7 +1753,6 @@ describe('DevCommand agent routing', () => {
       },
       expect.any(Logger)
     )
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
   })
 
   it('fails before dev target network work when --local lacks local stack coordinates', async () => {
@@ -1773,11 +1778,12 @@ describe('DevCommand agent routing', () => {
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
     const getBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
     const apiClient = {
       url: 'https://cloud.example',
       token: 'brt_pat_xxx',
       workspaceId: 'ws_123',
-      client: { getBot },
+      client: { getBot, createBot },
     }
     const apiFactory = { newClient: vi.fn().mockReturnValue(apiClient) }
     const order: string[] = []
@@ -1875,6 +1881,22 @@ describe('DevCommand dev target routing', () => {
     fs.rmSync(botpressHome, { recursive: true, force: true })
     fs.rmSync(workDir, { recursive: true, force: true })
     vi.restoreAllMocks()
+  })
+
+  it('refuses to create an orphan botruntime Development target without a Production link', async () => {
+    const runtimeBotId = 'dev_orphan'
+    writeProjectCacheState(workDir, { tunnelId: runtimeBotId })
+    const createBot = vi.fn()
+    const api = { url: 'https://botruntime.ru', client: { createBot } }
+    const command = new DevCommand({} as any, {} as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir),
+      check: false,
+    } as any)
+
+    await expect(
+      (command as any)._deployDevBot(api, `https://botruntime.ru/${runtimeBotId}`, {})
+    ).rejects.toThrow(/Production.*brt link/i)
+    expect(createBot).not.toHaveBeenCalled()
   })
 
   it('persists the numeric target returned by create while registration and updates keep the opaque runtime id', async () => {

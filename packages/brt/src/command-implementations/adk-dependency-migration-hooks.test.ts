@@ -70,6 +70,16 @@ function makeDevCommand(options: {
   local?: boolean
   tunnelId?: string
 }): DevCommand {
+  if (!fs.existsSync(path.join(options.workDir, 'agent.json'))) {
+    fs.writeFileSync(
+      path.join(options.workDir, 'agent.json'),
+      JSON.stringify({
+        botId: '3',
+        apiUrl: CLOUD_PROFILE.apiUrl,
+        workspaceId: CLOUD_PROFILE.workspaceId,
+      })
+    )
+  }
   const command = new DevCommand(options.apiFactory as any, {} as any, new Logger(), {
     workDir: options.workDir,
     botpressHome: options.botpressHome,
@@ -146,7 +156,10 @@ describe('agent command dependency migration hooks', () => {
         devTargetBotId: '42',
       })
     )
-    const cloudClient = { getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })) }
+    const cloudClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
     const migrationFailure = new Error('dependency migration gate')
     const migrateFromConfig = vi.fn(async () => {
@@ -263,7 +276,7 @@ describe('agent command dependency migration hooks', () => {
       )
       const selectedClient = {
         getBot: vi.fn(async () => ({ bot: devBot(runtimeBotId, selected.targetBotId) })),
-        createBot: vi.fn(),
+        createBot: vi.fn(async () => ({ bot: devBot(runtimeBotId, selected.targetBotId) })),
       }
       const apiFactory = { newClient: vi.fn(() => ({ client: selectedClient })) }
       const migrationFailure = new Error(`selected ${selected.targetBotId} migration gate`)
@@ -280,7 +293,11 @@ describe('agent command dependency migration hooks', () => {
       await expect((command as any)._runAgentTunnelDev()).rejects.toBe(migrationFailure)
 
       expect(selectedClient.getBot).toHaveBeenCalledWith({ id: runtimeBotId })
-      expect(selectedClient.createBot).not.toHaveBeenCalled()
+      expect(selectedClient.createBot).toHaveBeenCalledWith({
+        dev: true,
+        url: `https://botruntime.ru/${runtimeBotId}`,
+        tags: { 'botruntime.productionBotId': '3' },
+      })
       expect(migrateFromConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           target: {
@@ -311,7 +328,10 @@ describe('agent command dependency migration hooks', () => {
         devTargetBotId: '91',
       })
     )
-    const localClient = { getBot: vi.fn(async () => ({ bot: devBot('dev_local', '91') })) }
+    const localClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_local', '91') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_local', '91') })),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: localClient })) }
     const migrationFailure = new Error('local dev dependency migration gate')
     const migrateFromConfig = vi.fn(async () => {
@@ -351,7 +371,10 @@ describe('agent command dependency migration hooks', () => {
         devWorkspaceId: CLOUD_PROFILE.workspaceId,
       })
     )
-    const cloudClient = { getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })) }
+    const cloudClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
     mockMigrationLoader(vi.fn(async () => undefined))
     vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(workDir, '.adk', 'bot'))
@@ -742,7 +765,10 @@ describe('agent command dependency migration hooks', () => {
       path.join(workDir, 'agent.local.json'),
       JSON.stringify({ devId: 'dev_runtime', devTargetBotId: '42' })
     )
-    const cloudClient = { getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })) }
+    const cloudClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
     mockMigrationLoader(vi.fn(async () => undefined))
     const generate = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(workDir, '.adk', 'bot'))
@@ -774,7 +800,10 @@ describe('agent command dependency migration hooks', () => {
       path.join(workDir, 'agent.local.json'),
       JSON.stringify({ devId: 'dev_runtime', devTargetBotId: '42' })
     )
-    const cloudClient = { getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })) }
+    const cloudClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
     mockMigrationLoader(vi.fn(async () => undefined))
     vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(workDir, '.adk', 'bot'))
