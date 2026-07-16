@@ -5,7 +5,7 @@ import {
   type VortexEvalErrorKind,
   type VortexEvalStore,
 } from '@holocronlab/botruntime-evals/stores/vortex'
-import { isStepSignal } from '../../primitives/workflow-signal'
+import { createStepSignal, isStepSignal } from '../../primitives/workflow-signal'
 
 export type HostedEvalStep = <T>(name: string, action: () => Promise<T>) => Promise<T>
 
@@ -57,6 +57,11 @@ export class HostedEvalLifecycle {
       return
     }
     if (event.type !== 'eval_complete') return
+
+    // The sandbox signal is a durable-workflow yield boundary, not an eval
+    // verdict. Persisting the engine's synthetic aborted report here would
+    // poison the hosted entry before the uncheckpointed eval step is replayed.
+    if (this.signal?.aborted) throw createStepSignal()
 
     // Save the engine's exact report before persistence. A failure below must
     // reconcile this verdict, never replace a successful entry with internal.

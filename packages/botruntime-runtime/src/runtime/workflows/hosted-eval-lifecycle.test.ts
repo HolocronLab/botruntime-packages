@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition, EvalProgressEvent, EvalReport, EvalRunReport } from '@holocronlab/botruntime-evals'
-import { createStepSignal } from '../../primitives/workflow-signal'
+import { createStepSignal, isStepSignal } from '../../primitives/workflow-signal'
 import { HostedEvalLifecycle, type HostedEvalStep } from './hosted-eval-lifecycle'
 
 const alpha: EvalDefinition = { name: 'alpha', conversation: [{ user: 'hello' }] }
@@ -151,6 +151,25 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
     ])
     expect(store.reconcileRunResults).toHaveBeenCalledWith('10', report)
     expect(lifecycle.completionOf(report)).toEqual({ aborted: true, errorKind: 'aborted' })
+  })
+
+  it('yields before persisting an eval_complete produced by a sandbox abort', async () => {
+    const store = mockStore()
+    const controller = new AbortController()
+    const lifecycle = new HostedEvalLifecycle(store, '10', [alpha], controller.signal)
+    await lifecycle.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 })
+    controller.abort()
+
+    let caught: unknown
+    try {
+      await lifecycle.onProgress({ type: 'eval_complete', evalName: 'alpha', index: 0, report: alphaReport })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(isStepSignal(caught)).toBe(true)
+    expect(store.appendOutcomeResults).not.toHaveBeenCalled()
+    expect(store.finalizeEntry).not.toHaveBeenCalled()
   })
 
   it('surfaces both the original error and a terminalization failure', async () => {
