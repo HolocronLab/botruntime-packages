@@ -50,9 +50,18 @@ function developmentProductionTags(
   productionBotId: string | number | undefined
 ): Record<string, string> | undefined {
   // This tag belongs to botruntime's grouping contract, not the upstream Botpress API.
-  if (!apiUrl || agentLink.isBotpressCloudHost(apiUrl) || productionBotId === undefined) return undefined
+  if (!apiUrl || agentLink.isBotpressCloudHost(apiUrl)) return undefined
+  if (productionBotId === undefined) {
+    throw new errors.BotpressCLIError(
+      'botruntime Development requires a linked Production target; run `brt link --bot-id <production-runtime-id> --key-stdin` first'
+    )
+  }
   const value = String(productionBotId)
-  if (!/^[1-9][0-9]*$/.test(value)) return undefined
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new errors.BotpressCLIError(
+      `botruntime Production target must be a positive numeric runtime ID, got "${value}"; repair the project with brt link`
+    )
+  }
   return { [PRODUCTION_BOT_ID_TAG]: value }
 }
 
@@ -738,8 +747,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     let target: DevBotTarget
     if (bot && productionTags) {
-      // botruntime createBot is idempotent by tunnel ID, so this restores the
-      // production link without replacing the dev runtime or its history.
+      // botruntime createBot is idempotent by tunnel ID. Repeating it proves
+      // that the cached Development still belongs to this Production project.
       const response = await api.client
         .createBot({
           dev: true,
@@ -1671,8 +1680,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     if (bot && target && productionTags) {
-      // Reuse the idempotent create path to link a legacy dev target while
-      // preserving its numeric target ID and all bot-scoped data.
+      // Reuse the idempotent create path to validate the cached Development
+      // against its immutable Production project.
       const response = await api.client
         .createBot({
           dev: true,

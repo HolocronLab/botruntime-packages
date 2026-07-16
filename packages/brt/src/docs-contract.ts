@@ -110,7 +110,7 @@ const documentation: BrtDocsContract['documentation'] = {
     {
       id: 'dev-production-link',
       assertion:
-        'brt dev links the isolated development runtime to the canonical production bot for console navigation without merging their data or histories',
+        'brt dev requires the canonical production link before creating a botruntime development target and never creates an orphan runtime',
       documents: ['overview', 'reference'],
     },
     {
