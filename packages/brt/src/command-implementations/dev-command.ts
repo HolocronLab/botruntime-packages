@@ -1063,6 +1063,15 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const verifiedTarget = resolveDevBotTarget(report.bot, devId, cached.targetBotId)
     const cloudReadiness = parseCloudDependencyReadiness(report.bot)
 
+    await client.requireEvalBotReady(devId).catch((thrown) => {
+      if (thrown instanceof errors.HTTPError && thrown.status === 503) {
+        throw new errors.BotpressCLIError(
+          `development tunnel is not connected for dev bot "${devId}"; start or restart \`brt dev\`, then retry \`brt dev --check\``
+        )
+      }
+      throw errors.BotpressCLIError.wrap(thrown, 'development tunnel readiness check failed')
+    })
+
     const dependencies = isAgent
       ? await this._readAgentDependencyReport(dir, verifiedTarget.targetBotId, apiUrl, workspaceId, cloudReadiness)
       : undefined
