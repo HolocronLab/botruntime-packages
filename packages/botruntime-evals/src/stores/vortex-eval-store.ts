@@ -1287,16 +1287,17 @@ export class VortexEvalStore implements EvalStore {
     const headers = new Headers(init?.headers)
     headers.set('Authorization', `Bearer ${this.token}`)
     if (this.development) headers.set('x-bot-id', this.botId)
+    const operation = `${init?.method?.toUpperCase() ?? 'GET'} ${target.pathname}`
 
     let response: Response
     try {
       response = await globalThis.fetch(target, { ...init, headers })
     } catch {
-      throw new VortexEvalStoreError('Vortex eval store request failed before receiving a response', 'upstream')
+      throw new VortexEvalStoreError(`Vortex eval store ${operation} failed before receiving a response`, 'upstream')
     }
     if (!response.ok) {
       throw new VortexEvalStoreError(
-        `Vortex eval store request failed (HTTP ${response.status})`,
+        `Vortex eval store ${operation} failed (HTTP ${response.status})`,
         httpErrorKind(response.status),
         response.status
       )

@@ -427,20 +427,24 @@ describe('DevCommand --check', () => {
     expect(fs.existsSync(path.join(botpressHome, 'global.cache.json'))).toBe(false)
   })
 
-  it('fails readiness when the cached dev bot exists but its tunnel is disconnected', async () => {
-    vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady').mockRejectedValue(
-      new HTTPError(503, 'development tunnel is not connected')
-    )
-    const out = captureStream()
-    const err = captureStream()
-    const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
+  it.each([502, 503, 504])(
+    'fails readiness with an actionable tunnel recovery for upstream HTTP %s',
+    async (status) => {
+      vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady').mockRejectedValue(
+        new HTTPError(status, 'upstream tunnel unavailable')
+      )
+      const out = captureStream()
+      const err = captureStream()
+      const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
 
-    const result = await cmd.handler()
+      const result = await cmd.handler()
 
-    expect(result.exitCode).toBe(1)
-    expect(out.read()).not.toContain('Eval transport: ready')
-    expect(err.read()).toContain('development tunnel is not connected')
-  })
+      expect(result.exitCode).toBe(1)
+      expect(out.read()).not.toContain('Eval transport: ready')
+      expect(err.read()).toContain('development tunnel is not connected')
+      expect(err.read()).toContain('start or restart `brt dev`')
+    }
+  )
 
   it('agent dev --check uses an unscoped runtime only as a read-only hint and ignores its stale numeric target', async () => {
     writeAgentProject(workDir)

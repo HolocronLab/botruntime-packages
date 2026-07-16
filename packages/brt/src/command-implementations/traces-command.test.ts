@@ -193,8 +193,27 @@ describe('brt traces public contract', () => {
     })
   })
 
+  it('queries workflow traces without a conversation when the scan is time-bounded', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-10T10:00:00.000Z'))
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await command({
+      conversationId: undefined,
+      tokens: ['workflow=builtin_eval_runner', 'since=10m'],
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(Object.fromEntries(new URL(calls[0]!.url).searchParams)).toEqual({
+      pageSize: '20',
+      workflow: 'builtin_eval_runner',
+      since: '2026-07-10T09:50:00.000Z',
+    })
+  })
+
   it.each([
     [{ conversationId: undefined, tokens: [] }, /conversation.*required/i],
+    [{ conversationId: undefined, tokens: ['workflow=builtin_eval_runner'] }, /since.*required/i],
+    [{ conversationId: undefined, tokens: ['since=10m'] }, /workflow.*action.*trace/i],
     [{ tokens: ['include-llm'] }, /include-llm.*privacy/i],
     [{ tokens: ['trigger=handler'] }, /trigger.*not supported/i],
     [{ tokens: ['follow'] }, /follow.*not supported/i],

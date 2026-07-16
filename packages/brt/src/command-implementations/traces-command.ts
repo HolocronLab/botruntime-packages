@@ -249,12 +249,7 @@ type TraceQuery = Omit<TraceListParams, 'pageSize' | 'nextToken'>
 function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: TraceQuery; limit: number } {
   const tokens = parseTraceTokens(input.tokens ?? [])
   const conversationId = mergedFilter(input.conversationId, tokens.get('conversation'), 'conversation')
-  if (conversationId === undefined) {
-    throw new errors.BotpressCLIError(
-      'conversation is required; pass --conversation-id <id> or the conversation=<id> filter token'
-    )
-  }
-  if (!CORRELATION_ID.test(conversationId)) {
+  if (conversationId !== undefined && !CORRELATION_ID.test(conversationId)) {
     throw new errors.BotpressCLIError(
       '--conversation-id must be 1-128 characters using only letters, digits, dot, underscore, colon, or hyphen'
     )
@@ -296,11 +291,22 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
     throw new errors.BotpressCLIError('--since must not be after --until')
   }
 
+  if (conversationId === undefined) {
+    if (workflow === undefined && action === undefined && rawTraceId === undefined) {
+      throw new errors.BotpressCLIError(
+        'conversation is required unless a workflow, action, or trace filter is provided'
+      )
+    }
+    if (rawTraceId === undefined && since === undefined) {
+      throw new errors.BotpressCLIError('--since is required when querying traces without a conversation')
+    }
+  }
+
   const tokenError = tokens.has('error') ? true : undefined
   const error = mergedFilter(input.error, tokenError, 'error')
   return {
     query: {
-      conversationId,
+      ...(conversationId !== undefined ? { conversationId } : {}),
       ...(status !== undefined ? { status: status as TraceListParams['status'] } : {}),
       ...(error !== undefined ? { error } : {}),
       ...(source !== undefined ? { source } : {}),
