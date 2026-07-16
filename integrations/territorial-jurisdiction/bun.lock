@@ -5,7 +5,7 @@
     "": {
       "name": "@botruntime/integration-territorial-jurisdiction",
       "dependencies": {
-        "@holocronlab/botruntime-sdk": "^6.13.2",
+        "@holocronlab/botruntime-sdk": "^6.13.4",
         "@holocronlab/botruntime-zui": "^2.3.0",
       },
       "devDependencies": {
