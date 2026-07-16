@@ -581,6 +581,48 @@ describe('BotGenerator config target isolation', () => {
     expect(devIdMocks.restoreDevId).toHaveBeenCalledWith(undefined)
   })
 
+  it('prunes stale managed dependency modules before syncing a different target snapshot', async () => {
+    stubGenerationPhases()
+    const bpModulesPath = path.join(outputPath, 'bp_modules')
+    const staleIntegrationPath = path.join(bpModulesPath, 'integration_megaplan')
+    const stalePluginPath = path.join(bpModulesPath, 'plugin_legacy')
+    const interfacePath = path.join(bpModulesPath, 'interface_Files')
+    const unmanagedPath = path.join(bpModulesPath, 'custom-package')
+    const reservedPrefixButUnmanagedPath = path.join(bpModulesPath, 'integration_custom')
+    for (const modulePath of [
+      staleIntegrationPath,
+      stalePluginPath,
+      interfacePath,
+      unmanagedPath,
+      reservedPrefixButUnmanagedPath,
+    ]) {
+      fs.mkdirSync(modulePath, { recursive: true })
+    }
+    fs.writeFileSync(
+      path.join(staleIntegrationPath, 'index.ts'),
+      `export default { type: 'integration', name: 'megaplan', version: '1.0.0' }`
+    )
+    fs.writeFileSync(
+      path.join(stalePluginPath, 'index.ts'),
+      `export default { type: 'plugin', name: 'legacy', version: '1.0.0' }`
+    )
+
+    await generateBotProject({
+      projectPath,
+      outputPath,
+      adkCommand: 'adk-dev',
+      configTarget: { environment: 'dev', credentials: DEV_CONNECTION },
+    })
+
+    expect(fs.existsSync(staleIntegrationPath)).toBe(false)
+    expect(fs.existsSync(stalePluginPath)).toBe(false)
+    expect(fs.existsSync(path.join(bpModulesPath, 'integration_telegram'))).toBe(true)
+    expect(fs.existsSync(path.join(bpModulesPath, 'plugin_crm'))).toBe(true)
+    expect(fs.existsSync(interfacePath)).toBe(true)
+    expect(fs.existsSync(unmanagedPath)).toBe(true)
+    expect(fs.existsSync(reservedPrefixButUnmanagedPath)).toBe(true)
+  })
+
   it('fails closed before writing an artifact when prod config cannot be fetched', async () => {
     getBot.mockRejectedValue(new Error('prod auth failed'))
     const generator = new BotGenerator({

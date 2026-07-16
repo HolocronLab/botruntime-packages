@@ -129,6 +129,26 @@ export function listGeneratedDependencyModuleNames(bpModulesDir: string): string
   return inventory.ready ? inventory.names : []
 }
 
+export function isManagedGeneratedDependencyModule(bpModulesDir: string, moduleName: string): boolean {
+  const expectedType = moduleName.startsWith('integration_')
+    ? 'integration'
+    : moduleName.startsWith('plugin_')
+      ? 'plugin'
+      : undefined
+  if (!expectedType) return false
+
+  try {
+    const source = fs.readFileSync(path.join(bpModulesDir, moduleName, 'index.ts'), 'utf8')
+    return (
+      stringField(source, 'type') === expectedType &&
+      stringField(source, 'name') !== undefined &&
+      stringField(source, 'version') !== undefined
+    )
+  } catch {
+    return false
+  }
+}
+
 export function inspectDependencyModuleInventory(bpModulesDir: string): DependencyModuleInventoryInspection {
   if (!fs.existsSync(bpModulesDir)) {
     return { ready: false, code: 'MODULE_INVENTORY_MISSING', reason: 'bp_modules directory is missing' }
