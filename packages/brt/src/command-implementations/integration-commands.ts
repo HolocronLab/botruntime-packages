@@ -1,21 +1,18 @@
 import chalk from 'chalk'
-import * as fs from 'fs'
 import _ from 'lodash'
 import semver from 'semver'
-import { CloudapiClient, type IntegrationDefinitionNetwork } from '../api/cloudapi-client'
+import { CloudapiClient } from '../api/cloudapi-client'
 import { ApiClient, PublicOrPrivateIntegration, IntegrationSummary } from '../api/client'
 import * as adkBundle from '../adk-bundle'
 import * as botsStore from '../bots-store'
-import { toCatalogSchema } from '../cloud-catalog-schema'
 import { cloudInfo, readSecretValue } from '../cloud-io'
-import * as cloudProfileResolve from '../cloud-profile-resolve'
 import type * as cloudLink from '../cloud-project-link'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
 import { NamePackageRef, parsePackageRef } from '../package-ref'
-import * as utils from '../utils'
-import { BuildCommand } from './build-command'
+import type { CommandArgv } from '../typings'
 import { CloudCommand } from './cloud-command'
+import { DeployCommand, type DeployCommandDefinition } from './deploy-command'
 import { GlobalCommand } from './global-command'
 import { ProjectCommand } from './project-command'
 
@@ -249,15 +246,8 @@ export function parseExactIntegrationRef(ref: string): { name: string; version: 
   return { name, version }
 }
 
-// ---------------------------------------------------------------------------
-// Bespoke cloudapi wire (brt integrations install|register|publish), ported
-// from the (deleted) thin brt CLI's commands/integrations.ts. Added ALONGSIDE
-// the Botpress-shaped get/list/delete above under new, non-colliding
-// subcommand names. install/register address a bot via bot.json/bot.local.json
-// + bots.json (CloudCommand, same as `brt link`/`brt config`); the MVP
-// supports exactly one installed channel per bot (the supervisor child throws
-// on >1), so a second `install` with a different alias fails loud.
-// ---------------------------------------------------------------------------
+// install/register use the bot-target Cloud API channel. publish is defined
+// below as an integration-only alias for the canonical deploy path.
 
 export type CloudIntegrationInstallCommandDefinition = typeof commandDefinitions.integrations.subcommands.install
 export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegrationInstallCommandDefinition> {
@@ -412,153 +402,35 @@ export class CloudIntegrationRegisterCommand extends CloudCommand<CloudIntegrati
   }
 }
 
-// CloudIntegrationPublishCommand is workspace-scoped (no bot.json / x-bot-id
-// involved — /v1/admin/integration-definitions and .../publish-bundle are not
-// per-bot endpoints), so unlike install/register it does not need CloudCommand;
-// it extends ProjectCommand instead to reuse this fork's own native
-// integration.definition.ts reader + esbuild bundler. This is a deliberate
-// divergence from thin's publish(), which shelled out to an external, un-forked
-// `bp read --json` binary that has no equivalent in this fork's toolchain.
+// Public integration publishing is an integration-only spelling of the
+// canonical deploy flow. Keeping a single mutation path is important: the
+// Botpress-shaped integration entity owns both Hub metadata and the runnable
+// definition/bundle, and its name is namespaced through manageWorkspaceHandle.
 export type CloudIntegrationPublishCommandDefinition = typeof commandDefinitions.integrations.subcommands.publish
 export class CloudIntegrationPublishCommand extends ProjectCommand<CloudIntegrationPublishCommandDefinition> {
   public async run(): Promise<void> {
-    const { profile } = await cloudProfileResolve.resolveProfile({
-      argvProfile: this.argv.profile,
-      getActiveProfile: () => this.globalCache.get('activeProfile'),
-      readProfile: (n) => this.readProfileFromFS(n),
-    })
-    const apiUrl = cloudProfileResolve.resolveApiUrl(this.argv.apiUrl, profile)
-    cloudProfileResolve.assertProfileAuthority(
-      'command target override',
-      { apiUrl, workspaceId: profile.workspaceId },
-      profile,
-      { requireCoordinates: true }
-    )
-    const client = new CloudapiClient(apiUrl, profile.token)
-
-    const { name, version, configSchema, network } = await this._resolveNameVersionSchema()
-
-    const existing = (await client.listIntegrationDefinitions(profile.workspaceId)).definitions.find(
-      (d) => d.name === name && d.version === version
-    )
-    // An empty/undefined workspaceId marks a built-in, catalog-managed
-    // definition: its SCHEMA is not re-published through this path, only its
-    // bundle (code). Publishing a schema change for a built-in is a separate,
-    // operator-run migration.
-    const builtinExisting = !!existing && (existing.workspaceId === undefined || existing.workspaceId === null)
-    if (builtinExisting) {
-      cloudInfo(`built-in ${name}@${version} exists — schema unchanged, publishing bundle`)
-    } else {
-      if (configSchema === undefined) {
-        throw new errors.BotpressCLIError(
-          'non-built-in publish requires a config schema — omit --name/--version to read it from ' +
-            'integration.definition.ts, or pass --config-schema-file'
-        )
-      }
-      const networkArg: [] | [IntegrationDefinitionNetwork] = network === undefined ? [] : [network]
-      const upserted = existing
-        ? await client.updateIntegrationDefinition(
-            existing.id,
-            name,
-            version,
-            configSchema,
-            profile.workspaceId,
-            ...networkArg
-          )
-        : await client.createIntegrationDefinition(
-            name,
-            version,
-            configSchema,
-            profile.workspaceId,
-            ...networkArg
-          )
-      cloudInfo(
-        `${existing ? 'updated' : 'published'} integration definition ${upserted.name}@${upserted.version} (id=${upserted.id})`
-      )
-    }
-
-    if (this.argv.noBundle) {
-      cloudInfo('bundle upload skipped (--noBundle); definition/schema only')
-      cloudInfo('next: brt integrations publish (without --noBundle) to upload the runnable bundle')
-      return
-    }
-
-    if (!this.argv.noBuild) {
-      await new BuildCommand(this.api, this.prompt, this.logger, {
-        ...this.argv,
-        sourceMap: false,
-        minify: true,
-      })
-        .setProjectContext(this.projectContext)
-        .run()
-    }
-    const bundlePath = this.projectPaths.abs.outFileCJS
-    if (!fs.existsSync(bundlePath)) {
-      throw new errors.BotpressCLIError(`bundle not found at ${bundlePath} — remove --noBuild, or build the project first`)
-    }
-    const code = await fs.promises.readFile(bundlePath, 'utf-8')
-    const localHash = adkBundle.sha256(code)
-    cloudInfo(`bundle ${bundlePath} (${code.length} bytes, sha256 ${localHash.slice(0, 12)}…)`)
-
-    const pub = await client.publishIntegrationBundle(name, version, code, profile.workspaceId)
-    if (pub.contentHash !== localHash) {
-      throw new errors.BotpressCLIError(`publish MISMATCH: local sha256 ${localHash} != server ${pub.contentHash}`)
-    }
-    cloudInfo(`uploaded bundle (integrationId=${pub.integrationId}, versionId=${pub.versionId})`)
-  }
-
-  private async _resolveNameVersionSchema(): Promise<{
-    name: string
-    version: string
-    configSchema: unknown
-    network?: IntegrationDefinitionNetwork
-  }> {
-    if (this.argv.name && this.argv.versionNumber) {
-      return {
-        name: this.argv.name,
-        version: this.argv.versionNumber,
-        configSchema: this.argv.configSchemaFile ? await this._readJsonFile(this.argv.configSchemaFile) : undefined,
-      }
-    }
-
-    const { projectType, resolveProjectDefinition } = this.readProjectDefinitionFromFS()
+    const { projectType } = this.readProjectDefinitionFromFS()
     if (projectType !== 'integration') {
       throw new errors.BotpressCLIError(
-        `brt integrations publish (without --name/--versionNumber) requires an integration project at ${this.projectPaths.abs.workDir}`
+        `brt integrations publish requires an integration project at ${this.projectPaths.abs.workDir}`
       )
     }
-    const { definition } = await resolveProjectDefinition()
 
-    let configSchema: unknown
-    if (this.argv.configSchemaFile) {
-      configSchema = await this._readJsonFile(this.argv.configSchemaFile)
-    } else if (definition.configuration) {
-      const jsonSchema = await utils.schema.mapZodToJsonSchema(definition.configuration, {
-        useLegacyZuiTransformer: definition.__advanced?.useLegacyZuiTransformer,
-        toJSONSchemaOptions: definition.__advanced?.toJSONSchemaOptions,
-      })
-      configSchema = toCatalogSchema(jsonSchema)
-      if (!configSchema) {
-        throw new errors.BotpressCLIError(
-          'could not derive a catalog config schema from integration.definition.ts — pass --config-schema-file <json>'
-        )
-      }
-    }
+    const deployArgv = {
+      ...this.argv,
+      adk: false,
+      watch: false,
+      local: false,
+      botId: undefined,
+      name: undefined,
+      createNewBot: false,
+      visibility: 'public',
+      public: false,
+      allowDestructiveTableChanges: false,
+    } as CommandArgv<DeployCommandDefinition>
 
-    return {
-      name: definition.name,
-      version: definition.version,
-      configSchema,
-      network: definition.network,
-    }
-  }
-
-  private async _readJsonFile(path: string): Promise<unknown> {
-    const raw = await fs.promises.readFile(path, 'utf8')
-    try {
-      return JSON.parse(raw)
-    } catch (thrown) {
-      throw errors.BotpressCLIError.wrap(thrown, `${path} is not valid JSON`)
-    }
+    await new DeployCommand(this.api, this.prompt, this.logger, deployArgv)
+      .setProjectContext(this.projectContext)
+      .run()
   }
 }

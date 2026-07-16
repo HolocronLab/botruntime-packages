@@ -952,12 +952,11 @@ const evalRunsSchema = {
   nextToken: cloudEvalRunsNextToken,
 } satisfies CommandSchema
 
-// brt integrations install|register|publish — the bespoke-cloudapi-wire
-// integration channel commands, ported from the (deleted) thin brt CLI's
-// commands/integrations.ts. Added ALONGSIDE the existing (Botpress catalog)
-// `integrations get/list/delete` above; `install`/`register`/`publish` are
-// new subcommand names under the same `brt integrations` tree node, so there
-// is no collision.
+// brt integrations install|register use the project-target Cloud API channel.
+// Publishing is intentionally different: it is an integration-only alias for
+// the canonical Botpress-shaped deploy path so catalog metadata, runtime
+// definition, bundle, ownership, visibility, and dry-run validation are one
+// resource instead of two independently mutable records.
 
 const cloudIntegrationInstallSchema = {
   ...cloudProjectSchema,
@@ -976,28 +975,15 @@ const cloudIntegrationRegisterSchema = {
 
 const cloudIntegrationPublishSchema = {
   ...projectSchema,
-  apiUrl,
-  name: {
-    type: 'string',
-    description: 'Integration name (skips reading integration.definition.ts; requires --versionNumber too)',
-  },
-  // Named versionNumber, not version: yargs reserves `--version` for its own
-  // CLI-version flag (see listIntegrationsSchema/listPluginsSchema for the
-  // same workaround elsewhere in this file).
-  versionNumber: {
-    type: 'string',
-    description: 'Integration version (skips reading integration.definition.ts; requires --name too)',
-  },
-  configSchemaFile: {
-    type: 'string',
-    description: 'Read the catalog config schema (the {fields:{...}} shape) from this JSON file',
-  },
-  noBundle: {
-    type: 'boolean',
-    description: 'Publish/update the integration definition only; skip building and uploading the bundle',
-    default: false,
-  },
+  ...credentialsSchema,
+  ...secretsSchema,
   noBuild,
+  dryRun,
+  sourceMap,
+  minify,
+  allowDeprecated: deploySchema.allowDeprecated,
+  url: deploySchema.url,
+  bypassBreakingChangeDetection: deploySchema.bypassBreakingChangeDetection,
 } satisfies CommandSchema
 
 // exports

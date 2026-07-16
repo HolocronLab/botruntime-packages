@@ -57,6 +57,10 @@ export class ApiClient {
   }
 
   public get isBotpressWorkspace(): boolean {
+    // This is the upstream Botpress namespace exemption, not a generic
+    // "platform administrator" bit. botruntime's platform workspace must keep
+    // public packages under its workspace handle (for example
+    // botruntime/yookassa), so its numeric workspace id does not belong here.
     // this environment variable is undocumented and only used internally for dev purposes
     const isBotpressWorkspace = yn(process.env.BP_IS_BOTPRESS_WORKSPACE)
     if (isBotpressWorkspace !== undefined) {

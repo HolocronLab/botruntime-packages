@@ -43,27 +43,6 @@ export interface ConfigVar {
   updatedAt?: string
 }
 
-export interface IntegrationDefinitionEntity {
-  id: number
-  workspaceId?: number
-  name: string
-  version: string
-  configSchema: unknown
-  visibility: string
-}
-
-export interface IntegrationDefinitionNetwork {
-  providerHosts?: string[]
-  ingressRelayed?: boolean
-  webhookAuthMode?: 'shared_secret' | 'provider_verified' | 'handler_verified'
-}
-
-export interface PublishIntegrationBundleResponse {
-  integrationId: number
-  versionId: number
-  contentHash: string
-}
-
 export interface BotCommand {
   command: string
   description: string
@@ -205,30 +184,6 @@ interface RequestOpts {
 const DEFAULT_TIMEOUT_MS = 30_000
 const BUNDLE_TIMEOUT_MS = 120_000
 const MAX_RETRIES = 3
-
-type IntegrationDefinitionWriteBody = {
-  name: string
-  version: string
-  configSchema: unknown
-  providerHosts?: string[]
-  ingressRelayed?: boolean
-  webhookAuthMode?: 'shared_secret' | 'provider_verified' | 'handler_verified'
-}
-
-const integrationDefinitionWriteBody = (
-  name: string,
-  version: string,
-  configSchema: unknown,
-  network?: IntegrationDefinitionNetwork,
-): IntegrationDefinitionWriteBody => ({
-  name,
-  version,
-  configSchema,
-  // Catalog updates use patch semantics, so omission would preserve stale policy.
-  providerHosts: network?.providerHosts ?? [],
-  ingressRelayed: network?.ingressRelayed ?? false,
-  webhookAuthMode: network?.webhookAuthMode ?? 'shared_secret',
-})
 
 export class CloudapiClient {
   public constructor(
@@ -574,81 +529,6 @@ export class CloudapiClient {
       method: 'DELETE',
       path: `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/integrations/${encodeURIComponent(installationId)}`,
       idempotent: true,
-    })
-  }
-
-  public async createIntegrationDefinition(
-    name: string,
-    version: string,
-    configSchema: unknown,
-    workspaceId?: string,
-    network?: IntegrationDefinitionNetwork,
-  ): Promise<IntegrationDefinitionEntity> {
-    return this.raw({
-      method: 'POST',
-      path: '/v1/admin/integration-definitions',
-      workspaceId,
-      body: integrationDefinitionWriteBody(
-        name,
-        version,
-        configSchema,
-        network,
-      ),
-    })
-  }
-
-  public async updateIntegrationDefinition(
-    id: number,
-    name: string,
-    version: string,
-    configSchema: unknown,
-    workspaceId?: string,
-    network?: IntegrationDefinitionNetwork,
-  ): Promise<IntegrationDefinitionEntity> {
-    return this.raw({
-      method: 'PUT',
-      path: `/v1/admin/integration-definitions/${id}`,
-      workspaceId,
-      body: integrationDefinitionWriteBody(
-        name,
-        version,
-        configSchema,
-        network,
-      ),
-    })
-  }
-
-  public async listIntegrationDefinitions(
-    workspaceId?: string,
-  ): Promise<{ definitions: IntegrationDefinitionEntity[] }> {
-    return this.raw({
-      method: 'GET',
-      path: '/v1/admin/integration-definitions',
-      workspaceId,
-      idempotent: true,
-    })
-  }
-
-  // publishIntegrationBundle uploads the BUILT integration .cjs against a catalog definition
-  // (resolved by name@version in the caller's workspace scope). The server dedups the blob by
-  // content hash but STILL writes a new version row per accepted call, so this is NOT safe to
-  // auto-retry: a timeout/5xx after the server already accepted the upload would, on retry,
-  // publish a duplicate version. Deliberate divergence from the thin CLI (which marked this
-  // idempotent) — a transient failure surfaces loudly for a deliberate re-run instead of
-  // silently creating duplicate versions.
-  public async publishIntegrationBundle(
-    name: string,
-    version: string,
-    code: string,
-    workspaceId?: string,
-  ): Promise<PublishIntegrationBundleResponse> {
-    return this.raw({
-      method: 'POST',
-      path: '/v1/admin/integrations/publish-bundle',
-      workspaceId,
-      body: { name, version, code },
-      timeoutMs: BUNDLE_TIMEOUT_MS,
-      idempotent: false,
     })
   }
 

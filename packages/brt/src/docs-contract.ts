@@ -59,7 +59,7 @@ const documentation: BrtDocsContract['documentation'] = {
     deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'watch'],
     dev: ['check', 'json', 'port', 'watch'],
     'integrations install': ['alias', 'configFile', 'configStdin', 'dev'],
-    'integrations publish': ['apiUrl', 'configSchemaFile', 'name', 'noBuild', 'noBundle', 'versionNumber'],
+    'integrations publish': ['apiUrl', 'dryRun', 'noBuild'],
     'integrations register': ['dev'],
     link: ['apiUrl', 'botId', 'keyStdin', 'workspaceId'],
     login: ['apiUrl', 'device', 'token', 'workspaceId'],

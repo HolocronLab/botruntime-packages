@@ -162,6 +162,31 @@ describe('DeployCommand ADK watch routing', () => {
     expect(loginSpy).toHaveBeenCalledOnce()
   })
 
+  it('rejects a classic integration deploy when --noBuild has no reusable bundle', async () => {
+    const command = makeCommand(workDir, {
+      adk: false,
+      noBuild: true,
+      dryRun: true,
+      visibility: 'public',
+      public: false,
+    })
+    const manageWorkspaceHandle = vi
+      .spyOn(command as any, 'manageWorkspaceHandle')
+      .mockResolvedValue({ definition: { name: 'acme', version: '1.0.0' }, workspaceId: undefined })
+
+    await expect(
+      (command as any)._deployIntegration(
+        {
+          findPublicOrPrivateIntegration: vi.fn(),
+          client: { validateIntegrationCreation: vi.fn() },
+        },
+        { name: 'acme', version: '1.0.0' }
+      )
+    ).rejects.toThrow(/bundle.*not found.*--noBuild/i)
+
+    expect(manageWorkspaceHandle).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['--token', { token: 'explicit_token' }],
     ['--workspace-id', { workspaceId: 'explicit_workspace' }],

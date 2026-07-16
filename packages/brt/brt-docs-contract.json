@@ -463,18 +463,22 @@
       "path": "integrations publish",
       "aliases": [],
       "options": [
+        "allowDeprecated",
         "apiUrl",
         "botpressHome",
-        "configSchemaFile",
         "confirm",
+        "dryRun",
         "json",
-        "name",
+        "minify",
         "noBuild",
-        "noBundle",
         "profile",
+        "secrets",
+        "sourceMap",
+        "token",
+        "url",
         "verbose",
-        "versionNumber",
-        "workDir"
+        "workDir",
+        "workspaceId"
       ]
     },
     {
@@ -853,11 +857,8 @@
       ],
       "integrations publish": [
         "apiUrl",
-        "configSchemaFile",
-        "name",
-        "noBuild",
-        "noBundle",
-        "versionNumber"
+        "dryRun",
+        "noBuild"
       ],
       "integrations register": [
         "dev"
