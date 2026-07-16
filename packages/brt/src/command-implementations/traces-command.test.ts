@@ -330,6 +330,13 @@ describe('brt traces public contract', () => {
     [{ traces: 'wrong', meta: {} }, /malformed.*traces/i],
     [{ traces: [], meta: { nextToken: 123 } }, /malformed.*nextToken/i],
     [{ traces: [{ ...trace(), durationMs: '125' }], meta: {} }, /durationMs.*malformed/i],
+    [
+      {
+        traces: [trace({ metadata: { errorMessage: 'я'.repeat(4_097) } })],
+        meta: {},
+      },
+      /metadata\.errorMessage.*malformed/i,
+    ],
   ])('fails loudly on malformed backend response: %j', async (body, expected) => {
     stubFetch(async () => json(body))
 

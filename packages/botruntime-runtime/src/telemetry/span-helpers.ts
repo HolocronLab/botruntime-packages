@@ -73,7 +73,10 @@ export function addRemainingTimeAttribute(attributes: Attributes): void {
   } catch {}
 }
 
-export function createTypedSpanWrapper<T extends DefinedSpans['name']>(s: SpanWithContext): TypedSpan<T> {
+export function createTypedSpanWrapper<T extends DefinedSpans['name']>(
+  s: SpanWithContext,
+  onSetStatus?: () => void
+): TypedSpan<T> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typedSpan = s as any
 
@@ -102,6 +105,13 @@ export function createTypedSpanWrapper<T extends DefinedSpans['name']>(s: SpanWi
       }
       originalSetAttribute(stringKey, prepared.attribute)
     }
+    return typedSpan
+  }
+
+  const originalSetStatus = s.setStatus.bind(s)
+  typedSpan.setStatus = (status: Parameters<Span['setStatus']>[0]) => {
+    onSetStatus?.()
+    originalSetStatus(status)
     return typedSpan
   }
 
@@ -205,10 +215,13 @@ export function span<T extends DefinedSpans['name'], Output>(
       registerSpanOmittedPayloads(s, preparedAttributes.omittedPayloads)
 
       // Create typed wrapper with overridden methods
-      const typedSpan = createTypedSpanWrapper<T>(spanWithContext)
+      let explicitStatus = false
+      const typedSpan = createTypedSpanWrapper<T>(spanWithContext, () => {
+        explicitStatus = true
+      })
 
       const result = await handler(typedSpan)
-      s.setStatus({ code: 1 })
+      if (!explicitStatus) s.setStatus({ code: 1 })
       return result
     } catch (e: unknown) {
       if (typeof e === 'object' && e !== null && HandledErrorProp in e) {

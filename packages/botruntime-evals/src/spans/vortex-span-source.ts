@@ -98,6 +98,7 @@ const ERROR_NAME_LIMIT = 128
 const ERROR_CODE_LIMIT = 128
 const ERROR_MESSAGE_LIMIT = 8_192
 const ERROR_STACK_LIMIT = 32_768
+const UTF8_ENCODER = new TextEncoder()
 const VORTEX_SPAN_NAMES = new Set([
   'request.incoming',
   'handler.conversation',
@@ -227,7 +228,9 @@ function safeMetadataValue(wireName: (typeof METADATA_FIELDS)[number][0], value:
 }
 
 function boundedString(value: unknown, max: number): string | undefined {
-  return typeof value === 'string' && value.length > 0 && value.length <= max ? value : undefined
+  return typeof value === 'string' && value.length > 0 && UTF8_ENCODER.encode(value).byteLength <= max
+    ? value
+    : undefined
 }
 
 function boundedInteger(value: unknown, min: number, max: number): number | undefined {

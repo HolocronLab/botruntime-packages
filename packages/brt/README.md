@@ -88,6 +88,7 @@ Requires **bun >= 1.3**.
 `brt traces` reads the selected profile's trace API. It exposes bounded runtime
 exception diagnostics (`name`, `code`, `message`, and `stack`) so a developer
 can diagnose a failed handler after the live process or dev tunnel has stopped.
+Exception message and stack text is not redacted and may contain sensitive data.
 Prompts, model responses, tool input/output, and document content remain outside
 this API. The backend response is projected through a strict allowlist before
 either human or JSON output is written.
@@ -180,7 +181,7 @@ the same fail-loud canonical target and profile-auth rules as `brt traces`.
 ## Hosted evals
 
 `brt eval` follows the current Botpress ADK eval/run-history shape while using
-the hosted runtime workflow and privacy-safe cloud persistence. A bare
+the hosted runtime workflow and bounded cloud persistence. A bare
 `brt eval [name]` and the explicit `brt eval run [name]` both start the deployed
 `builtin_eval_runner`; `runs` lists or inspects persisted results.
 

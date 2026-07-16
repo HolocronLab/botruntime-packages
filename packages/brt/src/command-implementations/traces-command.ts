@@ -59,6 +59,7 @@ const ERROR_NAME_LIMIT = 128
 const ERROR_CODE_LIMIT = 128
 const ERROR_MESSAGE_LIMIT = 8_192
 const ERROR_STACK_LIMIT = 32_768
+const UTF8_ENCODER = new TextEncoder()
 
 const METADATA_FIELDS = {
   endpoint: { kind: 'enum', values: ENDPOINTS },
@@ -537,7 +538,7 @@ function requiredString(value: unknown, field: string, pattern?: RegExp): string
 
 function requiredBoundedString(value: unknown, field: string, max: number): string {
   const result = requiredString(value, field)
-  if (result.length === 0 || result.length > max) {
+  if (result.length === 0 || UTF8_ENCODER.encode(result).byteLength > max) {
     throw new errors.BotpressCLIError(`${field} is malformed`)
   }
   return result

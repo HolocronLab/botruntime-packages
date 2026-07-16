@@ -53,18 +53,20 @@ describe('native eval chat client', () => {
       conversationId: conversation.id,
       payload: {
         type: 'bloc',
+        metadata: { source: 'fixture' },
         items: [
           { type: 'text', text: 'documents' },
           { type: 'image', imageUrl: 'https://files.test/image.jpg' },
           { type: 'file', fileUrl: 'https://files.test/document.pdf', title: 'document.pdf' },
         ],
-      },
+      } as never,
     })
     expect(client.createMessage).toHaveBeenLastCalledWith({
       conversationId: 'c_eval',
       userId: 'u_eval',
       type: 'bloc',
       payload: {
+        metadata: { source: 'fixture' },
         items: [
           { type: 'text', payload: { text: 'documents' } },
           { type: 'image', payload: { imageUrl: 'https://files.test/image.jpg' } },
@@ -104,8 +106,9 @@ describe('native eval chat client', () => {
       userId: 'u_eval',
       type: 'bloc',
       payload: {
+        metadata: { source: 'runtime' },
         items: [
-          { type: 'text', payload: { text: 'reply' } },
+          { type: 'text', payload: { type: 'image', text: 'reply' } },
           { type: 'image', payload: { imageUrl: 'https://files.test/reply.jpg' } },
         ],
       },
@@ -117,6 +120,7 @@ describe('native eval chat client', () => {
         isBot: true,
         payload: {
           type: 'bloc',
+          metadata: { source: 'runtime' },
           items: [
             { type: 'text', text: 'reply' },
             { type: 'image', imageUrl: 'https://files.test/reply.jpg' },

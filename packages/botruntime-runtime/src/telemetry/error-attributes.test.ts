@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { errorTraceAttributes } from './span-helpers'
+import { SpanStatusCode, type Span } from '@opentelemetry/api'
+import { describe, expect, it, vi } from 'vitest'
+import { errorTraceAttributes, span } from './span-helpers'
+import { tracer } from './tracing'
 
 describe('error trace attributes', () => {
   it('keeps developer-grade exception diagnostics with stable fallbacks', () => {
@@ -41,5 +43,40 @@ describe('error trace attributes', () => {
 
     expect(new TextEncoder().encode(attributes['error.message'] as string)).toHaveLength(8_192)
     expect(new TextEncoder().encode(attributes['error.stack'] as string)).toHaveLength(32_768)
+  })
+
+  it('does not overwrite an explicit handler error status with OK', async () => {
+    const statuses: Array<Parameters<Span['setStatus']>[0]> = []
+    const fakeSpan = {
+      setAttributes: vi.fn().mockReturnThis(),
+      setAttribute: vi.fn().mockReturnThis(),
+      addEvent: vi.fn().mockReturnThis(),
+      setStatus: vi.fn((status: Parameters<Span['setStatus']>[0]) => {
+        statuses.push(status)
+        return fakeSpan
+      }),
+      recordException: vi.fn().mockReturnThis(),
+      end: vi.fn(),
+    } as unknown as Span
+    const activeSpan = vi.spyOn(tracer, 'startActiveSpan').mockImplementation(
+      ((...args: unknown[]) => {
+        const handler = args.at(-1) as (span: Span) => Promise<unknown>
+        return handler(fakeSpan)
+      }) as typeof tracer.startActiveSpan
+    )
+
+    try {
+      await span(
+        'handler.workflow',
+        { botId: 'bot-1', workflowId: 'workflow-1', eventId: 'event-1', 'event.type': 'workflow_started' },
+        async (handlerSpan) => {
+        handlerSpan.setStatus({ code: SpanStatusCode.ERROR, message: 'manual workflow failure' })
+        }
+      )
+    } finally {
+      activeSpan.mockRestore()
+    }
+
+    expect(statuses).toEqual([{ code: SpanStatusCode.ERROR, message: 'manual workflow failure' }])
   })
 })

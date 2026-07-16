@@ -26,6 +26,7 @@ function chatPayloadToRuntime(payload: Message['payload']): Record<string, unkno
   if (type !== 'bloc') return content
 
   return {
+    ...content,
     items: payload.items.map((item) => {
       const { type: itemType, ...itemPayload } = item
       return { type: itemType, payload: itemPayload }
@@ -41,8 +42,9 @@ function runtimePayloadToChat(
 
   const items = Array.isArray(payload.items) ? (payload.items as RuntimeBlocItem[]) : []
   return {
+    ...payload,
     type: 'bloc',
-    items: items.map((item) => ({ type: item.type, ...item.payload })) as Extract<
+    items: items.map((item) => ({ ...item.payload, type: item.type })) as Extract<
       Message['payload'],
       { type: 'bloc' }
     >['items'],

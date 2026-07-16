@@ -198,6 +198,35 @@ describe('VortexSpanSource cloud trace contract', () => {
     expect(JSON.stringify(collector.getAllSpans())).not.toContain('raw-secret-error')
   })
 
+  it('enforces diagnostic limits in UTF-8 bytes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        json({
+          traces: [
+            trace({
+              metadata: {
+                errorName: 'я'.repeat(64),
+                errorCode: 'UNICODE_ERROR',
+                errorMessage: '🙂'.repeat(2_049),
+                errorStack: 'ё'.repeat(16_385),
+              },
+            }),
+          ],
+          meta: {},
+        })
+      )
+    )
+
+    const collector = humanSource()
+    await collector.connect({ conversationId: 'conv-1' })
+
+    expect(collector.getAllSpans()[0]?.data).toEqual({
+      'error.name': 'я'.repeat(64),
+      'error.code': 'UNICODE_ERROR',
+    })
+  })
+
   it('maps the server unset status to a locally running span', async () => {
     vi.stubGlobal(
       'fetch',
