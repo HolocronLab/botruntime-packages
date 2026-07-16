@@ -535,7 +535,7 @@ describe('brt eval public contract', () => {
     expect(stdout).toContain(
       'brt traces --dev --trace-id 0123456789abcdef0123456789abcdef --conversation-id conv_eval_1'
     )
-    expect(stdout).toMatch(/message payload.*latest brt/i)
+    expect(stdout).toMatch(/message payload.*brt.*botruntime-evals.*rebuild the agent/i)
     expect(stdout).not.toContain('traceId=')
   })
 
