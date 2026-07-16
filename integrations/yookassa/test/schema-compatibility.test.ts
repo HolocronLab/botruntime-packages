@@ -36,4 +36,26 @@ describe('public catalog schema compatibility', () => {
       },
     }).receipt).toBeDefined()
   })
+
+  test('createPayment rejects receipts above the YooKassa 80-item limit', () => {
+    const item = {
+      description: 'Юридическая консультация',
+      quantity: 1,
+      amount: { value: '1.00', currency: 'RUB' as const },
+      vatCode: 1,
+    }
+    const result = actions.createPayment.input.schema.safeParse({
+      caseId: 'case-42',
+      amount: { value: '81.00', currency: 'RUB' },
+      description: 'Юридические услуги',
+      returnUrl: 'https://example.test/return',
+      idempotenceKey: 'case-42-payment',
+      receipt: {
+        customer: { email: 'customer@example.test' },
+        items: Array.from({ length: 81 }, () => item),
+      },
+    })
+
+    expect(result.success).toBe(false)
+  })
 })

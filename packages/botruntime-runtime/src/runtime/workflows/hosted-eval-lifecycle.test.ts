@@ -184,6 +184,18 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
     expect(store.markRunComplete).not.toHaveBeenCalled()
   })
 
+  it('never terminalizes a workflow yield received as the original failure', async () => {
+    const store = mockStore()
+    const steps: string[] = []
+    const lifecycle = new HostedEvalLifecycle(store, '10', [alpha])
+    const yieldSignal = createStepSignal()
+
+    await expect(lifecycle.terminalizeFailure(yieldSignal, recordingStep(steps))).rejects.toBe(yieldSignal)
+    expect(steps).toEqual([])
+    expect(store.startEntry).not.toHaveBeenCalled()
+    expect(store.markRunComplete).not.toHaveBeenCalled()
+  })
+
   it('propagates a live-ingest gap instead of logging and continuing', async () => {
     const store = mockStore()
     const ingestError = new Error('append failed')

@@ -35,7 +35,7 @@ export const receiptSchema = z.object({
     vatCode: z.number().int().min(1).max(12),
     paymentMode: paymentModeSchema.optional(),
     paymentSubject: z.string().regex(/^[a-z_]+$/).max(64).optional(),
-  })).min(1).max(100),
+  })).min(1).max(80),
   taxSystemCode: z.number().int().min(1).max(6).optional(),
 })
 
