@@ -228,7 +228,7 @@ const cloudTracesError = {
 
 const cloudTracesSource = {
   type: 'string',
-  description: 'Filter by privacy-safe trace source',
+  description: 'Filter by typed trace source',
 } satisfies CommandOption
 
 const cloudTracesName = {

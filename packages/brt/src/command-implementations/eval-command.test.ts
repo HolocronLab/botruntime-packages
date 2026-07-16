@@ -489,7 +489,7 @@ describe('brt eval public contract', () => {
     expect(stdout).toMatch(/101.*completed.*manual.*2026-07-10T10:00:00\.000Z/i)
   })
 
-  it('prints privacy-safe execution diagnostics with an exact trace lookup command', async () => {
+  it('prints execution diagnostics with an exact trace lookup command', async () => {
     stubFetch(async () =>
       json(
         detail({

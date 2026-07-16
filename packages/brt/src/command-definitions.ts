@@ -100,7 +100,7 @@ export default {
     schema: config.schemas.logs,
   },
   traces: {
-    description: 'Fetch privacy-safe runtime trace metadata for a conversation on the selected target',
+    description: 'Fetch runtime trace diagnostics for a conversation on the selected target',
     schema: config.schemas.traces,
   },
   conversations: {

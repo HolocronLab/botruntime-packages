@@ -368,13 +368,13 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
           )
         }
         throw new errors.BotpressCLIError(
-          `hosted eval workflow ${current.status}; redeploy the bot to refresh its eval manifest, then inspect privacy-safe traces and retry`
+          `hosted eval workflow ${current.status}; redeploy the bot to refresh its eval manifest, then inspect runtime traces and retry`
         )
       }
       await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
     }
     throw new errors.BotpressCLIError(
-      `hosted eval workflow timed out after ${timeout}ms; inspect \`brt eval runs --latest\` and privacy-safe traces before retrying`
+      `hosted eval workflow timed out after ${timeout}ms; inspect \`brt eval runs --latest\` and runtime traces before retrying`
     )
   }
 }
