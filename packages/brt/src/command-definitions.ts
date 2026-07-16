@@ -31,7 +31,7 @@ export default {
         schema: config.schemas.cloudIntegrationRegister,
       },
       publish: {
-        description: 'Publish an integration definition and bundle to the workspace catalog',
+        description: 'Publish an integration project to the public workspace catalog',
         schema: config.schemas.cloudIntegrationPublish,
       },
     },

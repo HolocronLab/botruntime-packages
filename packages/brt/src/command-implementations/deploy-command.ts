@@ -166,6 +166,12 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   }
 
   private async _deployIntegration(api: apiUtils.ApiClient, integrationDef: sdk.IntegrationDefinition) {
+    if (!fs.existsSync(this.projectPaths.abs.outFileCJS)) {
+      throw new errors.BotpressCLIError(
+        `Integration bundle not found at ${this.projectPaths.abs.outFileCJS}. Remove --noBuild to build it before deployment.`
+      )
+    }
+
     const res = await this.manageWorkspaceHandle(api, { type: 'integration', definition: integrationDef })
     if (!res) return
     const { definition: updatedIntegrationDef, workspaceId } = res
@@ -196,7 +202,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
     if (integration && integration.visibility !== 'private' && !api.isBotpressWorkspace) {
       this.logger.warn(
-        `Integration ${name} v${version} is already deployed publicly and cannot be updated. You should publish a new version instead.`
+        `Integration ${name} v${version} is already public. Reusing this version will override it; publish a new version for contract changes.`
       )
     }
 
