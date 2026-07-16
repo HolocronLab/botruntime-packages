@@ -284,7 +284,7 @@ const ASSERTION_KIND_SET = new Set<string>(VORTEX_EVAL_ASSERTION_KINDS)
 const ERROR_KIND_SET = new Set<string>(VORTEX_EVAL_ERROR_KINDS)
 
 function validDuration(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_DURATION_MS
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_DURATION_MS
 }
 
 function validateEntryProjection(meta: {
