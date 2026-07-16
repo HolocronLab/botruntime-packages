@@ -658,7 +658,8 @@ export class MegaplanApiClient {
       } catch {
         // non-JSON body: status alone is enough, never echo the body (may be large).
       }
-      throw new ApiError(res.status, message ? [{ message }] : [])
+      if (message) throw new ApiError(res.status, [{ message }])
+      throw parseApiError(res.status, text)
     }
 
     let tok: { access_token?: string }
