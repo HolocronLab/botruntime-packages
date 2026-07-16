@@ -70,7 +70,7 @@ export interface TurnReport {
   turnIndex: number
   /** Opaque platform correlation identifier; safe to persist, unlike message payloads. */
   conversationId?: string
-  /** W3C-compatible trace identifier for direct observability lookup. */
+  /** Correlates the turn with an existing trace without persisting span payloads in the eval report. */
   traceId?: string
   actor?: string
   target?: string
