@@ -36,10 +36,12 @@ jobs:
           mv packages/brt/bun.lock "$RUNNER_TEMP/brt.source.bun.lock"
 
       - name: Install + typecheck brt from registry dependencies
-        working-directory: packages/brt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLIC_NPM_REGISTRY: "https://registry.npmjs.org"
         run: |
+          node scripts/registry-release-readiness.mjs packages/brt/package.json
+          cd packages/brt
           bun install --no-save --ignore-scripts
           bun run typecheck
 
