@@ -5,7 +5,7 @@ import { events } from './definitions/events'
 
 export default new IntegrationDefinition({
   name: 'yookassa',
-  version: '0.1.0',
+  version: '0.2.0',
   title: 'ЮKassa',
   description: 'Создание платежей и подтверждение payment.succeeded с повторной проверкой через API.',
   readme: 'hub.md',

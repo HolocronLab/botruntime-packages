@@ -1,5 +1,5 @@
 import { z } from '@holocronlab/botruntime-sdk'
-import { amountSchema, paymentSchema } from './common'
+import { amountSchema, paymentSchema, receiptSchema } from './common'
 
 export const actions = {
   createPayment: {
@@ -12,6 +12,7 @@ export const actions = {
         description: z.string().min(1).max(128),
         returnUrl: z.string().url(),
         idempotenceKey: z.string().min(1).max(64),
+        receipt: receiptSchema.optional(),
       }),
     },
     output: { schema: paymentSchema },

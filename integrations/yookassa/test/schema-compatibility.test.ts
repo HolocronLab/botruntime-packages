@@ -15,4 +15,25 @@ describe('public catalog schema compatibility', () => {
       expect(() => event.schema.toJSONSchema()).not.toThrow()
     }
   })
+
+  test('createPayment accepts a fiscal receipt with a customer contact and service item', () => {
+    expect(actions.createPayment.input.schema.parse({
+      caseId: 'case-42',
+      amount: { value: '1500.00', currency: 'RUB' },
+      description: 'Юридическая консультация',
+      returnUrl: 'https://example.test/return',
+      idempotenceKey: 'case-42-payment',
+      receipt: {
+        customer: { email: 'customer@example.test' },
+        items: [{
+          description: 'Юридическая консультация',
+          quantity: 1,
+          amount: { value: '1500.00', currency: 'RUB' },
+          vatCode: 1,
+          paymentMode: 'full_payment',
+          paymentSubject: 'service',
+        }],
+      },
+    }).receipt).toBeDefined()
+  })
 })

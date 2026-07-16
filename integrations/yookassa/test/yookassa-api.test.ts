@@ -75,6 +75,56 @@ describe('YookassaClient', () => {
     expect(keys).toEqual(['stable-key', 'stable-key'])
   })
 
+  test('createPayment forwards receipt data using the YooKassa API field names', async () => {
+    let requestBody: Record<string, unknown> = {}
+    const client = new YookassaClient({
+      ...cfg,
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body))
+        return Response.json({
+          id: 'pay-receipt',
+          status: 'pending',
+          paid: false,
+          amount: { value: '1500.00', currency: 'RUB' },
+          metadata: { caseId: 'case-receipt' },
+        })
+      },
+    })
+
+    await client.createPayment({
+      caseId: 'case-receipt',
+      amount: { value: '1500.00', currency: 'RUB' },
+      description: 'Юридическая консультация',
+      returnUrl: 'https://example.test/return',
+      idempotenceKey: 'receipt-key',
+      receipt: {
+        customer: { email: 'customer@example.test' },
+        items: [{
+          description: 'Юридическая консультация',
+          quantity: 1,
+          amount: { value: '1500.00', currency: 'RUB' },
+          vatCode: 1,
+          paymentMode: 'full_payment',
+          paymentSubject: 'service',
+        }],
+        taxSystemCode: 2,
+      },
+    })
+
+    expect(requestBody.receipt).toEqual({
+      customer: { email: 'customer@example.test' },
+      items: [{
+        description: 'Юридическая консультация',
+        quantity: 1,
+        amount: { value: '1500.00', currency: 'RUB' },
+        vat_code: 1,
+        payment_mode: 'full_payment',
+        payment_subject: 'service',
+      }],
+      tax_system_code: 2,
+    })
+  })
+
   test('getPayment reads the canonical provider state', async () => {
     let seenUrl = ''
     const client = new YookassaClient({
@@ -98,14 +148,22 @@ describe('YookassaClient', () => {
     expect(payment).toMatchObject({ id: 'pay/escaped', status: 'succeeded', paid: true, caseId: 'case-42' })
   })
 
-  test('provider error never leaks the secret', async () => {
+  test('provider error exposes only safe diagnostics and never leaks the response description', async () => {
     const client = new YookassaClient({
       ...cfg,
-      fetchImpl: async () => Response.json({ description: 'invalid credentials secret-1' }, { status: 401 }),
+      fetchImpl: async () => Response.json({
+        code: 'invalid_request',
+        parameter: 'receipt',
+        description: 'private provider detail secret-1',
+      }, { status: 400 }),
     })
 
     const error = await client.getPayment('pay-1').catch((value) => value)
     expect(error).toBeInstanceOf(YookassaApiError)
+    expect(error).toMatchObject({ status: 400, code: 'invalid_request', parameter: 'receipt' })
+    expect(String(error)).toContain('code=invalid_request')
+    expect(String(error)).toContain('parameter=receipt')
     expect(String(error)).not.toContain('secret-1')
+    expect(String(error)).not.toContain('private provider detail')
   })
 })

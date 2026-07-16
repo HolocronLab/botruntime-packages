@@ -15,8 +15,12 @@
 ## Actions
 
 - `createPayment` — создаёт платёж с обязательным caller-owned `idempotenceKey`,
-  `metadata.caseId` и redirect confirmation URL.
+  `metadata.caseId` и redirect confirmation URL. Если для магазина включена
+  фискализация, передайте `receipt` с контактом покупателя и позициями чека.
 - `getPayment` — возвращает каноническое состояние платежа из ЮKassa.
+
+Ошибки API записываются в логи без текста ответа провайдера и секретов: только
+HTTP-статус и безопасные поля `code` и `parameter`.
 
 ## Event
 

@@ -17,12 +17,35 @@ export type Payment = {
   capturedAt?: string
 }
 
+export type ReceiptCustomer = { email?: string; phone?: string }
+export type ReceiptItem = {
+  description: string
+  quantity: number
+  amount: Money
+  vatCode: number
+  paymentMode?:
+    | 'full_prepayment'
+    | 'partial_prepayment'
+    | 'advance'
+    | 'full_payment'
+    | 'partial_payment'
+    | 'credit'
+    | 'credit_payment'
+  paymentSubject?: string
+}
+export type Receipt = {
+  customer: ReceiptCustomer
+  items: ReceiptItem[]
+  taxSystemCode?: number
+}
+
 export type CreatePaymentInput = {
   caseId: string
   amount: Money
   description: string
   returnUrl: string
   idempotenceKey: string
+  receipt?: Receipt
 }
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
@@ -37,7 +60,12 @@ export type YookassaClientConfig = {
 }
 
 export class YookassaApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly code?: string,
+    readonly parameter?: string,
+  ) {
     super(message)
     this.name = 'YookassaApiError'
   }
@@ -69,6 +97,7 @@ export class YookassaClient {
         confirmation: { type: 'redirect', return_url: input.returnUrl },
         description: input.description,
         metadata: { caseId: input.caseId },
+        receipt: input.receipt ? receiptRequest(input.receipt) : undefined,
       },
     })
     return parsePayment(raw)
@@ -129,7 +158,13 @@ export class YookassaClient {
       }
       const text = await readCappedText(response)
       if (!response.ok) {
-        throw new YookassaApiError(response.status, `YooKassa API returned HTTP ${response.status}`)
+        const diagnostics = parseProviderError(text)
+        throw new YookassaApiError(
+          response.status,
+          formatProviderError(response.status, diagnostics),
+          diagnostics.code,
+          diagnostics.parameter,
+        )
       }
       if (!text) return undefined
       try {
@@ -171,12 +206,55 @@ function parsePayment(raw: unknown): Payment {
   }
 }
 
+function receiptRequest(receipt: Receipt): Record<string, unknown> {
+  return {
+    customer: receipt.customer,
+    items: receipt.items.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      amount: item.amount,
+      vat_code: item.vatCode,
+      payment_mode: item.paymentMode,
+      payment_subject: item.paymentSubject,
+    })),
+    tax_system_code: receipt.taxSystemCode,
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isPaymentStatus(value: unknown): value is PaymentStatus {
   return value === 'pending' || value === 'waiting_for_capture' || value === 'succeeded' || value === 'canceled'
+}
+
+type ProviderErrorDiagnostics = { code?: string; parameter?: string }
+
+function parseProviderError(text: string): ProviderErrorDiagnostics {
+  try {
+    const raw: unknown = JSON.parse(text)
+    if (!isRecord(raw)) return {}
+    return {
+      code: safeDiagnostic(raw.code),
+      parameter: safeDiagnostic(raw.parameter),
+    }
+  } catch {
+    return {}
+  }
+}
+
+function safeDiagnostic(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 128 || !/^[a-zA-Z0-9_.\[\]-]+$/.test(value)) return undefined
+  return value
+}
+
+function formatProviderError(status: number, diagnostics: ProviderErrorDiagnostics): string {
+  const suffix = [
+    diagnostics.code ? `code=${diagnostics.code}` : undefined,
+    diagnostics.parameter ? `parameter=${diagnostics.parameter}` : undefined,
+  ].filter(Boolean)
+  return `YooKassa API returned HTTP ${status}${suffix.length ? ` (${suffix.join(', ')})` : ''}`
 }
 
 function isTransient(status: number): boolean {
