@@ -76,6 +76,15 @@ describe('runtime eval workflow trace-reader contract', () => {
   })
 
   it('yields on the workflow execution budget before terminalizing the hosted run', () => {
+    const invocationGate = source.indexOf('assertHostedEvalInvocationBudget(')
+    const manifestLoad = source.indexOf("step('load-manifest'")
+    const budgetGate = source.indexOf('assertHostedEvalStartBudget(')
+    const evalCheckpoint = source.indexOf('const report = await step(`run-eval-')
+
+    expect(invocationGate).toBeGreaterThan(-1)
+    expect(manifestLoad).toBeGreaterThan(invocationGate)
+    expect(budgetGate).toBeGreaterThan(-1)
+    expect(evalCheckpoint).toBeGreaterThan(budgetGate)
     expect(source).toMatch(
       /report = await runEvalSuite\(config\)\s+assertHostedEvalExecutionActive\(signal\)/,
     )

@@ -29,7 +29,12 @@ import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
 import { PlatformEvalControl } from './eval-control'
 import { fetchEvalManifestFile } from './eval-file-fetch'
-import { assertHostedEvalExecutionActive, resolveHostedEvalIdleTimeout } from './eval-runner-policy'
+import {
+  assertHostedEvalExecutionActive,
+  assertHostedEvalInvocationBudget,
+  assertHostedEvalStartBudget,
+  resolveHostedEvalIdleTimeout,
+} from './eval-runner-policy'
 
 async function loadEvalManifest(client: Client): Promise<{
   evals: EvalDefinition[]
@@ -97,6 +102,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
   timeout: '60m',
 
   handler: async ({ input, step, signal, workflow, client }) => {
+    assertHostedEvalInvocationBudget(context.get('runtime').getRemainingExecutionTimeInMs())
     const runtimeClient = client._inner
 
     const { apiUrl, token, runtimeBotId, apiBotId, workspaceId, development } =
@@ -235,6 +241,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       // an execution that cannot be reconciled.
       onProgress: (event) => hostedLifecycle.onProgress(event),
       checkpointEval: async ({ definition, index, execute }) => {
+        assertHostedEvalStartBudget(context.get('runtime').getRemainingExecutionTimeInMs())
         const report = await step(`run-eval-${index}-${definition.name}`, execute)
         hostedLifecycle.rememberCompletedReport(report)
         return report
