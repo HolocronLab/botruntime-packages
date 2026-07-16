@@ -61,6 +61,10 @@ import { BUILTIN_INTERFACES } from '../constants.js'
 import { BuiltInActions, BuiltInWorkflows, Primitives, Workflow } from '@holocronlab/botruntime-runtime/internal'
 import { BUILT_IN_TAGS } from '@holocronlab/botruntime-runtime/definition'
 import { DependencySnapshotStore } from '../dependencies/snapshot-store.js'
+import {
+  isManagedGeneratedDependencyModule,
+  listGeneratedDependencyModuleNames,
+} from '../dependencies/module-identity.js'
 import type { CatalogClientOptions } from '../dependencies/catalog/client-factory.js'
 
 /**
@@ -2329,6 +2333,23 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
     installer: options.installer,
     projectPromise: generator.loadProject(),
   }
+
+  // Dev and prod share `.adk/bot`; without pruning managed modules absent from
+  // the current snapshot, target switches leave stale modules and trigger MODULE_UNEXPECTED.
+  const currentProject = await syncOptions.projectPromise
+  const expectedModuleNames = new Set<string>([
+    ...Object.keys(currentProject.dependencies?.integrations ?? {}).map((alias) =>
+      bpModuleDirName('integration', alias)
+    ),
+    ...Object.keys(currentProject.dependencies?.plugins ?? {}).map((alias) => bpModuleDirName('plugin', alias)),
+  ])
+  const bpModulesPath = path.join(botPath, 'bp_modules')
+  await Promise.all(
+    listGeneratedDependencyModuleNames(bpModulesPath)
+      .filter((moduleName) => !expectedModuleNames.has(moduleName))
+      .filter((moduleName) => isManagedGeneratedDependencyModule(bpModulesPath, moduleName))
+      .map((moduleName) => fs.rm(path.join(bpModulesPath, moduleName), { recursive: true, force: true }))
+  )
 
   // Sync integrations
   const integrationSync = new IntegrationSync(options.projectPath, botPath, syncOptions)
