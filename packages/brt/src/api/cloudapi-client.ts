@@ -43,6 +43,25 @@ export interface ConfigVar {
   updatedAt?: string
 }
 
+// BotVersionEntry — one element of GET /v1/admin/bots/{id}/versions. Mirrors
+// cloudapi's own listBotVersionsResponse item shape (handlers_botversions.go):
+// id/name/description are Botpress-wire (listBotVersionsResponse 1:1); current
+// and createdAt are cloudapi's additive DX extension (DEVLP-166), absent from
+// the vendored Botpress admin spec — this bespoke client is the one place that
+// wire divergence is allowed to be typed directly (unlike ../api/client.ts's
+// generated @holocronlab/botruntime-client, which stays spec-exact).
+export interface BotVersionEntry {
+  id: string
+  name: string
+  description?: string
+  current: boolean
+  createdAt: string
+}
+
+export interface ListBotVersionsResponse {
+  versions: BotVersionEntry[]
+}
+
 export interface BotConfigurationResponse {
   bot: {
     id: string
@@ -429,6 +448,30 @@ export class CloudapiClient {
       botId,
       internalToken,
       timeoutMs: BUNDLE_TIMEOUT_MS,
+      idempotent: true,
+    })
+  }
+
+  // ---- bot deploy-versions (bot-scoped key only; DEVLP-166) ----------------
+  // No workspace-PAT variant exists server-side for these two paths (unlike
+  // getBotConfiguration/updateBotConfiguration above): cloudapi mounts
+  // /v1/admin/bots/{id}/versions* on mw+mb only (routes_admin.go), so the
+  // caller must already hold this bot's own per-bot API key.
+  public async listBotVersions(botId: string): Promise<ListBotVersionsResponse> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}/versions`,
+      idempotent: true,
+    })
+  }
+
+  // Idempotent: re-flipping to the same versionId is a no-op server-side, so a
+  // 5xx is safe to retry.
+  public async deployBotVersion(botId: string, versionId: string): Promise<unknown> {
+    return this.raw({
+      method: 'POST',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}/versions/deploy`,
+      body: { versionId },
       idempotent: true,
     })
   }

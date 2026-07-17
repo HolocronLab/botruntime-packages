@@ -11,6 +11,20 @@ export default {
       get: { description: 'Get bot', schema: config.schemas.getBot },
       delete: { description: 'Delete bot', schema: config.schemas.deleteBot, alias: 'rm' },
       list: { description: 'List bots', schema: config.schemas.listBots, alias: 'ls' },
+      versions: {
+        description: "Bot deploy-version commands (what's live, and rollback)",
+        subcommands: {
+          list: {
+            description: "List the selected bot's deploy versions, marking which one is current",
+            schema: config.schemas.botVersionsList,
+            alias: 'ls',
+          },
+          deploy: {
+            description: 'Make an existing bot version current (deploy forward or roll back)',
+            schema: config.schemas.botVersionsDeploy,
+          },
+        },
+      },
     },
   },
   integrations: {
