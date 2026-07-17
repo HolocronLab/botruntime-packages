@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EVAL_MANIFEST_SCHEMA_VERSION } from '@holocronlab/botruntime-evals'
 import { syncEvalManifest } from './eval-manifest-sync'
 
 describe('hosted eval manifest sync', () => {
@@ -14,17 +15,25 @@ describe('hosted eval manifest sync', () => {
     fs.mkdirSync(path.join(root, 'fixtures'))
     fs.writeFileSync(path.join(root, 'fixtures', 'ddu.pdf'), Buffer.from('private-pdf'))
     const uploads: Array<Record<string, unknown>> = []
-    const uploadFile = vi.fn(async (input: Record<string, unknown> & { content: Buffer; contentType: string; key: string }) => {
-      uploads.push(input)
-      const content = input.content
-      return {
-        file: {
-          id: input.key === 'evals/manifest.json' ? 'manifest_1' : 'fixture_1',
-          size: content.byteLength,
-          contentType: input.contentType,
-        },
+    const uploadFile = vi.fn(
+      async (
+        input: Record<string, unknown> & {
+          content: Buffer
+          contentType: string
+          key: string
+        }
+      ) => {
+        uploads.push(input)
+        const content = input.content
+        return {
+          file: {
+            id: input.key.startsWith('evals/manifests/') ? 'manifest_file_1' : 'fixture_1',
+            size: content.byteLength,
+            contentType: input.contentType,
+          },
+        }
       }
-    })
+    )
 
     const result = await syncEvalManifest({
       projectDir: root,
@@ -32,7 +41,11 @@ describe('hosted eval manifest sync', () => {
         {
           name: 'document',
           fixtures: {
-            ddu: { path: 'fixtures/ddu.pdf', name: 'D.pdf', contentType: 'application/pdf' },
+            ddu: {
+              path: 'fixtures/ddu.pdf',
+              name: 'D.pdf',
+              contentType: 'application/pdf',
+            },
           },
           conversation: [{ user: 'file', attachments: [{ fixture: 'ddu' }] }],
         },
@@ -41,7 +54,8 @@ describe('hosted eval manifest sync', () => {
     })
 
     expect(result).toEqual({
-      manifestFileId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      manifestId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      manifestFileId: 'manifest_file_1',
       fixtures: 1,
       evals: 1,
     })
@@ -49,15 +63,32 @@ describe('hosted eval manifest sync', () => {
       key: expect.stringMatching(/^eval-fixtures\/[a-f0-9]{64}\/D\.pdf$/),
       contentType: 'application/pdf',
       accessPolicies: [],
-      metadata: { fixtureId: 'ddu', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
+      metadata: {
+        fixtureId: 'ddu',
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
     })
     const manifestUpload = uploads[1]!
-    expect(manifestUpload).toMatchObject({ accessPolicies: [] })
+    expect(manifestUpload).toMatchObject({
+      key: expect.stringMatching(/^evals\/manifests\/[a-f0-9]{64}\.json$/),
+      accessPolicies: [],
+      tags: {
+        source: 'adk',
+        type: 'eval-manifest',
+        schemaVersion: `${EVAL_MANIFEST_SCHEMA_VERSION}`,
+        manifestId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      },
+    })
     const manifest = JSON.parse(Buffer.from(manifestUpload.content as Buffer).toString('utf8'))
     expect(manifest).toMatchObject({
-      schemaVersion: 2,
-      manifestId: result.manifestFileId,
-      evals: [{ name: 'document', conversation: [{ attachments: [{ fixture: 'ddu' }] }] }],
+      schemaVersion: EVAL_MANIFEST_SCHEMA_VERSION,
+      manifestId: result.manifestId,
+      evals: [
+        {
+          name: 'document',
+          conversation: [{ attachments: [{ fixture: 'ddu' }] }],
+        },
+      ],
       fixtures: {
         ddu: {
           fileId: 'fixture_1',
@@ -83,7 +114,9 @@ describe('hosted eval manifest sync', () => {
         definitions: [
           {
             name: 'bad',
-            fixtures: { secret: { path: '../secret.pdf', contentType: 'application/pdf' } },
+            fixtures: {
+              secret: { path: '../secret.pdf', contentType: 'application/pdf' },
+            },
             conversation: [{ attachments: [{ fixture: 'missing' }] }],
           },
         ],
@@ -107,7 +140,9 @@ describe('hosted eval manifest sync', () => {
         definitions: [
           {
             name: 'bad_symlink',
-            fixtures: { secret: { path: 'fixture.pdf', contentType: 'application/pdf' } },
+            fixtures: {
+              secret: { path: 'fixture.pdf', contentType: 'application/pdf' },
+            },
             conversation: [{ attachments: [{ fixture: 'secret' }] }],
           },
         ],

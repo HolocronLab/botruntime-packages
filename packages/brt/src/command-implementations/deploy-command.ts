@@ -16,6 +16,12 @@ import type commandDefinitions from '../command-definitions'
 import type { CommandArgv } from '../typings'
 import * as declaredCommands from '../declared-commands'
 import * as errors from '../errors'
+import {
+  assertPlatformToolchainCompatible,
+  inspectPlatformToolchain,
+  validatePlatformToolchainArtifact,
+  writePlatformToolchainContract,
+} from '../toolchain-contract'
 import { pendingIntegrationRegistrationCommands } from '../integration-guidance'
 import * as tableSync from '../adk-table-sync'
 import * as tables from '../tables'
@@ -802,6 +808,11 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
   private async _deployAdkBundle(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
+    // Resolve the physical package graph before loading ADK code or touching
+    // Cloud state. A stale/hoisted platform package must fail here, not later
+    // as an unrelated runtime or eval error after provisioning.
+    const toolchainContract = inspectPlatformToolchain(dir)
+    assertPlatformToolchainCompatible(toolchainContract)
     // Load and validate recurring metadata before provisioning. The server
     // synchronizes these durable schedules atomically with the deployed bot.
     const recurringEvents = await adkBundle.loadAgentRecurringEvents(dir)
@@ -928,6 +939,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       ? (() => {
           const bundlePath = adkBundle.requireExistingBundle(dir)
           const verified = adkBundle.validateBundleProvenance(bundlePath, bundleTarget!)
+          validatePlatformToolchainArtifact(dir, toolchainContract, verified.sha256)
           return { path: bundlePath, code: verified.code, sha256: verified.sha256 }
         })()
       : undefined
@@ -1030,6 +1042,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       const code = await fs.promises.readFile(bundlePath, 'utf-8')
       const localHash = adkBundle.sha256(code)
       adkBundle.writeBundleProvenance(bundlePath, { apiUrl, workspaceId, botId }, code)
+      writePlatformToolchainContract(dir, toolchainContract, { bundleSha256: localHash })
       bundle = { path: bundlePath, code, sha256: localHash }
     }
     const { path: bundlePath, code, sha256: localHash } = bundle

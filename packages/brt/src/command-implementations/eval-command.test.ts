@@ -8,9 +8,21 @@ import { Logger } from '../logger'
 import { EvalRunCommand, EvalRunsCommand } from './eval-command'
 
 const prepareHostedEvalManifest = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
+  vi.fn().mockResolvedValue({
+    manifestId: 'sha256:manifest_1',
+    manifestFileId: 'manifest_file_1',
+    evals: 1,
+    fixtures: 0,
+  })
 )
 vi.mock('../eval-manifest-prepare', () => ({ prepareHostedEvalManifest }))
+
+const inspectPlatformToolchain = vi.hoisted(() => vi.fn(() => ({ compatible: true })))
+const assertPlatformToolchainCompatible = vi.hoisted(() => vi.fn())
+vi.mock('../toolchain-contract', () => ({
+  inspectPlatformToolchain,
+  assertPlatformToolchainCompatible,
+}))
 
 vi.mock('../public-package-version', () => ({
   fetchLatestPublicVersion: vi.fn(async () => '0.6.10'),
@@ -108,7 +120,8 @@ describe('brt eval public contract', () => {
     stderr = ''
     originalFetch = globalThis.fetch
     prepareHostedEvalManifest.mockReset().mockResolvedValue({
-      manifestFileId: 'manifest_1',
+      manifestId: 'sha256:manifest_1',
+      manifestFileId: 'manifest_file_1',
       evals: 1,
       fixtures: 0,
     })
@@ -554,7 +567,8 @@ describe('brt eval public contract', () => {
             },
             runType: 'manual',
             judgeModel: 'openai:gpt-4o',
-            evalManifestId: 'manifest_1',
+            evalManifestId: 'sha256:manifest_1',
+            evalManifestFileId: 'manifest_file_1',
           },
           timeoutAt: expect.any(String),
         })
@@ -774,6 +788,63 @@ describe('brt eval public contract', () => {
     expect(stdout + stderr).not.toContain('customer secret')
   })
 
+  it.each([
+    ['EVAL_MANIFEST_MISSING', 'The requested eval manifest is unavailable'],
+    ['EVAL_MANIFEST_SCHEMA_INCOMPATIBLE', 'The eval manifest schema is incompatible with this runtime'],
+    ['EVAL_MANIFEST_HASH_MISMATCH', 'The eval manifest content failed integrity verification'],
+  ])('shows sanitized workflow diagnostic %s in verbose mode', async (code, safeReason) => {
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        : json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'failed',
+              output: {},
+              failureReason: `${code}: raw prompt and customer secret`,
+            },
+          })
+    )
+
+    const response = await runCommand({ verbose: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(stderr).toContain(code)
+    expect(stderr).toContain(safeReason)
+    expect(stdout + stderr).not.toContain('customer secret')
+  })
+
+  it('emits a sanitized stable workflow failure object in json mode', async () => {
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        : json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'failed',
+              output: {},
+              failureReason: 'EVAL_MANIFEST_HASH_MISMATCH: raw prompt and customer secret',
+            },
+          })
+    )
+
+    const response = await runCommand({ json: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(JSON.parse(stdout)).toMatchObject({
+      schemaVersion: 1,
+      workflow: {
+        id: 'workflow_1',
+        status: 'failed',
+        failure: {
+          code: 'EVAL_MANIFEST_HASH_MISMATCH',
+          reason: 'The eval manifest content failed integrity verification',
+        },
+      },
+    })
+    expect(stdout + stderr).not.toContain('customer secret')
+  })
+
   it('turns the allowlisted delivery failure into dev-tunnel remediation', async () => {
     writeDevTarget()
     stubFetch(async (_url, index) =>
@@ -826,6 +897,20 @@ describe('brt eval public contract', () => {
     expect(calls).toEqual([])
     expect(stderr).toMatch(expected)
     expect(stdout + stderr).not.toContain('raw prompt')
+  })
+
+  it('rejects an incompatible physical toolchain before resolving the cloud target', async () => {
+    assertPlatformToolchainCompatible.mockImplementationOnce(() => {
+      throw new Error('TOOLCHAIN_CAPABILITY_MISMATCH: runtime evalManifest=1, required=2')
+    })
+    stubFetch(async () => json({}))
+
+    const response = await runCommand().handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(calls).toEqual([])
+    expect(prepareHostedEvalManifest).not.toHaveBeenCalled()
+    expect(stderr).toContain('TOOLCHAIN_CAPABILITY_MISMATCH')
   })
 
   it('fails loudly on a malformed workflow completion without reflecting extra output', async () => {

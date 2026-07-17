@@ -3,7 +3,6 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
   EVAL_MANIFEST_SCHEMA_VERSION,
-  EVAL_MANIFEST_TAGS,
   type EvalDefinition,
   type EvalFixtureManifestEntry,
   type EvalFixtureSource,
@@ -22,7 +21,9 @@ type UploadFileClient = {
     accessPolicies: Array<'integrations'>
     tags: Record<string, string>
     metadata: Record<string, unknown>
-  }): Promise<{ file: { id: string; size: number | null; contentType: string } }>
+  }): Promise<{
+    file: { id: string; size: number | null; contentType: string }
+  }>
 }
 
 type PreparedFixture = {
@@ -55,7 +56,12 @@ export async function syncEvalManifest(input: {
   projectDir: string
   definitions: EvalDefinition[]
   client: UploadFileClient
-}): Promise<{ manifestFileId: string; fixtures: number; evals: number }> {
+}): Promise<{
+  manifestId: string
+  manifestFileId: string
+  fixtures: number
+  evals: number
+}> {
   const sources = new Map<string, EvalFixtureSource>()
   for (const definition of input.definitions) {
     for (const [fixture, source] of Object.entries(definition.fixtures ?? {})) {
@@ -110,7 +116,11 @@ export async function syncEvalManifest(input: {
       // the authenticated control-plane API; declaring an unenforced integration
       // policy makes current platform versions reject the upload.
       accessPolicies: [],
-      tags: { source: 'adk', type: 'eval-fixture', schemaVersion: `${EVAL_MANIFEST_SCHEMA_VERSION}` },
+      tags: {
+        source: 'adk',
+        type: 'eval-fixture',
+        schemaVersion: `${EVAL_MANIFEST_SCHEMA_VERSION}`,
+      },
       metadata: { fixtureId: fixture.id, sha256: fixture.sha256 },
     })
     if (uploaded.file.size !== fixture.bytes.byteLength || uploaded.file.contentType !== fixture.source.contentType) {
@@ -131,19 +141,32 @@ export async function syncEvalManifest(input: {
     ...(Object.keys(fixtures).length > 0 ? { fixtures } : {}),
   }
   const manifestId = `sha256:${createHash('sha256').update(JSON.stringify(manifestPayload)).digest('hex')}`
+  const manifestDigest = manifestId.slice('sha256:'.length)
   const manifest: EvalManifest = { ...manifestPayload, manifestId }
   const content = Buffer.from(JSON.stringify(manifest))
   const uploaded = await input.client.uploadFile({
-    key: 'evals/manifest.json',
+    key: `evals/manifests/${manifestDigest}.json`,
     content,
     contentType: 'application/json',
     accessPolicies: [],
-    tags: EVAL_MANIFEST_TAGS,
-    metadata: { schemaVersion: EVAL_MANIFEST_SCHEMA_VERSION },
+    // The content identity, not schema compatibility, locates this immutable
+    // artifact. The runtime validates the schema after retrieving the exact file.
+    tags: {
+      source: 'adk',
+      type: 'eval-manifest',
+      schemaVersion: `${EVAL_MANIFEST_SCHEMA_VERSION}`,
+      manifestId,
+    },
+    metadata: { schemaVersion: EVAL_MANIFEST_SCHEMA_VERSION, manifestId },
   })
   if (uploaded.file.size !== content.byteLength || uploaded.file.contentType !== 'application/json') {
     throw new Error('Eval manifest upload metadata mismatch.')
   }
 
-  return { manifestFileId: manifestId, fixtures: prepared.length, evals: input.definitions.length }
+  return {
+    manifestId,
+    manifestFileId: uploaded.file.id,
+    fixtures: prepared.length,
+    evals: input.definitions.length,
+  }
 }

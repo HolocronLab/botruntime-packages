@@ -24,6 +24,12 @@ import { cloudInfo } from '../cloud-io'
 import * as cloudProfileResolve from '../cloud-profile-resolve'
 import * as cloudLink from '../cloud-project-link'
 import * as errors from '../errors'
+import {
+  parseServerRuntimeContract,
+  RuntimeContractError,
+  type RuntimeContractReadiness,
+} from '../runtime-contract'
+import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
 import { buildDevWorkerEnvironment } from '../dev-worker-env'
 import { DevTraceIngestServer } from '../dev-trace-ingest'
@@ -298,7 +304,18 @@ function parseReadinessProjection(
   throw readinessContractError(`${path}.authority must be authoritative or unknown`)
 }
 
-function parseCloudDependencyReadiness(bot: DevBotReadinessBot): CloudDependencyReadiness {
+function parseRuntimeContract(value: unknown): RuntimeContractReadiness {
+  try {
+    return parseServerRuntimeContract(value)
+  } catch (thrown) {
+    if (thrown instanceof RuntimeContractError) throw readinessContractError(thrown.message)
+    throw thrown
+  }
+}
+
+function parseCloudDependencyReadiness(
+  bot: DevBotReadinessBot
+): CloudDependencyReadiness & { runtimeContract: RuntimeContractReadiness } {
   if (!isRecord(bot.devReadiness) || bot.devReadiness.schemaVersion !== 1) {
     throw readinessContractError('schemaVersion must equal 1')
   }
@@ -337,6 +354,7 @@ function parseCloudDependencyReadiness(bot: DevBotReadinessBot): CloudDependency
     ),
     plugins: parseReadinessProjection(bot.devReadiness.plugins, 'bot.devReadiness.plugins', pluginItems),
     lastDevDeployment,
+    runtimeContract: parseRuntimeContract(bot.devReadiness.runtimeContract),
   }
 }
 
@@ -385,6 +403,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // and run that bot through the dev-bot/tunnel path. Cloud deployment lives
     // exclusively under the explicitly named `brt deploy --adk` command.
     if (adkBundle.isAgentProject(this.projectPaths.abs.workDir)) {
+      const toolchain = inspectPlatformToolchain(this.projectPaths.abs.workDir)
+      assertPlatformToolchainCompatible(toolchain)
       return this._runAgentTunnelDev()
     }
 
@@ -811,6 +831,9 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private async _runAgentTunnelDev(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const watchEnabled = this.argv.watch !== false
+    const assertCurrentToolchain = (): void => {
+      assertPlatformToolchainCompatible(inspectPlatformToolchain(dir))
+    }
     const installer = this._buildAdkDependencyInstaller()
     const credentials = await this._resolveAgentDevConnection(dir)
     const devTarget = await this._ensureAgentDevTarget(dir, credentials)
@@ -852,6 +875,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // Initial generation fails loudly (never a silent no-op): a broken agent
     // project should stop `brt dev` outright instead of starting a tunnel dev
     // session against a bot that was never successfully generated.
+    assertCurrentToolchain()
     const botPath = await adkBundle.generateAgentBot(dir, installer, generationOptions()).catch((thrown) => {
       throw errors.BotpressCLIError.wrap(thrown, 'agent dev: initial bot generation failed')
     })
@@ -874,6 +898,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       try {
         do {
           regenDirty = false
+          // Lockfiles are watched as source inputs. Re-check the physical
+          // graph on every regeneration so an install performed while dev is
+          // running cannot silently rebuild and redeploy a mixed toolchain.
+          assertCurrentToolchain()
           // A newly provisioned nested dev bot is persisted before choosing
           // the next config target; agent.local.json remains the sole source.
           adkDevId.preserveDevId(dir, botPath, this.logger)
@@ -989,6 +1017,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private async _runDevCheck(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const isAgent = adkBundle.isAgentProject(dir)
+    const localToolchain = inspectPlatformToolchain(dir)
+    assertPlatformToolchainCompatible(localToolchain)
     const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
     const legacyLink = cloudLink.loadLinkIfPresent(dir, linkEnv)
     const agentLocalInfo = agentLink.readAgentLocalInfo(dir)
@@ -1107,9 +1137,30 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     const failed = isAgent ? [] : this._failedReadinessIntegrations(readinessIntegrations, integrations)
-    const evalTransport = { ready: true, integration: 'botruntime/eval (native)' }
+    const localEvalManifest = localToolchain.capabilities['evalManifest']
+    const cloudRuntime = cloudReadiness.runtimeContract
+    const serverEvalManifest =
+      cloudRuntime.authority === 'authoritative' ? cloudRuntime.capabilities.evalManifest : undefined
+    const evalTransport = {
+      ready:
+        localEvalManifest !== undefined &&
+        serverEvalManifest !== undefined &&
+        localEvalManifest === serverEvalManifest,
+      integration: 'botruntime/eval (native)',
+      localManifestSchema: localEvalManifest ?? null,
+      serverManifestSchema: serverEvalManifest ?? null,
+      ...(cloudRuntime.authority === 'unknown'
+        ? { reason: cloudRuntime.reason }
+        : localEvalManifest === undefined
+          ? { reason: 'local toolchain does not declare the evalManifest capability' }
+          : localEvalManifest !== serverEvalManifest
+            ? {
+                reason: `eval manifest capability mismatch: local=${localEvalManifest}, server=${serverEvalManifest}`,
+              }
+            : {}),
+    }
     const output = {
-      ok: failed.length === 0 && (!dependencies || dependencies.ok),
+      ok: failed.length === 0 && (!dependencies || dependencies.ok) && evalTransport.ready,
       bot: {
         id: report.bot.id,
         dev: report.bot.dev,
@@ -1117,6 +1168,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       },
       integrations: readinessIntegrations,
       evalTransport,
+      toolchain: {
+        ready: true,
+        capabilities: localToolchain.capabilities,
+        packages: localToolchain.packages,
+        ...(localToolchain.lockfile ? { lockfile: localToolchain.lockfile } : {}),
+      },
       ...(dependencies ? { dependencies } : {}),
     }
 
@@ -1136,7 +1193,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           this.logger.log(`  ${alias}: ${status}${reason}`)
         }
       }
-      this.logger.log(`Eval transport: ready (${output.evalTransport.integration})`)
+      this.logger.log(
+        output.evalTransport.ready
+          ? `Eval transport: ready (${output.evalTransport.integration}, manifest schema ${output.evalTransport.localManifestSchema})`
+          : `Eval transport: not ready (${output.evalTransport.reason ?? 'runtime contract mismatch'})`
+      )
+      this.logger.log(`Toolchain: ready (${output.toolchain.packages.length} resolved platform packages)`)
       if (dependencies) {
         this._printAgentDependencyReport(dependencies)
       }
@@ -1154,6 +1216,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
               `• ${alias}: ${reason}${integration.statusReason ? ` — ${integration.statusReason}` : ''}`
           )
           .join('\n')}`
+      )
+    }
+
+    if (!evalTransport.ready) {
+      throw new errors.BotpressCLIError(
+        `Eval transport is not ready: ${evalTransport.reason ?? 'local and server runtime contracts are incompatible'}`
       )
     }
 

@@ -13,6 +13,21 @@ import { DeployCommand } from './deploy-command'
 import { DevCommand } from './dev-command'
 import { ProjectCommand } from './project-command'
 
+const toolchainMocks = vi.hoisted(() => ({
+  inspect: vi.fn(() => ({
+    schemaVersion: 1 as const,
+    capabilities: { evalManifest: 2 },
+    packages: [],
+    issues: [],
+  })),
+  assert: vi.fn(),
+}))
+
+vi.mock('../toolchain-contract', () => ({
+  inspectPlatformToolchain: toolchainMocks.inspect,
+  assertPlatformToolchainCompatible: toolchainMocks.assert,
+}))
+
 function writeProfile(botpressHome: string): void {
   fs.writeFileSync(
     path.join(botpressHome, 'profiles.json'),
@@ -248,6 +263,17 @@ async function testReconcileDependencyReadiness({
 function authoritativeDevReadiness() {
   return {
     schemaVersion: 1,
+    runtimeContract: {
+      schemaVersion: 1,
+      authority: 'cloudapi',
+      source: 'bot-platform',
+      capabilities: {
+        evalManifest: 2,
+        tableFixtures: 1,
+        devTargetRouting: 1,
+        traceProtocol: 1,
+      },
+    },
     integrations: {
       authority: 'authoritative',
       source: 'integration_installation',
@@ -391,8 +417,54 @@ describe('DevCommand --check', () => {
     expect(result.exitCode).toBe(0)
     expect(out.read()).toContain('Dev bot: dev_abc')
     expect(out.read()).toContain('telegram: registered')
-    expect(out.read()).toContain('Eval transport: ready (botruntime/eval (native))')
+    expect(out.read()).toContain('Eval transport: ready (botruntime/eval (native), manifest schema 2)')
     expect(out.read()).not.toContain('provision chat')
+  })
+
+  it('reports a legacy server contract as unknown instead of claiming eval readiness', async () => {
+    const { runtimeContract: _runtimeContract, ...legacyReadiness } = authoritativeDevReadiness()
+    vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
+      bot: {
+        ...devBot('dev_abc', '42'),
+        integrations: { telegram: authoritativeIntegration() },
+        devReadiness: legacyReadiness,
+      },
+    })
+    const out = captureStream()
+    const err = captureStream()
+    const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
+
+    const result = await cmd.handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(out.read()).toContain('Eval transport: not ready')
+    expect(err.read()).toContain('legacy readiness contract')
+  })
+
+  it('fails loudly when local and server eval manifest capabilities differ', async () => {
+    vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
+      bot: {
+        ...devBot('dev_abc', '42'),
+        integrations: { telegram: authoritativeIntegration() },
+        devReadiness: {
+          ...authoritativeDevReadiness(),
+          runtimeContract: {
+            ...authoritativeDevReadiness().runtimeContract,
+            capabilities: {
+              ...authoritativeDevReadiness().runtimeContract.capabilities,
+              evalManifest: 3,
+            },
+          },
+        },
+      },
+    })
+    const err = captureStream()
+    const cmd = makeCommand(botpressHome, workDir, new Logger({ errStream: err.stream }))
+
+    const result = await cmd.handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(err.read()).toContain('eval manifest capability mismatch: local=2, server=3')
   })
 
   it('uses only authoritative read probes and leaves remote and local state unchanged', async () => {
@@ -937,6 +1009,10 @@ describe('DevCommand --check', () => {
       bpModulesDir: path.join(workDir, '.adk', 'bot', 'bp_modules'),
       cloud: {
         botUpdatedAt: '2026-07-10T01:00:00.000Z',
+        runtimeContract: {
+          authority: 'authoritative',
+          capabilities: authoritativeDevReadiness().runtimeContract.capabilities,
+        },
         integrations: {
           ...authoritativeDevReadiness().integrations,
           items: {},

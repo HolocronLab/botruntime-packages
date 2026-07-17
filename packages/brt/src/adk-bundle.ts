@@ -138,7 +138,16 @@ export function isAgentSourceChange(
 
   const segments = rel.split(path.sep)
   if (segments.length === 1) {
-    return rel === AGENT_CONFIG_FILE || rel === 'package.json' || rel === 'agent.json'
+    return (
+      rel === AGENT_CONFIG_FILE ||
+      rel === 'package.json' ||
+      rel === 'agent.json' ||
+      rel === 'bun.lock' ||
+      rel === 'bun.lockb' ||
+      rel === 'package-lock.json' ||
+      rel === 'pnpm-lock.yaml' ||
+      rel === 'yarn.lock'
+    )
   }
 
   if (segments[0] === 'src') return true

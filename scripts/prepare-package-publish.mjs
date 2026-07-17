@@ -6,6 +6,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { registrySpecForLocalDependency } from './package-release-contract.mjs'
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageArg = process.argv.find((arg) => arg.startsWith('--package='))?.slice('--package='.length)
 if (!packageArg) throw new Error('pass --package=packages/<name>')
@@ -35,7 +37,11 @@ for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 
     if (sibling.name !== name || typeof sibling.version !== 'string') {
       throw new Error(`${field}.${name} does not match ${siblingManifestPath}`)
     }
-    const registrySpec = `^${sibling.version}`
+    const registrySpec = registrySpecForLocalDependency({
+      field,
+      dependencyName: name,
+      siblingVersion: sibling.version,
+    })
     console.log(`  ${name}: ${spec} -> ${registrySpec}`)
     dependencies[name] = registrySpec
     changed++

@@ -196,4 +196,10 @@ test('the anonymous-consumer release train publishes every public package throug
   assert.doesNotMatch(verifyPhase, /prepare-package-publish/)
   assert.match(publishPhase, /prepare-package-publish/)
   assert.match(publishPhase, /npm publish --access public/)
+  assert.match(publishPhase, /consumer_dir="\$\(mktemp -d\)"/)
+  assert.match(publishPhase, /npm install \\\n[\s\S]*--prefix "\$consumer_dir"[\s\S]*"@holocronlab\/brt@\$brt_version"/)
+  assert.match(
+    publishPhase,
+    /node scripts\/verify-installed-release-train\.mjs --consumer="\$consumer_dir"/
+  )
 })
