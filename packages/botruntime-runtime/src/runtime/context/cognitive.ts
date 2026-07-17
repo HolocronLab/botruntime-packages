@@ -11,10 +11,7 @@ export class InstrumentedCognitive extends Cognitive {
   clone(): InstrumentedCognitive {
     return new InstrumentedCognitive({
       client: this.client,
-      __experimental_beta: this._useBeta,
-      maxRetries: this._maxRetries,
       timeout: this._timeoutMs,
-      provider: this._provider,
     })
   }
 

@@ -43,6 +43,16 @@ export interface ConfigVar {
   updatedAt?: string
 }
 
+export interface BotConfigurationResponse {
+  bot: {
+    id: string
+    configuration?: {
+      data?: Record<string, unknown>
+      schema?: Record<string, unknown>
+    }
+  }
+}
+
 export interface BotCommand {
   command: string
   description: string
@@ -364,6 +374,32 @@ export class CloudapiClient {
       method: 'GET',
       path: `/v1/admin/bots/${encodeURIComponent(botId)}`,
       workspaceId,
+    })
+  }
+
+  /** Botpress-wire public bot configuration (not encrypted env/config-vars). */
+  public async getBotConfiguration(
+    botId: string,
+    workspaceId?: string,
+  ): Promise<BotConfigurationResponse> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}`,
+      workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async updateBotConfiguration(
+    botId: string,
+    data: Record<string, unknown>,
+    workspaceId?: string,
+  ): Promise<BotConfigurationResponse> {
+    return this.raw({
+      method: 'PUT',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}`,
+      workspaceId,
+      body: { configuration: { data } },
     })
   }
 

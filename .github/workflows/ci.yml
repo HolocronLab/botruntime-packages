@@ -140,12 +140,38 @@ jobs:
           bun install --no-save --ignore-scripts
           bun run build
 
+      # Cognitive is part of this breaking release train and is consumed by
+      # evals, llmz, runtime, and ADK before its immutable npm version exists.
+      - name: Build the current botruntime-cognitive package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-cognitive --exclude=@holocronlab/botruntime-client --write
+          mv packages/botruntime-cognitive/bun.lock "$RUNNER_TEMP/botruntime-cognitive.source.bun.lock"
+          cd packages/botruntime-cognitive
+          bun install --no-save --ignore-scripts
+          bun run build
+
+      - name: Build the current botruntime-zai package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-zai --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          mv packages/botruntime-zai/bun.lock "$RUNNER_TEMP/botruntime-zai.source.bun.lock"
+          cd packages/botruntime-zai
+          bun install --no-save --ignore-scripts
+          bun run build
+
+      - name: Build the current botruntime-llmz package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-llmz --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          mv packages/botruntime-llmz/bun.lock "$RUNNER_TEMP/botruntime-llmz.source.bun.lock"
+          cd packages/botruntime-llmz
+          bun install --no-save --ignore-scripts
+          bun run build
+
       # Evals and runtime are part of the same release train. Build the
       # checkout copies so docs-contract CI never depends on versions that do
       # not exist in a registry until this PR has merged and published.
       - name: Build the current botruntime-evals package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-zai --write
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
           cd packages/botruntime-evals
           bun install --no-save --ignore-scripts
@@ -155,7 +181,9 @@ jobs:
 
       - name: Build the current botruntime-runtime package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-sdk --write
+          ln -s ../botruntime-llmz/patches packages/botruntime-runtime/patches
+          trap 'unlink "$GITHUB_WORKSPACE/packages/botruntime-runtime/patches"' EXIT
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-llmz --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-zai --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
           cd packages/botruntime-runtime
           bun install --no-save --ignore-scripts
@@ -176,7 +204,9 @@ jobs:
 
       - name: Build the current botruntime-adk package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
+          ln -s ../botruntime-llmz/patches packages/botruntime-adk/patches
+          trap 'unlink "$GITHUB_WORKSPACE/packages/botruntime-adk/patches"' EXIT
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
           bun install --no-save --ignore-scripts
@@ -197,7 +227,10 @@ jobs:
         # build-time botruntime-api dependency). --no-save resolves that local
         # graph without mutating the checked-in lock; contract generation below
         # still fails on any command/schema drift.
-        run: bun install --no-save --ignore-scripts
+        run: |
+          ln -s ../botruntime-llmz/patches patches
+          trap 'unlink patches' EXIT
+          bun install --no-save --ignore-scripts
 
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
