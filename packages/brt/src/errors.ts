@@ -231,3 +231,16 @@ export class AbortedOperationError extends BotpressCLIError {
     super('Aborted')
   }
 }
+
+export class MissingNetworkDeclarationError extends BotpressCLIError {
+  public constructor(integrationName: string) {
+    const message = [
+      `Integration "${integrationName}" does not declare a network policy.`,
+      'Add a `network.providerHosts` array to the integration definition:',
+      '  network: { providerHosts: [] }        // makes no outbound calls',
+      '  network: { providerHosts: ["api.example.com"] }  // calls these hosts',
+      'The server uses this declaration to build the production egress allowlist, so it must be explicit before publish.',
+    ].join('\n')
+    super(message)
+  }
+}

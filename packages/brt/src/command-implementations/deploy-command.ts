@@ -228,6 +228,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
     this.logger.debug('Preparing integration request body...')
 
+      apiUtils.assertNetworkDeclared(integrationDef)
     const createBody = {
       ...(await this.prepareCreateIntegrationBody(integrationDef)),
       ...(await this.prepareIntegrationDependencies(integrationDef, api)),

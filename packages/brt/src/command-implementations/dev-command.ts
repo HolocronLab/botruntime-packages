@@ -1655,6 +1655,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const line = this.logger.line()
     line.started(`Deploying dev integration ${chalk.bold(integrationDef.name)}...`)
 
+      apiUtils.assertNetworkDeclared(integrationDef)
     const createIntegrationBody = {
       ...(await this.prepareCreateIntegrationBody(integrationDef)),
       ...(await this.prepareIntegrationDependencies(integrationDef, api)),

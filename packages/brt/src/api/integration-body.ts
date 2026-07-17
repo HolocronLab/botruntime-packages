@@ -4,6 +4,16 @@ import * as errors from '../errors'
 import * as utils from '../utils'
 import * as types from './types'
 
+// Publish-path gate for DEVLP-167: deploy/dev must refuse to upload a definition
+// with no explicit network declaration, mirroring the server's 400 with a
+// friendlier, earlier CLI error. Kept OUT of prepareCreateIntegrationBody on
+// purpose: read/lint/add serialize legacy definitions without publishing.
+export const assertNetworkDeclared = (integration: sdk.IntegrationDefinition): void => {
+  if (integration.network?.providerHosts === undefined) {
+    throw new errors.MissingNetworkDeclarationError(integration.name)
+  }
+}
+
 export const prepareCreateIntegrationBody = async (
   integration: sdk.IntegrationDefinition
 ): Promise<types.CreateIntegrationRequestBody> => {
@@ -100,9 +110,16 @@ export const prepareCreateIntegrationBody = async (
         }))
       : undefined,
     attributes: integration.attributes,
-    // The server updates network policy as a patch. Explicit defaults let a
-    // redeploy clear policy that was present in an earlier definition.
-    providerHosts: integration.network?.providerHosts ?? [],
+    // providerHosts is required above to be explicit (no silent empty-array default —
+    // DEVLP-167). ingressRelayed/webhookAuthMode keep safe defaults so a redeploy can
+    // still clear policy that was present in an earlier definition.
+    // Deliberately NO `?? []` default: an undeclared network policy must reach the
+    // server as an ABSENT key so its DEVLP-167 gate can reject the first publish
+    // (an explicit [] remains the author's "makes no outbound relayed calls").
+    // Publishing commands fail earlier with a friendlier CLI error — see
+    // assertNetworkDeclared; non-publishing consumers (read/lint/add) may
+    // serialize legacy definitions without a declaration.
+    providerHosts: integration.network?.providerHosts,
     ingressRelayed: integration.network?.ingressRelayed ?? false,
     webhookAuthMode: integration.network?.webhookAuthMode ?? 'shared_secret',
     extraOperations: '__advanced' in integration ? integration.__advanced?.extraOperations : undefined,
