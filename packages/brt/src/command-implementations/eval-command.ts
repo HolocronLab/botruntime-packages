@@ -18,6 +18,8 @@ const MAX_DURATION_MS = 86_400_000
 const POLL_INTERVAL_MS = 3_000
 
 const EVAL_DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
+  EVAL_CONTROL_FAILED:
+    'isolated development eval control failed; verify the dev tunnel and runtime authorization, then inspect the correlated trace',
   CHAT_PAYLOAD_INVALID:
     'message payload could not be decoded for eval grading; upgrade brt and @holocronlab/botruntime-evals together, rebuild the agent, then inspect the correlated trace',
   CHAT_LISTENER_FAILED:

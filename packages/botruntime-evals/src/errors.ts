@@ -35,6 +35,22 @@ export const EVAL_ERROR_CODES = [
 
 export type EvalErrorCode = (typeof EVAL_ERROR_CODES)[number]
 
+export const EVAL_CONTROL_ERROR_KINDS = ['configuration', 'auth', 'timeout', 'upstream'] as const
+export type EvalControlErrorKind = (typeof EVAL_CONTROL_ERROR_KINDS)[number]
+
+export function isEvalControlErrorKind(value: unknown): value is EvalControlErrorKind {
+  return typeof value === 'string' && (EVAL_CONTROL_ERROR_KINDS as readonly string[]).includes(value)
+}
+
+export function evalControlErrorKind(error: unknown): EvalControlErrorKind {
+  if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return 'timeout'
+  if (error !== null && typeof error === 'object') {
+    const kind = (error as { kind?: unknown }).kind
+    if (isEvalControlErrorKind(kind)) return kind
+  }
+  return 'upstream'
+}
+
 /**
  * Typed error for the eval engine. Named EvalRunnerError (not EvalError) to
  * avoid shadowing the JS built-in `EvalError`.

@@ -6,7 +6,7 @@
  */
 
 import type { ConversationTurn as _ConversationTurn, EvalDefinition as _EvalDefinition } from './definition'
-import type { EvalErrorCode } from './errors'
+import type { EvalControlErrorKind, EvalErrorCode } from './errors'
 
 export {
   Eval,
@@ -93,6 +93,7 @@ export type EvalExecutionPhase = 'setup' | 'routing' | 'dispatch' | 'observation
 export interface EvalDiagnostic {
   code: EvalErrorCode
   phase: EvalExecutionPhase
+  errorKind?: EvalControlErrorKind
   turnIndex?: number
   conversationId?: string
   traceId?: string

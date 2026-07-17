@@ -496,8 +496,9 @@ describe('eval observation capability preflight', () => {
   it('returns a typed safe diagnostic when isolated eval control fails', async () => {
     const source = spanSource()
     const { chatClient } = chatHarness()
+    const onException = vi.fn()
     const evalControl = {
-      advanceClock: vi.fn().mockRejectedValue(new Error('upstream body with customer secret')),
+      advanceClock: vi.fn().mockRejectedValue({ kind: 'auth', message: 'upstream body with customer secret' }),
       configureFaults: vi.fn().mockResolvedValue(undefined),
       clearFaults: vi.fn().mockResolvedValue(undefined),
     }
@@ -513,7 +514,7 @@ describe('eval observation capability preflight', () => {
         ],
       },
       { client: {} as BpClient, botId: 'runtime-bot' },
-      { spanSource: source, chatClient, chatWebhookId: 'webhook', evalControl }
+      { spanSource: source, chatClient, chatWebhookId: 'webhook', evalControl, onException }
     )
 
     expect(report).toMatchObject({
@@ -523,11 +524,13 @@ describe('eval observation capability preflight', () => {
       diagnostic: {
         code: 'EVAL_CONTROL_FAILED',
         phase: 'dispatch',
+        errorKind: 'auth',
         turnIndex: 0,
         conversationId: 'conv-1',
       },
     })
     expect(JSON.stringify(report)).not.toContain('customer secret')
+    expect(onException).not.toHaveBeenCalled()
   })
 
   it('propagates turn-complete progress sink failures from both runEval and runEvalSuite', async () => {

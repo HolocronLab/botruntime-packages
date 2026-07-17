@@ -34,7 +34,7 @@ import { gradeTiming } from './graders/timing'
 import { gradeOutcome } from './graders/outcome'
 import { initLLMJudge } from './graders/llm'
 import { loadEvalsFromDir, filterEvals } from './loader'
-import { EvalRunnerError } from './errors'
+import { evalControlErrorKind, EvalRunnerError, type EvalControlErrorKind } from './errors'
 import { isAdkError } from './internal/adk-error'
 import { randomUUID } from 'crypto'
 import { buildAttachmentPayload, fixtureReportLabel } from './attachments'
@@ -78,13 +78,20 @@ async function runEvalControlOperation(operation: EvalControlOperation, invoke: 
   try {
     await invoke()
   } catch (cause) {
+    const errorKind = evalControlErrorKind(cause)
     throw new EvalRunnerError({
       code: 'EVAL_CONTROL_FAILED',
       message: `Eval control operation ${operation} failed.`,
-      details: { operation },
-      cause,
+      expected: true,
+      details: { operation, errorKind },
     })
   }
+}
+
+function controlErrorKind(error: EvalRunnerError | undefined): EvalControlErrorKind | undefined {
+  if (error?.code !== 'EVAL_CONTROL_FAILED') return undefined
+  const kind = error.details?.errorKind
+  return typeof kind === 'string' ? evalControlErrorKind({ kind }) : undefined
 }
 
 /**
@@ -870,6 +877,7 @@ export async function runEval(
     // PostHog error tracking.
     const adkErr = isAdkError(failure) ? failure : undefined
     const evalErr = failure instanceof EvalRunnerError ? failure : undefined
+    const controlFailureKind = controlErrorKind(evalErr)
     if (!adkErr || !adkErr.expected) {
       const errMsg = (failure as Error).message ?? String(failure)
       const errStack = (failure as Error).stack ?? ''
@@ -893,6 +901,7 @@ export async function runEval(
       diagnostic: {
         code: evalErr?.code ?? 'EVAL_INTERNAL',
         phase: currentPhase,
+        ...(controlFailureKind ? { errorKind: controlFailureKind } : {}),
         ...(currentTurnIndex !== undefined ? { turnIndex: currentTurnIndex } : {}),
         ...(currentConversationId ? { conversationId: currentConversationId } : {}),
         ...(currentTraceId ? { traceId: currentTraceId } : {}),
@@ -900,8 +909,8 @@ export async function runEval(
     }
   } finally {
     if (controlsUsed) {
-      await options.evalControl?.clearFaults().catch((error) => {
-        logger.warn(`Eval control cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
+      await options.evalControl?.clearFaults().catch(() => {
+        logger.warn('Eval control cleanup failed.')
       })
     }
     collector.disconnect()

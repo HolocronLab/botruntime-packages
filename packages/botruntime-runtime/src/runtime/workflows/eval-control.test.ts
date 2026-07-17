@@ -39,7 +39,23 @@ describe('platform eval control', () => {
       token: 'runtime-secret',
       runtimeBotId: 'dev_opaque',
     })
-    await expect(control.clearFaults()).rejects.toThrow('HTTP 403')
+    await expect(control.clearFaults()).rejects.toMatchObject({ message: expect.stringContaining('HTTP 403'), kind: 'auth' })
     await expect(control.clearFaults()).rejects.not.toThrow(/customer secret/)
+  })
+
+  it.each([
+    [404, 'configuration'],
+    [504, 'timeout'],
+    [500, 'upstream'],
+  ] as const)('classifies HTTP %s as %s without reading the body', async (status, kind) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('private provider detail', { status })))
+    const control = new PlatformEvalControl({
+      apiUrl: 'https://api.example',
+      token: 'runtime-secret',
+      runtimeBotId: 'dev_opaque',
+    })
+
+    await expect(control.clearFaults()).rejects.toMatchObject({ kind })
+    await expect(control.clearFaults()).rejects.not.toThrow(/private provider detail/)
   })
 })

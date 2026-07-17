@@ -9,7 +9,7 @@ import type {
   TurnReport,
   GraderResult,
 } from '../types'
-import { EVAL_ERROR_CODES } from '../errors'
+import { EVAL_ERROR_CODES, isEvalControlErrorKind } from '../errors'
 import type {
   EvalStore,
   EvalSummary,
@@ -182,6 +182,9 @@ function validateDiagnostic(diagnostic?: EvalDiagnostic): void {
   if (diagnostic === undefined) return
   if (!EVAL_ERROR_CODE_SET.has(diagnostic.code)) configFailure('hosted eval error code is invalid')
   if (!EVAL_EXECUTION_PHASES.has(diagnostic.phase)) configFailure('hosted eval error phase is invalid')
+  if (diagnostic.errorKind !== undefined && !ERROR_KIND_SET.has(diagnostic.errorKind)) {
+    configFailure('hosted eval diagnostic error kind is invalid')
+  }
   if (
     diagnostic.turnIndex !== undefined &&
     (!Number.isInteger(diagnostic.turnIndex) || diagnostic.turnIndex < 0 || diagnostic.turnIndex >= MAX_TURNS_PER_EVAL)
@@ -491,6 +494,7 @@ function vortexEntryToEvalReport(entry: VortexEvalEntry): EvalReport {
           diagnostic: {
             code: entry.errorCode,
             phase: entry.errorPhase,
+            ...(isEvalControlErrorKind(entry.errorKind) ? { errorKind: entry.errorKind } : {}),
             ...(typeof entry.errorTurnIndex === 'number' ? { turnIndex: entry.errorTurnIndex } : {}),
             ...(entry.conversationId ? { conversationId: entry.conversationId } : {}),
             ...(entry.traceId ? { traceId: entry.traceId } : {}),
@@ -674,6 +678,7 @@ export function classifyVortexEvalError(error: unknown): VortexEvalErrorKind {
 
 export function classifyVortexEvalReport(report: EvalReport): VortexEvalErrorKind | undefined {
   if (report.error === undefined) return undefined
+  if (report.diagnostic?.errorKind) return report.diagnostic.errorKind
   if (report.errorCode === 'EVAL_ABORTED') return 'aborted'
   if (report.errorCode && CONFIGURATION_ERROR_CODES.has(report.errorCode)) return 'configuration'
   if (report.errorCode && TRACE_READER_ERROR_CODES.has(report.errorCode)) return 'trace_reader'

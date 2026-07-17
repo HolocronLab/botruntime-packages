@@ -1,5 +1,24 @@
 import type { EvalControl } from '@holocronlab/botruntime-evals'
 
+type EvalControlErrorKind = 'configuration' | 'auth' | 'timeout' | 'upstream'
+
+class PlatformEvalControlError extends Error {
+  readonly kind: EvalControlErrorKind
+
+  constructor(message: string, kind: EvalControlErrorKind) {
+    super(message)
+    this.name = 'PlatformEvalControlError'
+    this.kind = kind
+  }
+}
+
+function evalControlHttpErrorKind(status: number): EvalControlErrorKind {
+  if (status === 401 || status === 403) return 'auth'
+  if (status === 408 || status === 504) return 'timeout'
+  if (status === 400 || status === 404 || status === 413 || status === 422) return 'configuration'
+  return 'upstream'
+}
+
 type EvalControlCoordinates = {
   apiUrl: string
   token: string
@@ -32,19 +51,36 @@ export class PlatformEvalControl implements EvalControl {
   }
 
   private async request(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.coordinates.apiUrl.replace(/\/$/, '')}/v1/evals/control`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.coordinates.token}`,
-        'content-type': 'application/json',
-        'x-bot-id': this.coordinates.runtimeBotId,
-      },
-      body: JSON.stringify(body),
-    })
-    if (!response.ok) throw new Error(`Eval control failed with HTTP ${response.status}.`)
-    const value = (await response.json()) as unknown
+    let response: Response
+    try {
+      response = await fetch(`${this.coordinates.apiUrl.replace(/\/$/, '')}/v1/evals/control`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.coordinates.token}`,
+          'content-type': 'application/json',
+          'x-bot-id': this.coordinates.runtimeBotId,
+        },
+        body: JSON.stringify(body),
+      })
+    } catch (error) {
+      const kind: EvalControlErrorKind =
+        error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError') ? 'timeout' : 'upstream'
+      throw new PlatformEvalControlError('Eval control request failed.', kind)
+    }
+    if (!response.ok) {
+      throw new PlatformEvalControlError(
+        `Eval control failed with HTTP ${response.status}.`,
+        evalControlHttpErrorKind(response.status)
+      )
+    }
+    let value: unknown
+    try {
+      value = await response.json()
+    } catch {
+      throw new PlatformEvalControlError('Eval control response is malformed.', 'upstream')
+    }
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error('Eval control response is malformed.')
+      throw new PlatformEvalControlError('Eval control response is malformed.', 'upstream')
     }
     return value as Record<string, unknown>
   }
