@@ -778,6 +778,9 @@ describe('agent command dependency migration hooks', () => {
     }
     const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
     mockMigrationLoader(vi.fn(async () => undefined))
+    const devSnapshotPath = path.join(workDir, '.adk', 'dependencies', 'dev.json')
+    fs.mkdirSync(path.dirname(devSnapshotPath), { recursive: true })
+    fs.writeFileSync(devSnapshotPath, JSON.stringify({ integrations: { chat: { version: '1.0.0' } } }))
     const generate = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(workDir, '.adk', 'bot'))
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
@@ -790,6 +793,9 @@ describe('agent command dependency migration hooks', () => {
         '.adk/dependencies/migration.dev.pending.json',
         '.adk/dependencies/dev.json',
       ]) {
+        if (relative === '.adk/dependencies/dev.json') {
+          fs.writeFileSync(devSnapshotPath, JSON.stringify({ integrations: { chat: { version: '1.1.0' } } }))
+        }
         await onChange([{ type: 'update', path: path.join(dir, relative) }])
       }
       return { close: vi.fn(async () => undefined) } as any
@@ -800,6 +806,54 @@ describe('agent command dependency migration hooks', () => {
     await (command as any)._runAgentTunnelDev()
 
     expect(generate).toHaveBeenCalledTimes(2)
+  })
+
+  it('dev watch ignores a snapshot refresh that only changes volatile timestamps', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'agent.local.json'),
+      JSON.stringify({ devId: 'dev_runtime', devTargetBotId: '42' })
+    )
+    const snapshotPath = path.join(workDir, '.adk', 'dependencies', 'dev.json')
+    fs.mkdirSync(path.dirname(snapshotPath), { recursive: true })
+    const snapshot = {
+      version: 2,
+      env: 'dev',
+      target: { apiUrl: CLOUD_PROFILE.apiUrl, workspaceId: CLOUD_PROFILE.workspaceId, botId: '42' },
+      fetchedAt: '2030-01-01T00:00:00.000Z',
+      botUpdatedAt: '2030-01-01T00:00:00.000Z',
+      integrations: { chat: { name: 'botruntime/chat', version: '1.0.0' } },
+      plugins: {},
+    }
+    fs.writeFileSync(snapshotPath, JSON.stringify(snapshot))
+
+    const cloudClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+    }
+    const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
+    mockMigrationLoader(vi.fn(async () => undefined))
+    const generate = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(workDir, '.adk', 'bot'))
+    vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
+    vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
+    vi.spyOn(DevCommand.prototype, 'run').mockResolvedValue(undefined)
+    vi.spyOn(utils.filewatcher.FileWatcher, 'watch').mockImplementation(async (dir, onChange) => {
+      fs.writeFileSync(
+        snapshotPath,
+        JSON.stringify({
+          ...snapshot,
+          fetchedAt: '2030-01-02T00:00:00.000Z',
+          botUpdatedAt: '2030-01-02T00:00:00.000Z',
+        })
+      )
+      await onChange([{ type: 'update', path: path.join(dir, '.adk', 'dependencies', 'dev.json') }])
+      return { close: vi.fn(async () => undefined) } as any
+    })
+    const command = makeDevCommand({ workDir, botpressHome, apiFactory })
+    ;(command as any).argv.watch = true
+
+    await (command as any)._runAgentTunnelDev()
+
+    expect(generate).toHaveBeenCalledTimes(1)
   })
 
   it('refreshes the parent dev snapshot at most once after repeated nested deploy callbacks', async () => {

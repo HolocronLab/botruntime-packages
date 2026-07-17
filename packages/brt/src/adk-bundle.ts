@@ -160,6 +160,35 @@ export function isAgentSourceChange(
   )
 }
 
+function sortJsonKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonKeys)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, sortJsonKeys(nested)])
+  )
+}
+
+export function agentDependencySnapshotBuildFingerprint(dir: string, env: 'dev' | 'prod'): string {
+  const snapshotPath = path.join(dir, '.adk', 'dependencies', `${env}.json`)
+  let raw: string
+  try {
+    raw = fs.readFileSync(snapshotPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'
+    throw error
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const { fetchedAt: _fetchedAt, botUpdatedAt: _botUpdatedAt, ...buildInput } = parsed
+    return sha256(JSON.stringify(sortJsonKeys(buildInput)))
+  } catch {
+    return `invalid:${sha256(raw)}`
+  }
+}
+
 // generateAgentBot calls the @holocronlab/botruntime-adk library IN-PROCESS to
 // generate the synthetic classic bot at <dir>/.adk/bot (bot.definition.ts +
 // shims targeting @holocronlab/botruntime-sdk). This is exactly what the

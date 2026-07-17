@@ -887,6 +887,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     let regenerating = false
     let regenDirty = false
+    let dependencySnapshotFingerprint = adkBundle.agentDependencySnapshotBuildFingerprint(
+      dir,
+      ADK_DEV_DEPENDENCY_ENV
+    )
     // A file change during regeneration queues exactly one additional pass,
     // preventing concurrent writes to the generated bot.
     const regenerate = async (): Promise<void> => {
@@ -921,17 +925,32 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       watcher = await utils.filewatcher.FileWatcher.watch(
         dir,
         async (events) => {
-          if (
-            !events.some((e) =>
-              adkBundle.isAgentSourceChange(dir, e.path, {
-                dependencyEnv: 'dev',
-              })
-            )
+          const sourceEvents = events.filter((event) =>
+            adkBundle.isAgentSourceChange(dir, event.path, {
+              dependencyEnv: 'dev',
+            })
           )
-            return
+          if (sourceEvents.length === 0) return
+
+          const dependencySnapshotPath = pathlib.resolve(
+            dir,
+            '.adk',
+            'dependencies',
+            `${ADK_DEV_DEPENDENCY_ENV}.json`
+          )
+          const onlyDependencySnapshot = sourceEvents.every(
+            (event) => pathlib.resolve(event.path) === dependencySnapshotPath
+          )
+          const nextDependencySnapshotFingerprint = adkBundle.agentDependencySnapshotBuildFingerprint(
+            dir,
+            ADK_DEV_DEPENDENCY_ENV
+          )
+          if (onlyDependencySnapshot && nextDependencySnapshotFingerprint === dependencySnapshotFingerprint) return
+
           this.logger.log('Agent source changed, regenerating tunnel bot')
           try {
             await regenerate()
+            dependencySnapshotFingerprint = nextDependencySnapshotFingerprint
           } catch (thrown) {
             // Loud, never silent: a transient generate error (e.g. a syntax
             // error mid-edit) must not kill the dev session, but it must be
