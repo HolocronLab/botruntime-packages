@@ -140,6 +140,24 @@ jobs:
           bun install --no-save --ignore-scripts
           bun run build
 
+      # Cognitive is part of this breaking release train and is consumed by
+      # evals, llmz, runtime, and ADK before its immutable npm version exists.
+      - name: Build the current botruntime-cognitive package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-cognitive --exclude=@holocronlab/botruntime-client --write
+          mv packages/botruntime-cognitive/bun.lock "$RUNNER_TEMP/botruntime-cognitive.source.bun.lock"
+          cd packages/botruntime-cognitive
+          bun install --no-save --ignore-scripts
+          bun run build
+
+      - name: Build the current botruntime-llmz package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-llmz --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          mv packages/botruntime-llmz/bun.lock "$RUNNER_TEMP/botruntime-llmz.source.bun.lock"
+          cd packages/botruntime-llmz
+          bun install --no-save --ignore-scripts
+          bun run build
+
       # Evals and runtime are part of the same release train. Build the
       # checkout copies so docs-contract CI never depends on versions that do
       # not exist in a registry until this PR has merged and published.
