@@ -6,6 +6,12 @@ export default new IntegrationDefinition({
   version: '0.1.0',
   readme: 'hub.md',
   icon: 'icon.svg',
+  network: {
+    // This action does not call any external service. List provider hosts here
+    // if you add outbound calls (e.g. ['api.example.com']) — the server uses
+    // this to build the production egress allowlist.
+    providerHosts: [],
+  },
   actions: {
     helloWorld: {
       title: 'Hello World',

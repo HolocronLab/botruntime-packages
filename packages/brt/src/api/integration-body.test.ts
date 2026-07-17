@@ -2,6 +2,7 @@ import { IntegrationDefinition } from '@holocronlab/botruntime-sdk'
 import { describe, expect, test } from 'vitest'
 import type { Integration } from '@holocronlab/botruntime-client'
 import {
+  assertNetworkDeclared,
   prepareCreateIntegrationBody,
   prepareUpdateIntegrationBody,
 } from './integration-body'
@@ -57,9 +58,9 @@ describe('integration deployment bodies', () => {
     })
   })
 
-  test('serializes secure network defaults so redeploy can clear stale policy', async () => {
+  test('serializes an explicit empty allowlist so redeploy can clear stale policy', async () => {
     const body = await prepareCreateIntegrationBody(
-      new IntegrationDefinition({ name: 'plain', version: '1.0.0' }),
+      new IntegrationDefinition({ name: 'plain', version: '1.0.0', network: { providerHosts: [] } }),
     )
 
     expect(body).toMatchObject({
@@ -74,10 +75,31 @@ describe('integration deployment bodies', () => {
       new IntegrationDefinition({
         name: 'chat',
         version: '0.7.6',
-        network: { webhookAuthMode: 'handler_verified' },
+        network: { providerHosts: [], webhookAuthMode: 'handler_verified' },
       }),
     )
 
     expect(body.webhookAuthMode).toBe('handler_verified')
+  })
+
+  test('publish gate refuses an integration that never declared a network policy (DEVLP-167)', () => {
+    expect(() =>
+      assertNetworkDeclared(new IntegrationDefinition({ name: 'undeclared', version: '1.0.0' })),
+    ).toThrow(/does not declare a network policy/)
+  })
+
+  test('publish gate refuses when `network` is set but `providerHosts` is omitted', () => {
+    expect(() =>
+      assertNetworkDeclared(
+        new IntegrationDefinition({ name: 'partial-network', version: '1.0.0', network: { ingressRelayed: true } }),
+      ),
+    ).toThrow(/does not declare a network policy/)
+  })
+
+  test('non-publishing serialization keeps an undeclared network as an ABSENT key (server backstop)', async () => {
+    const body = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({ name: 'legacy-read', version: '1.0.0' }),
+    )
+    expect(body.providerHosts).toBeUndefined()
   })
 })
