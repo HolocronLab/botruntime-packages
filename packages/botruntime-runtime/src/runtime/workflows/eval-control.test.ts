@@ -13,7 +13,6 @@ describe('platform eval control', () => {
       apiUrl: 'https://api.example',
       token: 'runtime-secret',
       runtimeBotId: 'dev_opaque',
-      workspaceId: '2',
     })
 
     await expect(control.advanceClock({ milliseconds: 72_000, runDueWorkflows: true })).resolves.toEqual({
@@ -24,11 +23,11 @@ describe('platform eval control', () => {
       'https://api.example/v1/evals/control',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
+        headers: {
           authorization: 'Bearer runtime-secret',
+          'content-type': 'application/json',
           'x-bot-id': 'dev_opaque',
-          'x-workspace-id': '2',
-        }),
+        },
       })
     )
   })
@@ -39,7 +38,6 @@ describe('platform eval control', () => {
       apiUrl: 'https://api.example',
       token: 'runtime-secret',
       runtimeBotId: 'dev_opaque',
-      workspaceId: '2',
     })
     await expect(control.clearFaults()).rejects.toThrow('HTTP 403')
     await expect(control.clearFaults()).rejects.not.toThrow(/customer secret/)

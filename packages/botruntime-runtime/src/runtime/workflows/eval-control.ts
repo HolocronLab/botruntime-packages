@@ -4,7 +4,6 @@ type EvalControlCoordinates = {
   apiUrl: string
   token: string
   runtimeBotId: string
-  workspaceId: string
 }
 
 export class PlatformEvalControl implements EvalControl {
@@ -39,7 +38,6 @@ export class PlatformEvalControl implements EvalControl {
         authorization: `Bearer ${this.coordinates.token}`,
         'content-type': 'application/json',
         'x-bot-id': this.coordinates.runtimeBotId,
-        'x-workspace-id': this.coordinates.workspaceId,
       },
       body: JSON.stringify(body),
     })

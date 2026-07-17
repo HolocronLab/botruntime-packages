@@ -1,17 +1,21 @@
 // instrument-all-http.ts (Node 18+)
 /* eslint-disable @typescript-eslint/no-explicit-any -- HTTP instrumentation requires patching untyped internals (http/https modules, undici dispatcher) */
-import { randomBytes } from 'node:crypto'
 import http from 'node:http'
 import https from 'node:https'
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib'
-import { SpanStatusCode } from '@opentelemetry/api'
+import { context as otelContext, SpanStatusCode } from '@opentelemetry/api'
 
 import { Dispatcher, getGlobalDispatcher, setGlobalDispatcher } from 'undici'
 
 // Import typed span creation
 import { tracer, isSilentTracing } from './tracing'
-import { context as otelContext } from '@opentelemetry/api'
 import { setSpanAttributeWithPayload } from './trace-payloads'
+import { propagationHeadersForSpan, shouldPropagateTraceContext } from './trace-propagation'
+
+function hasHeader(headers: Record<string, unknown>, name: string): boolean {
+  const lower = name.toLowerCase()
+  return Object.keys(headers).some((key) => key.toLowerCase() === lower)
+}
 
 // Helper to determine if a URL is a Botpress API call
 function isBotpressUrl(fullUrl: string): boolean {
@@ -101,9 +105,6 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
   const restores: Array<() => void> = []
 
   // ---------- helpers ----------
-  const genId = (n: number) => randomBytes(n).toString('hex')
-  const makeTraceparent = () => `00-${genId(16)}-${genId(8)}-01`
-
   // Marker header to prevent double instrumentation
   const INSTRUMENTED_HEADER = 'x-adk-instrumented'
 
@@ -118,7 +119,6 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
 
     function wrapRequest<T extends typeof http.request | typeof https.request>(requestFn: T): T {
       return function wrapped(this: any, ...args: any[]) {
-        const traceparent = makeTraceparent()
         let options: any, cb: any
         let urlString: string
 
@@ -211,7 +211,11 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
           otelContext.active()
         )
 
-        if (injectTraceHeader && !('traceparent' in options.headers)) options.headers.traceparent = traceparent
+        if (shouldPropagateTraceContext(injectTraceHeader, isBotpress)) {
+          for (const [name, value] of Object.entries(propagationHeadersForSpan(span))) {
+            if (!hasHeader(options.headers, name)) options.headers[name] = value
+          }
+        }
 
         let req
         if (typeof args[0] === 'string' || args[0] instanceof URL) {
@@ -423,8 +427,6 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
           }
         }
 
-        const traceparent = makeTraceparent()
-
         // header injection
         const headers: Array<string | Buffer> = []
         if (Array.isArray(opts.headers)) {
@@ -436,14 +438,17 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
         // Add instrumentation marker
         headers.push(INSTRUMENTED_HEADER, 'true')
 
-        if (injectTraceHeader) {
-          let hasTP = false
-          for (let i = 0; i < headers.length; i += 2)
-            if (String(headers[i]).toLowerCase() === 'traceparent') {
-              hasTP = true
-              break
+        if (shouldPropagateTraceContext(injectTraceHeader, isBotpress)) {
+          for (const [name, value] of Object.entries(propagationHeadersForSpan(span))) {
+            let present = false
+            for (let i = 0; i < headers.length; i += 2) {
+              if (String(headers[i]).toLowerCase() === name.toLowerCase()) {
+                present = true
+                break
+              }
             }
-          if (!hasTP) headers.push('traceparent', traceparent)
+            if (!present) headers.push(name, value)
+          }
         }
         const nextOpts = { ...opts, headers }
 

@@ -446,6 +446,30 @@ describe('brt traces public contract', () => {
     expect(stdout).toContain('chat.ts:381')
   })
 
+  it('accepts and renders canonical hosted integration action traces', async () => {
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            source: 'integration_action',
+            name: 'integration.action',
+            kind: 'client',
+            metadata: { actionName: 'createPayment', integration: 'yookassa' },
+            attributes: { 'action.name': 'createPayment', integration: 'yookassa' },
+            payload: { input: { amount: '50000.00' }, output: { id: 'payment_1' } },
+          }),
+        ],
+        meta: {},
+      })
+    )
+
+    const result = await command().handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(stdout).toContain('integration.action')
+    expect(stdout).toContain('action=createPayment')
+  })
+
   it('preserves non-LLM trace content in JSON output', async () => {
     const complete = trace({
       conversationId: 'conv:1',

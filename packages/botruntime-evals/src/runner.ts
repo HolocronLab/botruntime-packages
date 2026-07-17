@@ -71,6 +71,22 @@ async function emitEvalProgress(sink: EvalRunnerConfig['onProgress'], event: Eva
     throw new EvalProgressSinkError(error)
   }
 }
+
+type EvalControlOperation = 'clear_faults' | 'configure_faults' | 'advance_clock'
+
+async function runEvalControlOperation(operation: EvalControlOperation, invoke: () => Promise<unknown>): Promise<void> {
+  try {
+    await invoke()
+  } catch (cause) {
+    throw new EvalRunnerError({
+      code: 'EVAL_CONTROL_FAILED',
+      message: `Eval control operation ${operation} failed.`,
+      details: { operation },
+      cause,
+    })
+  }
+}
+
 /**
  * Grace window for an event turn's handler span to appear. A subscribed handler starts its span in
  * milliseconds, so no span after this window means nothing is subscribed and the turn can never
@@ -526,10 +542,21 @@ export async function runEval(
       currentPhase = 'dispatch'
 
       if (turn.control) {
+        const control = turn.control
         controlsUsed = true
-        if (turn.control.clearFaults) await options.evalControl!.clearFaults()
-        if (turn.control.faults?.length) await options.evalControl!.configureFaults(turn.control.faults)
-        if (turn.control.advanceClock) await options.evalControl!.advanceClock(turn.control.advanceClock)
+        if (control.clearFaults) {
+          await runEvalControlOperation('clear_faults', () => options.evalControl!.clearFaults())
+        }
+        if (control.faults?.length) {
+          await runEvalControlOperation('configure_faults', () =>
+            options.evalControl!.configureFaults(control.faults!)
+          )
+        }
+        if (control.advanceClock) {
+          await runEvalControlOperation('advance_clock', () =>
+            options.evalControl!.advanceClock(control.advanceClock!)
+          )
+        }
       }
 
       if (turn.event) {
