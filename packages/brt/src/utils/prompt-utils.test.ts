@@ -51,4 +51,23 @@ describe('CLIPrompt', () => {
       await expect(cli.confirmInteractive('drop column "x" (data loss)?')).resolves.toBe(true)
     })
   })
+
+  describe('password', () => {
+    it('uses the terminal password control without placing the entered value in prompt metadata', async () => {
+      const secret = 'test-secret-that-must-not-be-rendered'
+      promptsMock.mockResolvedValue({ prompted: secret })
+      const logger = fakeLogger()
+      const cli = new CLIPrompt({ confirm: false }, logger)
+
+      await expect(cli.password('Enter secret')).resolves.toBe(secret)
+      expect(prompts).toHaveBeenCalledWith({
+        type: 'password',
+        name: 'prompted',
+        message: 'Enter secret',
+        initial: undefined,
+      })
+      expect(JSON.stringify((prompts as any).mock.calls)).not.toContain(secret)
+      expect(JSON.stringify(Object.values(logger).flatMap((mock: any) => mock.mock?.calls ?? []))).not.toContain(secret)
+    })
+  })
 })

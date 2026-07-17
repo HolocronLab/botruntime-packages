@@ -46,8 +46,14 @@ jobs:
 
   runtime-package-registry-config:
     runs-on: ubuntu-latest
+    # The closure gate reads package versions from the event-specific base commit.
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The base commit must be locally available so the fail-closed gate can inspect it.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -58,8 +64,10 @@ jobs:
           node --test scripts/formatter-safety.test.mjs
           node --test scripts/runtime-package-registry-config.test.mjs
           node --test scripts/package-release-contract.test.mjs
+          node --test scripts/release-version-closure.test.mjs
           node --test scripts/catalog-publication-decision.test.mjs
           node --test scripts/registry-release-readiness.test.mjs
+          node scripts/release-version-closure.mjs --base="$BASE_SHA"
 
   codegen-extensions:
     runs-on: ubuntu-latest

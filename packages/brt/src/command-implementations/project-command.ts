@@ -575,7 +575,7 @@ export abstract class ProjectCommand<C extends ProjectCommandDefinition> extends
         mode = 'required'
       }
 
-      const prompted = await this.prompt.text(`Enter value for secret "${secretName}" (${mode})`)
+      const prompted = await this.prompt.password(`Enter value for secret "${secretName}" (${mode})`)
       if (prompted) {
         values[secretName] = prompted
         continue
