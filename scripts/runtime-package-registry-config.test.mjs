@@ -147,6 +147,14 @@ test('repository CI proves public packages without GitHub Packages credentials',
   assert.doesNotMatch(workflow, /actions\/(?:checkout|setup-node)@v4/)
 })
 
+test('repository CI rejects an incomplete immutable release version closure', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  assert.match(workflow, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/)
+  assert.match(workflow, /node scripts\/release-version-closure\.mjs --base="\$BASE_SHA"/)
+  assert.match(workflow, /node --test scripts\/release-version-closure\.test\.mjs/)
+})
+
 test('repository CI runs changed eval and BRT checks before docs contract verification', () => {
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
   const evalsBuild = workflow.indexOf('name: Build the current botruntime-evals package')
@@ -174,6 +182,14 @@ test('the anonymous-consumer release train publishes every public package throug
   assert.match(workflow, /npm install --global npm@11\.15\.0/)
   assert.match(workflow, /registry-url: ["']https:\/\/registry\.npmjs\.org["']/)
   assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN|NODE_AUTH_TOKEN|NPM_TOKEN/)
+  assert.match(workflow, /fetch-depth: 0/)
+  assert.match(workflow, /gh release list --limit 100 --json tagName,publishedAt,isDraft/)
+  assert.match(workflow, /startswith\("brt-v"\)/)
+  assert.match(workflow, /git cat-file -e "\$\{base_ref\}\^\{commit\}"/)
+  assert.match(
+    workflow,
+    /node scripts\/release-version-closure\.mjs --base="\$\{\{ steps\.release-base\.outputs\.ref \}\}"/
+  )
   assert.match(workflow, /- ["']adk-v\*["']/)
   assert.match(workflow, /- ["']brt-v\*["']/)
 
@@ -202,4 +218,26 @@ test('the anonymous-consumer release train publishes every public package throug
     publishPhase,
     /node scripts\/verify-installed-release-train\.mjs --consumer="\$consumer_dir"/
   )
+})
+
+test('brt tarball publication is serialized after the complete public package train', () => {
+  const catalogWorkflow = readFileSync(
+    new URL('../.github/workflows/publish-public-packages.yml', import.meta.url),
+    'utf8'
+  )
+  const brtWorkflow = readFileSync(new URL('../.github/workflows/publish-brt.yml', import.meta.url), 'utf8')
+
+  assert.match(
+    catalogWorkflow,
+    /pack-brt:\s+needs: publish[\s\S]*?uses: \.\/\.github\/workflows\/publish-brt\.yml/
+  )
+  assert.match(catalogWorkflow, /release-sha: \$\{\{ steps\.release-ref\.outputs\.sha \}\}/)
+  assert.match(catalogWorkflow, /ref: \$\{\{ needs\.publish\.outputs\.release-sha \}\}/)
+  assert.match(catalogWorkflow, /tag: \$\{\{ github\.ref_name \}\}/)
+  assert.match(brtWorkflow, /workflow_call:/)
+  assert.doesNotMatch(brtWorkflow, /push:\s+tags:/)
+  assert.match(brtWorkflow, /actions\/checkout@v6/)
+  assert.match(brtWorkflow, /ref: \$\{\{ inputs\.ref \|\| github\.ref \}\}/)
+  assert.match(brtWorkflow, /TAG="\$\{\{ inputs\.tag \}\}"/)
+  assert.doesNotMatch(brtWorkflow, /TAG="\$\{\{[^\n]*(?:inputs\.ref|github\.ref_name)/)
 })
