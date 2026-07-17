@@ -7,7 +7,6 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { TracesCommand } from './traces-command'
 
-
 const API_URL = 'https://cloud.example'
 const WORKSPACE_ID = '42'
 const PROD_BOT_ID = '7'
@@ -33,6 +32,8 @@ const trace = (overrides: Record<string, unknown> = {}) => ({
     aiInputTokens: 10,
     workflowName: 'answer',
   },
+  attributes: {},
+  payload: {},
   ...overrides,
 })
 
@@ -66,7 +67,7 @@ describe('brt traces public contract', () => {
           workspaceId: WORKSPACE_ID,
           token: 'pat_secret',
         },
-      })
+      }),
     )
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
     fs.writeFileSync(
@@ -75,7 +76,7 @@ describe('brt traces public contract', () => {
         botId: PROD_BOT_ID,
         workspaceId: WORKSPACE_ID,
         apiUrl: API_URL,
-      })
+      }),
     )
 
     vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
@@ -109,10 +110,10 @@ describe('brt traces public contract', () => {
           status: expect.objectContaining({ type: 'string' }),
           traceId: expect.objectContaining({ type: 'string' }),
         }),
-      })
+      }),
     )
     expect(buildBrtDocsContract(commandDefinitions).commands).toContainEqual(
-      expect.objectContaining({ path: 'traces' })
+      expect.objectContaining({ path: 'traces' }),
     )
   })
 
@@ -124,7 +125,7 @@ describe('brt traces public contract', () => {
     expect(result.exitCode).toBe(0)
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe(
-      `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=20`
+      `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=20`,
     )
     expect(headers(calls[0]!)).toEqual({ authorization: 'Bearer pat_secret' })
   })
@@ -214,7 +215,7 @@ describe('brt traces public contract', () => {
     [{ conversationId: undefined, tokens: [] }, /conversation.*required/i],
     [{ conversationId: undefined, tokens: ['workflow=builtin_eval_runner'] }, /since.*required/i],
     [{ conversationId: undefined, tokens: ['since=10m'] }, /workflow.*action.*trace/i],
-    [{ tokens: ['include-llm'] }, /include-llm.*privacy/i],
+    [{ tokens: ['include-llm'] }, /include-llm.*not supported/i],
     [{ tokens: ['trigger=handler'] }, /trigger.*not supported/i],
     [{ tokens: ['follow'] }, /follow.*not supported/i],
     [{ tokens: ['wat=unknown'] }, /unknown trace filter/i],
@@ -244,7 +245,7 @@ describe('brt traces public contract', () => {
       JSON.stringify({
         devId: DEV_RUNTIME_BOT_ID,
         devTargetBotId: DEV_TARGET_BOT_ID,
-      })
+      }),
     )
     stubFetch(async (url) => {
       const parsed = new URL(url)
@@ -382,7 +383,7 @@ describe('brt traces public contract', () => {
             traces: [trace({ id: '3' }), trace({ id: '2' })],
             meta: { nextToken: '2' },
           })
-        : json({ traces: [trace({ id: '1' })], meta: { nextToken: '1' } })
+        : json({ traces: [trace({ id: '1' })], meta: { nextToken: '1' } }),
     )
 
     const result = await command({ json: true, limit: 3 }).handler()
@@ -406,7 +407,7 @@ describe('brt traces public contract', () => {
     expect(new URL(calls[0]!.url).searchParams.get('pageSize')).toBe('1000')
   })
 
-  it('prints a readable metadata-only line in human mode', async () => {
+  it('prints a readable trace line in human mode', async () => {
     stubFetch(async () =>
       json({
         traces: [
@@ -419,12 +420,13 @@ describe('brt traces public contract', () => {
               errorName: 'TypeError',
               errorCode: 'BLOC_ITEM_INVALID',
               errorMessage: "Cannot read properties of undefined (reading 'imageUrl')",
-              errorStack: 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
+              errorStack:
+                'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
             },
           }),
         ],
         meta: {},
-      })
+      }),
     )
 
     const result = await command().handler()
@@ -443,23 +445,26 @@ describe('brt traces public contract', () => {
     expect(stdout).toContain('chat.ts:381')
   })
 
-  it('prints a stable JSON envelope containing only allow-listed trace metadata', async () => {
-    const unsafe = trace({
-      prompt: 'raw prompt',
-      modelResponse: 'raw response',
-      toolInput: { password: 'tool secret' },
-      toolOutput: { document: 'document secret' },
-      error: 'raw error',
+  it('preserves full developer trace content in JSON output', async () => {
+    const complete = trace({
+      conversationId: 'conv:1',
+      userId: 'user:1',
+      messageId: 'message:1',
+      attributes: {
+        prompt: 'raw prompt',
+        modelResponse: 'raw response',
+        'autonomous.tool.input': { password: 'tool secret' },
+        'autonomous.tool.output': { document: 'document secret' },
+        error: 'raw error',
+      },
+      payload: { state: { arbitrary: { secret: true } } },
       metadata: {
         aiModel: 'openai:gpt-5',
         aiInputTokens: 10,
         workflowName: 'answer',
-        prompt: 'metadata prompt',
-        rawError: 'metadata raw error',
-        arbitrary: { secret: true },
       },
     })
-    stubFetch(async () => json({ traces: [unsafe], meta: {} }))
+    stubFetch(async () => json({ traces: [complete], meta: {} }))
 
     const result = await command({ json: true }).handler()
     const output = JSON.parse(stdout)
@@ -473,10 +478,33 @@ describe('brt traces public contract', () => {
         botId: PROD_BOT_ID,
       },
       conversationId: 'conv:1',
-      traces: [trace()],
+      traces: [complete],
       nextToken: null,
     })
-    expect(stdout + stderr).not.toMatch(/raw prompt|raw response|tool secret|document secret|raw error|arbitrary/i)
+    expect(stdout).toMatch(/raw prompt|raw response|tool secret|document secret|raw error|arbitrary/i)
+  })
+
+  it('prints tool input and output in human mode', async () => {
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            name: 'autonomous.tool',
+            attributes: {
+              'autonomous.tool.input': { query: 'customer order' },
+              'autonomous.tool.output': { id: 'order-42' },
+            },
+          }),
+        ],
+        meta: {},
+      }),
+    )
+
+    const result = await command().handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(stdout).toContain('input: {"query":"customer order"}')
+    expect(stdout).toContain('output: {"id":"order-42"}')
   })
 
   function command(overrides: Record<string, unknown> = {}): TracesCommand {
