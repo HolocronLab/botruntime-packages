@@ -61,6 +61,8 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
     await drain(cursor, this.argv.until)
     if (lastTimestamp) cursor = bumpMs(lastTimestamp, 1)
 
+    if (printed === 0) this._printDevHintIfEmpty()
+
     if (!this.argv.follow || (limit !== undefined && printed >= limit)) {
       return
     }
@@ -77,6 +79,20 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
   private _printEntry(entry: LogEntry): void {
     const conv = entry.conversationId ? ` conv=${entry.conversationId}` : ''
     process.stdout.write(`${entry.timestamp} ${entry.level.toUpperCase()} ${entry.message}${conv}\n`)
+  }
+
+  // `brt dev` prints worker output directly to its own terminal — it never
+  // forwards to the cloud log ingest, which only the production supervisor
+  // feeds. An empty `--dev` result therefore looks broken but usually isn't;
+  // `targetsDevBot` (the --dev flag) is known before any request, so the dev
+  // case gets the specific hint rather than a generic maybe-dev disclaimer.
+  private _printDevHintIfEmpty(): void {
+    if (!this.targetsDevBot) return
+    cloudInfo(
+      'no logs found for this dev bot — `brt dev` prints worker output straight to its own ' +
+        'terminal and never forwards it here; the cloud log ingest is fed only by the ' +
+        'production supervisor. Check the `brt dev` terminal instead.'
+    )
   }
 
   private async _resolveTarget(): Promise<{
