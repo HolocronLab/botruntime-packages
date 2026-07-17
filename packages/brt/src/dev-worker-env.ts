@@ -16,8 +16,13 @@ export type DevWorkerEnvironmentOptions = {
   // spawn (the supervisor injects these in prod; `brt dev` has no supervisor). Same
   // naming convention as runtime-host/src/supervisor.ts fetchConfigVars: both the bare
   // name and a SECRET_-prefixed alias (the SDK reads secrets.X from process.env.SECRET_X).
-  // Injected BEFORE the explicit BP_*/ADK_* assignments below so a config var can never
-  // shadow the runtime's own identity coordinates.
+  //
+  // Precedence invariant (Codex P2, DEVLP-124): cloud config vars < `inherited` < the
+  // runtime identity assignments below. `inherited` carries whatever the caller resolved
+  // as explicit local secrets (--secrets K=v or the interactive prompt, folded into `env`
+  // by DevCommand#run before this call) — a developer's explicit local secret must win
+  // over a stale/different value stored in the cloud for the same key, and the runtime's
+  // own identity coordinates (BP_*/ADK_*) must never be shadowed by either.
   configVars?: Record<string, string>
 }
 
@@ -55,8 +60,8 @@ export function buildDevWorkerEnvironment(options: DevWorkerEnvironmentOptions):
     configVars[`SECRET_${name}`] = value
   }
   return {
-    ...inherited,
     ...configVars,
+    ...inherited,
     NODE_ENV: 'development',
     ADK_RUNTIME_MODE: 'development',
     BP_API_URL: apiUrl,

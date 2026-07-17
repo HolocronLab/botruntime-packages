@@ -48,6 +48,25 @@ describe('dev worker environment', () => {
     expect(env['SECRET_ADK_CONFIGURATION']).toBeUndefined()
   })
 
+  it('lets an explicit local secret (inherited) win over a same-named cloud config var (Codex P2, DEVLP-124)', () => {
+    // `inherited` is DevCommand#run's already-built env — it carries whatever the caller
+    // resolved as an explicit local secret (--secrets K=v or the interactive prompt). A
+    // developer's explicit local override must win over a stale/different cloud value for
+    // the same key; the bare (non-prefixed) name has no local override here, so it still
+    // comes from the cloud config var.
+    const env = buildDevWorkerEnvironment({
+      inherited: { SECRET_API_KEY: 'sk-explicit-local' },
+      apiUrl: 'https://api.example',
+      token: 'pat-secret',
+      workspaceId: '9001',
+      target: { runtimeBotId: 'dev_runtime:abc', targetBotId: '42' },
+      configVars: { API_KEY: 'sk-cloud-stale' },
+    })
+
+    expect(env['SECRET_API_KEY']).toBe('sk-explicit-local')
+    expect(env['API_KEY']).toBe('sk-cloud-stale')
+  })
+
   it('never lets a config var shadow the runtime identity coordinates', () => {
     const env = buildDevWorkerEnvironment({
       inherited: {},
