@@ -951,7 +951,7 @@ const evalRunsSchema = {
   nextToken: cloudEvalRunsNextToken,
 } satisfies CommandSchema
 
-// brt integrations install|register use the project-target Cloud API channel.
+// brt integrations install|register|upgrade use the project-target Cloud API channel.
 // Publishing is intentionally different: it is an integration-only alias for
 // the canonical Botpress-shaped deploy path so catalog metadata, runtime
 // definition, bundle, ownership, visibility, and dry-run validation are one
@@ -970,6 +970,22 @@ const cloudIntegrationRegisterSchema = {
   ...cloudProjectSchema,
   dev: cloudDevTarget,
   webhookId: cloudWebhookId,
+} satisfies CommandSchema
+
+const cloudIntegrationUpgradeSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  ref: cloudIntegrationRef,
+  alias: {
+    type: 'string',
+    description:
+      'Effective alias of the one existing installation to upgrade; explicit stored aliases take priority, and an empty stored alias resolves by integration name (defaults to the target integration name)',
+  },
+  wait: {
+    type: 'boolean',
+    description: 'Reserved for runtime readiness; currently rejected before mutation because Cloud does not expose it',
+    default: false,
+  },
 } satisfies CommandSchema
 
 const cloudIntegrationPublishSchema = {
@@ -1038,5 +1054,6 @@ export const schemas = {
   evalRuns: evalRunsSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
+  cloudIntegrationUpgrade: cloudIntegrationUpgradeSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,
 } as const

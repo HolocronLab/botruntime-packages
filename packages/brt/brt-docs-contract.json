@@ -498,6 +498,24 @@
       ]
     },
     {
+      "path": "integrations upgrade",
+      "aliases": [],
+      "options": [
+        "alias",
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "json",
+        "profile",
+        "ref",
+        "verbose",
+        "wait",
+        "workDir"
+      ]
+    },
+    {
       "path": "interfaces delete",
       "aliases": [
         "rm"
@@ -819,6 +837,7 @@
       "dev",
       "integrations install",
       "integrations register",
+      "integrations upgrade",
       "link",
       "login",
       "logs",
@@ -862,6 +881,11 @@
       ],
       "integrations register": [
         "dev"
+      ],
+      "integrations upgrade": [
+        "alias",
+        "dev",
+        "wait"
       ],
       "link": [
         "apiUrl",
@@ -946,6 +970,9 @@
       "integrations install": [
         "<name@version>"
       ],
+      "integrations upgrade": [
+        "<name@version>"
+      ],
       "traces": [
         "[tokens..]"
       ],
@@ -1007,7 +1034,23 @@
       },
       {
         "id": "explicit-integration-version",
-        "assertion": "brt integrations install requires canonical exact SemVer in name@version or namespace/name@version form",
+        "assertion": "brt integrations install and upgrade require canonical exact SemVer in name@version or namespace/name@version form",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "safe-integration-upgrade",
+        "assertion": "brt integrations upgrade resolves exactly one effective alias with explicit-alias priority and calls one atomic direct repoint without preflight, install, or register",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "integration-upgrade-recovery",
+        "assertion": "integration upgrade refreshes the selected target snapshot, requires brt deploy --adk for production, rejects unsupported wait before mutation, and distinguishes definitive 4xx rejection from outcome-unknown transport, malformed-response, and 5xx failures with inspect-first shell-safe recovery",
         "documents": [
           "overview",
           "reference"
@@ -1061,7 +1104,8 @@
         ],
         "commandPaths": [
           "integrations install",
-          "integrations register"
+          "integrations register",
+          "integrations upgrade"
         ]
       },
       {
