@@ -62,7 +62,7 @@ const registrationFailure = (target: EvalChatTarget, error: unknown) => {
   const reason = error instanceof Error ? error.message : String(error)
   if (target.development) {
     return new Error(
-      `chat registration failed: ${reason}; run \`brt dev\` in another terminal and keep it connected while running \`brt eval --dev\``,
+      `chat registration failed: ${reason}; run \`brt dev\` in another terminal and keep it connected while retrying this command`,
       { cause: error },
     )
   }

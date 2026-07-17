@@ -39,6 +39,15 @@ import { isAdkError } from './internal/adk-error'
 import { randomUUID } from 'crypto'
 import { buildAttachmentPayload, fixtureReportLabel } from './attachments'
 import { ActorRouter } from './actor-routing'
+import {
+  cleanupSeededTableRows,
+  gradeTableAssertions,
+  materializeEvalSetup,
+  materializeTableAssertions,
+  seedEvalTables,
+  type SeededTableRows,
+  validateEvalTableContract,
+} from './table-fixtures'
 
 /**
  * Run a single eval against a bot.
@@ -267,6 +276,8 @@ export async function runEval(
     evalControl?: EvalRunnerConfig['evalControl']
     /** @internal The suite already authenticated this source kind before starting evals. */
     sourcePreflighted?: boolean
+    /** Stable within one suite attempt; expands `{{eval.id}}` in setup and table assertions. */
+    executionId?: string
   } = {}
 ): Promise<EvalReport> {
   const devServerUrl = options.devServerUrl || DEFAULT_DEV_SERVER_URL
@@ -275,7 +286,34 @@ export async function runEval(
   const idleTimeout = evalDef.options?.idleTimeout ?? options.idleTimeout ?? DEFAULT_IDLE_TIMEOUT
   const judgePassThreshold = evalDef.options?.judgePassThreshold ?? options.judgePassThreshold
   const collector: SpanSource = options.spanSource ?? new LocalSpanSource(devServerUrl, devServerHeaders)
+  const executionId = options.executionId ?? randomUUID()
+  const materializedSetup = materializeEvalSetup(evalDef.setup, executionId)
+  const materializedTableAssertions = materializeTableAssertions(evalDef.outcome?.tables, executionId)
+  const materializedEvalDef: EvalDefinition = {
+    ...evalDef,
+    conversation: evalDef.conversation.map((turn) => ({
+      ...turn,
+      ...(turn.assert?.tables
+        ? {
+            assert: {
+              ...turn.assert,
+              tables: materializeTableAssertions(turn.assert.tables, executionId),
+            },
+          }
+        : {}),
+    })),
+    ...(materializedSetup !== undefined ? { setup: materializedSetup } : {}),
+    ...(evalDef.outcome !== undefined
+      ? {
+          outcome: {
+            ...evalDef.outcome,
+            ...(materializedTableAssertions !== undefined ? { tables: materializedTableAssertions } : {}),
+          },
+        }
+      : {}),
+  }
 
+  validateEvalTableContract(materializedEvalDef)
   validateEvalCapabilities([evalDef], collector.capabilities)
   validateEvalControlCapabilities([evalDef], options.evalControl)
   if (!options.sourcePreflighted) {
@@ -303,6 +341,13 @@ export async function runEval(
   let currentTraceId: string | undefined
   let currentTurnIndex: number | undefined
   let currentPhase: EvalExecutionPhase = 'setup'
+  let seededTableRows: SeededTableRows[] = []
+
+  const cleanupTables = async (): Promise<void> => {
+    if (seededTableRows.length === 0) return
+    await cleanupSeededTableRows(connection.client, seededTableRows)
+    seededTableRows = []
+  }
 
   try {
     session = new ChatSession(
@@ -315,7 +360,7 @@ export async function runEval(
     await session.connect()
 
     let conversationId = ''
-    if (evalDef.setup?.state?.conversation || evalDef.setup?.workflow) {
+    if (materializedSetup?.state?.conversation || materializedSetup?.workflow) {
       conversationId = await session.ensureConversation()
       currentConversationId = conversationId
     }
@@ -327,8 +372,10 @@ export async function runEval(
         userId: session.userId,
         ...(conversationId ? { conversationId } : {}),
       },
-      evalDef.setup
+      materializedSetup
     )
+
+    seededTableRows = await seedEvalTables(connection.client, materializedSetup?.tables)
 
     await triggerEvalWorkflow(
       connection.client,
@@ -336,7 +383,7 @@ export async function runEval(
         userId: session.userId,
         ...(conversationId ? { conversationId } : {}),
       },
-      evalDef.setup
+      materializedSetup
     )
 
     // Ensure we have a conversation before connecting the collector
@@ -360,17 +407,17 @@ export async function runEval(
       {
         primaryConversationId: conversationId,
         primaryUserId: session.userId,
-        relations: evalDef.setup?.relations ?? {},
+        relations: materializedSetup?.relations ?? {},
       },
       { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
     )
 
-    for (let i = 0; i < evalDef.conversation.length; i++) {
+    for (let i = 0; i < materializedEvalDef.conversation.length; i++) {
       // Bail mid-eval the moment the caller signals abort, so a long
       // multi-turn eval doesn't keep ticking through turns after Stop.
       if (options.signal?.aborted) break
 
-      const turn = evalDef.conversation[i]!
+      const turn = materializedEvalDef.conversation[i]!
       currentTurnIndex = i
       currentPhase = 'routing'
       const turnMessage = turn.message ?? turn.user
@@ -452,7 +499,7 @@ export async function runEval(
           {
             primaryConversationId: newConversationId,
             primaryUserId: session.userId,
-            relations: evalDef.setup?.relations ?? {},
+            relations: materializedSetup?.relations ?? {},
           },
           { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
         )
@@ -655,6 +702,10 @@ export async function runEval(
         assertions.push(...timingResults)
       }
 
+      if (turn.assert?.tables) {
+        assertions.push(...(await gradeTableAssertions(connection.client, turn.assert.tables)))
+      }
+
       const conversationMode = turn.assert?.conversationMode
       if (deliveredTo.length > 0 || notDeliveredTo.length > 0 || conversationMode) {
         assertions.push(
@@ -697,10 +748,10 @@ export async function runEval(
     }
 
     // Outcome assertions (after all turns)
-    if (evalDef.outcome && !options.signal?.aborted) {
+    if (materializedEvalDef.outcome && !options.signal?.aborted) {
       // Wait for outcome-level workflow assertions. Same negative-assertion gate as the per-turn loop.
-      if (evalDef.outcome.workflow) {
-        for (const wfAssert of evalDef.outcome.workflow) {
+      if (materializedEvalDef.outcome.workflow) {
+        for (const wfAssert of materializedEvalDef.outcome.workflow) {
           const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
           if (!expectsPositive) continue
           const wfSignal = wfAssert.completed ? 'completed' : 'entered'
@@ -721,7 +772,8 @@ export async function runEval(
 
       try {
         const allTurnData = transformSpans(collector.getAllSpans())
-        outcomeAssertions = gradeOutcome(allTurnData.stateMutations, evalDef, allTurnData.workflowSpans)
+        outcomeAssertions = gradeOutcome(allTurnData.stateMutations, materializedEvalDef, allTurnData.workflowSpans)
+        outcomeAssertions.push(...(await gradeTableAssertions(connection.client, materializedEvalDef.outcome.tables)))
       } catch (err) {
         outcomeAssertions = [
           {
@@ -738,6 +790,7 @@ export async function runEval(
     const turnsPass = turns.every((t) => t.pass)
     const outcomePass = outcomeAssertions.every((a) => a.pass)
 
+    await cleanupTables()
     return {
       ...evalMetadata(evalDef),
       turns,
@@ -747,10 +800,25 @@ export async function runEval(
       ...(aborted ? { error: 'Eval aborted', errorCode: 'EVAL_ABORTED' as const } : {}),
     }
   } catch (err) {
+    let cleanupFailure: unknown
+    try {
+      await cleanupTables()
+    } catch (cleanupError) {
+      cleanupFailure = cleanupError
+    }
     // Progress sinks are host persistence, not eval verdicts. Folding their
     // failure into EvalReport could finalize an entry before the missing write
     // is reconciled, making the replay terminally impossible.
-    if (err instanceof EvalProgressSinkError) throw err.sinkCause
+    if (err instanceof EvalProgressSinkError) {
+      if (cleanupFailure) {
+        throw new AggregateError(
+          [err.sinkCause, cleanupFailure],
+          'Eval progress persistence and exact-row table cleanup both failed.'
+        )
+      }
+      throw err.sinkCause
+    }
+    const failure = cleanupFailure ?? err
 
     // A timeout or listener failure can happen after the platform emitted a
     // handler span but before the normal observation snapshot. Recover the
@@ -773,11 +841,11 @@ export async function runEval(
     // this catch swallows the error into report.error, so it never reaches
     // the CLI's command boundary and would otherwise be invisible to
     // PostHog error tracking.
-    const adkErr = isAdkError(err) ? err : undefined
-    const evalErr = err instanceof EvalRunnerError ? err : undefined
+    const adkErr = isAdkError(failure) ? failure : undefined
+    const evalErr = failure instanceof EvalRunnerError ? failure : undefined
     if (!adkErr || !adkErr.expected) {
-      const errMsg = (err as Error).message ?? String(err)
-      const errStack = (err as Error).stack ?? ''
+      const errMsg = (failure as Error).message ?? String(failure)
+      const errStack = (failure as Error).stack ?? ''
       logger.error(`Eval "${evalDef.name}" failed unexpectedly: ${errMsg}`)
       logger.error(`  stack: ${errStack}`)
       logger.error(`  eval: ${evalDef.name}, turn: ${turns.length}/${evalDef.conversation.length}`)
@@ -785,7 +853,7 @@ export async function runEval(
       logger.error(
         `  spanSource: ${options.spanSource?.constructor?.name ?? 'default'}, devServerUrl: ${options.devServerUrl ?? 'n/a'}`
       )
-      options.onException?.(err, { source: 'evals', eval_name: evalDef.name })
+      options.onException?.(failure, { source: 'evals', eval_name: evalDef.name })
     }
     return {
       ...evalMetadata(evalDef),
@@ -793,7 +861,7 @@ export async function runEval(
       outcomeAssertions,
       pass: false,
       duration: Date.now() - start,
-      error: (err as Error).message,
+      error: (failure as Error).message,
       ...(evalErr ? { errorCode: evalErr.code } : {}),
       diagnostic: {
         code: evalErr?.code ?? 'EVAL_INTERNAL',
@@ -922,6 +990,7 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
         ...(config.resolveFixture !== undefined ? { resolveFixture: config.resolveFixture } : {}),
         ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
         sourcePreflighted: true,
+        executionId: `${runId}:${i}`,
       })
       await config.onProgress?.({
         type: 'eval_complete',

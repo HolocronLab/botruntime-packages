@@ -58,7 +58,7 @@ async function loadEvalManifest(client: Client): Promise<{
 
   if (manifest.schemaVersion !== EVAL_MANIFEST_SCHEMA_VERSION) {
     throw new Error(
-      `Eval manifest schema version ${manifest.schemaVersion} is not supported (expected ${EVAL_MANIFEST_SCHEMA_VERSION}). Redeploy the bot to update the manifest.`,
+      `Eval manifest schema version ${manifest.schemaVersion} is not supported (expected ${EVAL_MANIFEST_SCHEMA_VERSION}). Update the runtime and run \`brt eval\` again to resync the manifest.`,
     )
   }
 

@@ -55,7 +55,7 @@ describe('hosted eval manifest sync', () => {
     expect(manifestUpload).toMatchObject({ accessPolicies: [] })
     const manifest = JSON.parse(Buffer.from(manifestUpload.content as Buffer).toString('utf8'))
     expect(manifest).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       manifestId: result.manifestFileId,
       evals: [{ name: 'document', conversation: [{ attachments: [{ fixture: 'ddu' }] }] }],
       fixtures: {

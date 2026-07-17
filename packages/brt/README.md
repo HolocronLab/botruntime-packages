@@ -214,10 +214,19 @@ attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
 two authority modes cannot be mixed implicitly.
 
 `brt eval run --dev` executes against the live tunnel bot. Keep `brt dev`
-running in another terminal for the run. A disconnected or not-yet-deployed
-tunnel fails loudly with this remediation. Eval messages use the platform's
-native `botruntime/eval` conversation transport: no Chat integration,
-provider account, or provider API key is provisioned.
+running in another terminal for the run. After a live tunnel disconnects, the
+CLI coalesces duplicate close/error signals and retries with bounded exponential
+backoff for up to 120 seconds. Exhausting that budget fails loudly.
+
+Interactive Chat uses the same explicit target model:
+
+```bash
+brt chat          # production target from the canonical link and per-bot key
+brt chat --dev    # attested dev runtime and profile PAT
+```
+
+The CLI ensures the exact compatible first-party Chat integration in the
+selected environment. `--local` is valid only together with `--dev`.
 
 On botruntime cloud, `brt dev` links the isolated development runtime to the
 canonical production bot shown in the console. The link is also restored for
