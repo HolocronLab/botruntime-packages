@@ -187,9 +187,12 @@ workflow/action queries also require `since`. Use a returned `traceId` with
 
 Accepted `--source` values are `otlp`, `cognitive_v2`, `cognitive_action`,
 `integration_action`, and `observation`. Accepted `--name` values are the
-canonical span names printed by the command, including `autonomous.tool`,
-`cognitive.request`, `cognitive.generateText`, `cognitive.generateContent`,
-`integration.action`, and the handler/state span names shown above.
+canonical span names: `request.incoming`, `handler.conversation`,
+`handler.event`, `handler.trigger`, `handler.workflow`, `autonomous.execution`,
+`autonomous.iteration`, `autonomous.tool`, `chat.sendMessage`,
+`state.saveAllDirty`, `state.save`, `cognitive.request`,
+`cognitive.generateText`, `cognitive.generateContent`, `integration.action`,
+and `observation`.
 
 Human output prints tool input/output plus the exception code and message for
 failed spans; `--verbose` also prints the stack and complete attributes/payload.
