@@ -479,7 +479,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     })
 
     let worker: Worker | undefined = undefined
-    const traceIngest = this._initialDef.type === 'bot' ? await DevTraceIngestServer.start() : undefined
+    const traceIngest =
+      this._initialDef.type === 'bot'
+        ? await DevTraceIngestServer.start({ workerLogsToStderr: Boolean(this.argv.json) })
+        : undefined
 
     const supervisor = new utils.tunnel.TunnelSupervisor(wsTunnelUrl, tunnelId, this.logger)
     supervisor.events.on('connected', ({ tunnel }) => {
