@@ -13,6 +13,7 @@ public, reusable pieces live here.
 |---|---|
 | `packages/brt` | The `brt` CLI — a fork of `@botpress/cli` repointed to the botruntime cloud (native `build` = codegen + bundle, `deploy`, `integrations`, …). Fully self-contained: **zero** `@botpress/*` / `@bpinternal/*` deps. |
 | `integrations/telegram` | Telegram channel integration (fork of `@botpress/telegram`), patched for the botruntime cloudapi. |
+| `integrations/chat` | First-party HTTP Chat API channel integration, for CLIs, web applications and hosted evaluations. |
 | `integrations/megaplan` | Megaplan CRM integration. |
 | `integrations/yadisk` | Yandex.Disk storage integration. |
 | `integrations/yookassa` | YooKassa payments with API-reverified `payment.succeeded` events. |

@@ -211,3 +211,223 @@ jobs:
       # checkout this public contract and validates Fumadocs against it. This
       # public repository workflow cannot read private botforge, and a
       # long-lived PAT/App secret is unnecessary for the same invariant.
+
+  # Arch audit 2026-07-17: forked packages' own test suites (~335 test files across
+  # brt, botruntime-adk/-sdk/-llmz/-zui/-runtime/-evals/-jex/-cognitive/-chat/-client)
+  # previously ran ONLY at publish time (publish-public-packages.yml), never on a PR.
+  # That let a fork silently diverge from upstream without any CI signal — the exact
+  # failure mode that shipped the lost source-map-js patch in botruntime-llmz and only
+  # surfaced as a prod outage. This discovers every packages/* with a "test" script so
+  # a newly-added test suite is never silently left off the PR gate.
+  fork-package-catalog:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.discover.outputs.packages }}
+    env:
+      # Dependency build order for packages/*. MUST stay in sync with PACKAGE_ORDER
+      # in publish-public-packages.yml: cross-package deps use file: links, which
+      # Bun resolves against each sibling's already-built dist/, so packages must
+      # be built in this order before a later package's install can succeed.
+      PACKAGE_ORDER: >-
+        botruntime-analytics
+        botruntime-chat
+        botruntime-client
+        botruntime-cognitive
+        botruntime-const
+        botruntime-thicktoken
+        botruntime-zui
+        botruntime-zai
+        botruntime-evals
+        botruntime-jex
+        botruntime-llmz
+        botruntime-sdk
+        botruntime-runtime
+        botruntime-tunnel
+        botruntime-verel
+        botruntime-yargs-extra
+        botruntime-adk
+        brt
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: List fork packages with a test script, in dependency order
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages="$(node -e "
+            const fs = require('fs');
+            const order = process.env.PACKAGE_ORDER.trim().split(/\s+/);
+            // Enumerate the real packages/* tree, not the allowlist: a test-bearing
+            // package missing from PACKAGE_ORDER must fail the gate loudly, not be
+            // silently skipped by filtering the stale list.
+            const tested = fs.readdirSync('packages', { withFileTypes: true })
+              .filter((d) => d.isDirectory())
+              .map((d) => d.name)
+              .filter((name) => {
+                const pkgPath = \`packages/\${name}/package.json\`;
+                if (!fs.existsSync(pkgPath)) return false;
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                return Boolean(pkg.scripts && pkg.scripts.test);
+              });
+            const missing = tested.filter((name) => !order.includes(name));
+            if (missing.length > 0) {
+              console.error(\`::error::packages with a test script are missing from PACKAGE_ORDER: \${missing.join(', ')} — add them here and in publish-public-packages.yml\`);
+              process.exit(1);
+            }
+            console.log(JSON.stringify(order.filter((name) => tested.includes(name))));
+          ")"
+          echo "Fork packages with a test script: $packages"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+
+  fork-package-tests:
+    needs: fork-package-catalog
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.fork-package-catalog.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install this package's dependency chain, type-check, and test
+        env:
+          TARGET_PACKAGE: ${{ matrix.package }}
+          # Same order as publish-public-packages.yml (and fork-package-catalog
+          # above). Every package ahead of TARGET_PACKAGE in this list is built
+          # here first so its file: dependents can resolve the sibling's dist/.
+          PACKAGE_ORDER: >-
+            botruntime-analytics
+            botruntime-chat
+            botruntime-client
+            botruntime-cognitive
+            botruntime-const
+            botruntime-thicktoken
+            botruntime-zui
+            botruntime-zai
+            botruntime-evals
+            botruntime-jex
+            botruntime-llmz
+            botruntime-sdk
+            botruntime-runtime
+            botruntime-tunnel
+            botruntime-verel
+            botruntime-yargs-extra
+            botruntime-adk
+            brt
+          # Space-separated allowlist of packages whose test suite is known-red
+          # on main. A listed package's TEST failures are surfaced loudly (a build
+          # warning annotation) but do not fail the job; typecheck stays blocking
+          # regardless — this is a visible, explicit escape hatch scoped to tests
+          # only, never a silent continue-on-error. Empty as
+          # of 2026-07-17: every packages/* with a "test" script passes on
+          # main. Add an entry here only alongside a comment naming the
+          # tracking issue and why it can't be fixed immediately.
+          KNOWN_RED_PACKAGES: ""
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          run_script_if_present() {
+            local package_dir="$1"
+            local script="$2"
+            if node -e "const p=require('./${package_dir}/package.json'); process.exit(p.scripts?.['${script}'] ? 0 : 1)"; then
+              (cd "$package_dir" && bun run "$script")
+            else
+              return 0
+            fi
+          }
+
+          install_package_dependencies() {
+            local package_dir="$1"
+            local patches_path="$package_dir/patches"
+            local linked_patches=0
+
+            if [ ! -e "$patches_path" ] && [ ! -L "$patches_path" ]; then
+              ln -s ../botruntime-llmz/patches "$patches_path"
+              linked_patches=1
+            fi
+
+            local install_status=0
+            (cd "$package_dir" && bun install --ignore-scripts --no-save) || install_status=$?
+            if [ "$linked_patches" -eq 1 ]; then
+              unlink "$patches_path"
+            fi
+            return "$install_status"
+          }
+
+          is_known_red() {
+            local pkg="$1"
+            for red in $KNOWN_RED_PACKAGES; do
+              [ "$red" = "$pkg" ] && return 0
+            done
+            return 1
+          }
+
+          # Build every package that precedes TARGET_PACKAGE in dependency order so
+          # its file: links resolve against an already-built dist/, mirroring the
+          # publish workflow. Only `build` runs for these — their own check:type/test
+          # happen in their own matrix cell, so this never duplicates a failure signal.
+          # Install/build failures here MUST fail the cell (publish runs under set -e;
+          # without this a broken upstream build would leave a stale dist/ and the
+          # dependent's typecheck could pass against it — a green job over a red build).
+          for package in $PACKAGE_ORDER; do
+            if [ "$package" = "$TARGET_PACKAGE" ]; then
+              break
+            fi
+            package_dir="packages/$package"
+            if [ ! -f "$package_dir/package.json" ]; then
+              echo "::error::$package is listed in PACKAGE_ORDER but $package_dir/package.json does not exist — fix the list (must stay in sync with publish-public-packages.yml)"
+              exit 1
+            fi
+            echo "::group::Build dependency $package"
+            install_package_dependencies "$package_dir" || { echo "::error::dependency install failed for $package"; exit 1; }
+            run_script_if_present "$package_dir" build || { echo "::error::dependency build failed for $package"; exit 1; }
+            echo "::endgroup::"
+          done
+
+          package_dir="packages/$TARGET_PACKAGE"
+
+          if [ "$TARGET_PACKAGE" = "botruntime-client" ]; then
+            # botruntime-api is a build-time-only codegen seam (ADR-0005): never
+            # published and deliberately excluded from PACKAGE_ORDER. But
+            # botruntime-client/openapi.ts imports its types directly, and Bun's
+            # file: link only mirrors whatever sibling entries existed at install
+            # time — so botruntime-api's dist/ must exist BEFORE botruntime-client
+            # installs, or check:type fails on a module-not-found that has nothing
+            # to do with actual client code (reproduced locally 2026-07-17).
+            echo "::group::Build botruntime-api (botruntime-client build-time dependency)"
+            install_package_dependencies "packages/botruntime-api" || { echo "::error::install failed for botruntime-api"; exit 1; }
+            run_script_if_present "packages/botruntime-api" build || { echo "::error::build failed for botruntime-api"; exit 1; }
+            echo "::endgroup::"
+          fi
+
+          echo "::group::Install $TARGET_PACKAGE"
+          install_package_dependencies "$package_dir" || { echo "::error::install failed for $TARGET_PACKAGE"; exit 1; }
+          echo "::endgroup::"
+
+          # The target's own build must run in its own cell: several suites test the
+          # built artifact (zui imports its own dist/index.cjs), and the last package
+          # in PACKAGE_ORDER is never built as anyone's prefix dependency.
+          echo "::group::Build $TARGET_PACKAGE"
+          run_script_if_present "$package_dir" build || { echo "::error::build failed for $TARGET_PACKAGE"; exit 1; }
+          echo "::endgroup::"
+
+          # check:type/typecheck stay blocking even for known-red entries: the
+          # allowlist covers exactly what its name says — a red TEST suite — and
+          # must never quietly widen into skipping type safety.
+          run_script_if_present "$package_dir" check:type || { echo "::error::typecheck (check:type) failed for $TARGET_PACKAGE"; exit 1; }
+          run_script_if_present "$package_dir" typecheck || { echo "::error::typecheck failed for $TARGET_PACKAGE"; exit 1; }
+
+          if is_known_red "$TARGET_PACKAGE"; then
+            echo "::warning::$TARGET_PACKAGE is on the KNOWN_RED_PACKAGES allowlist in this workflow — its test suite runs non-blocking."
+            if ! run_script_if_present "$package_dir" test; then
+              echo "::warning::$TARGET_PACKAGE tests failed but the package is allowlisted as known-red; not failing the job. Fix the suite and remove it from KNOWN_RED_PACKAGES."
+            fi
+            exit 0
+          fi
+          run_script_if_present "$package_dir" test
