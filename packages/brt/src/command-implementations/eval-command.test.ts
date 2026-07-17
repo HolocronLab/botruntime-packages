@@ -544,7 +544,7 @@ describe('brt eval public contract', () => {
     }).handler()
 
     expect(response.exitCode).toBe(0)
-    expect(stdout).toMatch(/CHAT_PAYLOAD_INVALID.*observation.*turn=0/i)
+    expect(stdout).toMatch(/CHAT_PAYLOAD_INVALID.*kind=chat.*observation.*turn=0/i)
     expect(stdout).toContain(
       'brt traces --dev --trace-id 0123456789abcdef0123456789abcdef --conversation-id conv_eval_1'
     )

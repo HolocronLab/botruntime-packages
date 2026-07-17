@@ -48,11 +48,17 @@ export const formatCode = async (code: string, filepath?: string): Promise<strin
 
 // This constant is injected at build time by esbuild's define
 declare const __RUNTIME_VERSION__: string
+declare const __BP_CLI_VERSION__: string
 
 export const ADK_VERSION =
   typeof __RUNTIME_VERSION__ === 'undefined'
     ? ((globalThis as { __RUNTIME_VERSION__?: string }).__RUNTIME_VERSION__ ?? '0.0.0')
     : __RUNTIME_VERSION__
+
+export const BRT_VERSION =
+  typeof __BP_CLI_VERSION__ === 'undefined'
+    ? ((globalThis as { __BP_CLI_VERSION__?: string }).__BP_CLI_VERSION__ ?? '0.0.0')
+    : __BP_CLI_VERSION__
 
 export const relative = (from: string, to: string): string => {
   const fromDir = path.dirname(from)

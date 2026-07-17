@@ -172,7 +172,7 @@ abstract class EvalCloudCommand<C extends EvalDefinition> extends CloudCommand<C
       if (this.argv.verbose) {
         if (entry.errorCode && entry.errorPhase) {
           this.logger.log(
-            `    diagnostic code=${entry.errorCode}  phase=${entry.errorPhase}  turn=${entry.errorTurnIndex ?? '-'}`
+            `    diagnostic code=${entry.errorCode}  kind=${entry.errorKind ?? '-'}  phase=${entry.errorPhase}  turn=${entry.errorTurnIndex ?? '-'}`
           )
           const hint = EVAL_DIAGNOSTIC_HINTS[entry.errorCode]
           if (hint) this.logger.log(`    hint: ${hint}`)

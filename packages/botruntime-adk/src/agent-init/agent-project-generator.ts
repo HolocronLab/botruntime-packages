@@ -3,7 +3,7 @@ import * as path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { AdkError } from '@holocronlab/botruntime-analytics'
-import { ADK_VERSION, formatCode } from '../generators/utils.js'
+import { ADK_VERSION, BRT_VERSION, formatCode } from '../generators/utils.js'
 // @ts-expect-error - Bun import attribute for text
 import aiAssistantInstructions from './ai-assistant-instructions.template.md' with { type: 'text' }
 
@@ -330,7 +330,7 @@ export class AgentProjectGenerator {
         '@holocronlab/botruntime-runtime': `^${ADK_VERSION}`,
       },
       devDependencies: {
-        '@holocronlab/brt': '^0.7.3',
+        '@holocronlab/brt': `^${BRT_VERSION}`,
         typescript: '^5.9.3',
       },
     })

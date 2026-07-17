@@ -185,6 +185,12 @@ is required unless `workflow`, `action`, or exact `trace` is provided; unscoped
 workflow/action queries also require `since`. Use a returned `traceId` with
 `trace=<id>` to fetch its full tree.
 
+Accepted `--source` values are `otlp`, `cognitive_v2`, `cognitive_action`,
+`integration_action`, and `observation`. Accepted `--name` values are the
+canonical span names printed by the command, including `autonomous.tool`,
+`cognitive.request`, `cognitive.generateText`, `cognitive.generateContent`,
+`integration.action`, and the handler/state span names shown above.
+
 Human output prints tool input/output plus the exception code and message for
 failed spans; `--verbose` also prints the stack and complete attributes/payload.
 JSON output always includes the complete stored span content.
