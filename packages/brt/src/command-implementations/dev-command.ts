@@ -899,29 +899,28 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       regenDirty = true
       if (regenerationPromise) return regenerationPromise
 
-      regenerationPromise = (async () => {
-        try {
-          do {
-            regenDirty = false
-            const passDependencySnapshotFingerprint = queuedDependencySnapshotFingerprint
-            // Lockfiles are watched as source inputs. Re-check the physical
-            // graph on every regeneration so an install performed while dev is
-            // running cannot silently rebuild and redeploy a mixed toolchain.
-            assertCurrentToolchain()
-            // A newly provisioned nested dev bot is persisted before choosing
-            // the next config target; agent.local.json remains the sole source.
-            adkDevId.preserveDevId(dir, botPath, this.logger)
-            await adkBundle.generateAgentBot(dir, installer, generationOptions())
-            // Same repair as the initial generation above: every regeneration
-            // re-runs the agent generator's restoreDevId(), which drops tunnelId
-            // again whenever agent.local.json already has a devId.
-            adkDevId.restoreDevTunnelId(botPath, this.logger)
-            dependencySnapshotFingerprint = passDependencySnapshotFingerprint
-          } while (regenDirty)
-        } finally {
-          regenerationPromise = undefined
-        }
-      })()
+      const run = Promise.resolve().then(async () => {
+        do {
+          regenDirty = false
+          const passDependencySnapshotFingerprint = queuedDependencySnapshotFingerprint
+          // Lockfiles are watched as source inputs. Re-check the physical
+          // graph on every regeneration so an install performed while dev is
+          // running cannot silently rebuild and redeploy a mixed toolchain.
+          assertCurrentToolchain()
+          // A newly provisioned nested dev bot is persisted before choosing
+          // the next config target; agent.local.json remains the sole source.
+          adkDevId.preserveDevId(dir, botPath, this.logger)
+          await adkBundle.generateAgentBot(dir, installer, generationOptions())
+          // Same repair as the initial generation above: every regeneration
+          // re-runs the agent generator's restoreDevId(), which drops tunnelId
+          // again whenever agent.local.json already has a devId.
+          adkDevId.restoreDevTunnelId(botPath, this.logger)
+          dependencySnapshotFingerprint = passDependencySnapshotFingerprint
+        } while (regenDirty)
+      })
+      regenerationPromise = run.finally(() => {
+        regenerationPromise = undefined
+      })
       return regenerationPromise
     }
 
