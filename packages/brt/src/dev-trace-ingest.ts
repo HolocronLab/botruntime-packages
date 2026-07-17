@@ -137,7 +137,9 @@ export class DevTraceIngestServer {
   private constructor(
     private readonly server: http.Server,
     readonly url: string,
-    private readonly maxBodyBytes: number
+    private readonly maxBodyBytes: number,
+    // `brt dev --json`: stdout обязан нести только сырой JSON — worker-строки уходят в stderr.
+    private readonly workerLogsToStderr: boolean
   ) {
     this.keepalive = setInterval(() => {
       for (const client of this.clients) writeEvent(client.response, 'keepalive', { at: Date.now() })
@@ -145,7 +147,7 @@ export class DevTraceIngestServer {
     this.keepalive.unref?.()
   }
 
-  static async start(options: { maxBodyBytes?: number } = {}): Promise<DevTraceIngestServer> {
+  static async start(options: { maxBodyBytes?: number; workerLogsToStderr?: boolean } = {}): Promise<DevTraceIngestServer> {
     const maxBodyBytes = options.maxBodyBytes ?? 4 * 1024 * 1024
     let instance: DevTraceIngestServer | undefined
     const server = http.createServer((request, response) => {
@@ -159,7 +161,7 @@ export class DevTraceIngestServer {
       })
     })
     const address = server.address() as AddressInfo
-    instance = new DevTraceIngestServer(server, `http://127.0.0.1:${address.port}`, maxBodyBytes)
+    instance = new DevTraceIngestServer(server, `http://127.0.0.1:${address.port}`, maxBodyBytes, options.workerLogsToStderr ?? false)
     return instance
   }
 
@@ -256,7 +258,7 @@ export class DevTraceIngestServer {
     }
     const line = `[worker] ${entry.args.map(String).join(' ')}\n`
     // Wire-типы из structured-logging: console.error шлёт 'stderr', console.warn — 'warn'.
-    if (entry.type === 'stderr' || entry.type === 'warn') {
+    if (this.workerLogsToStderr || entry.type === 'stderr' || entry.type === 'warn') {
       process.stderr.write(line)
     } else {
       process.stdout.write(line)

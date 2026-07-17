@@ -112,6 +112,31 @@ describe('DevTraceIngestServer', () => {
     }
   })
 
+  it('routes every worker log line to stderr when workerLogsToStderr is set (brt dev --json)', async () => {
+    server = await DevTraceIngestServer.start({ workerLogsToStderr: true })
+    const outChunks: string[] = []
+    const errChunks: string[] = []
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
+      outChunks.push(String(chunk))
+      return true
+    })
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+      errChunks.push(String(chunk))
+      return true
+    })
+    try {
+      await fetch(`${server.url}/v1/logs`, {
+        method: 'POST',
+        body: JSON.stringify({ timestamp: 't', type: 'stdout', args: ['plain line'] }),
+      })
+      expect(errChunks.join('')).toContain('[worker] plain line')
+      expect(outChunks.join('')).not.toContain('[worker]')
+    } finally {
+      outSpy.mockRestore()
+      errSpy.mockRestore()
+    }
+  })
+
   it('rejects malformed and oversized trace payloads without breaking the stream', async () => {
     server = await DevTraceIngestServer.start({ maxBodyBytes: 128 })
 
