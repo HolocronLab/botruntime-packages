@@ -92,6 +92,37 @@
       ]
     },
     {
+      "path": "bots versions deploy",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose",
+        "versionId",
+        "workDir"
+      ]
+    },
+    {
+      "path": "bots versions list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "json",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
       "path": "build",
       "aliases": [],
       "options": [

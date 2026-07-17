@@ -935,6 +935,25 @@ const conversationsShowSchema = {
   dev: cloudDevTarget,
 } satisfies CommandSchema
 
+// brt bots versions list|deploy (DEVLP-166) — deploy-version rollback DX. No
+// `dev` flag: unlike logs/traces/conversations, the server mounts these routes
+// bot-scoped only (mw+mb, no workspace-PAT alternative — see cloudapi's
+// routes_admin.go), so there is no dev-tunnel target to resolve against.
+const botVersionsListSchema = {
+  ...cloudProjectSchema,
+} satisfies CommandSchema
+
+const botVersionsDeploySchema = {
+  ...cloudProjectSchema,
+  versionId: {
+    type: 'string',
+    description: 'The version ID to make current (from `brt bots versions list`)',
+    demandOption: true,
+    positional: true,
+    idx: 0,
+  },
+} satisfies CommandSchema
+
 const evalRunSchema = {
   ...cloudProjectSchema,
   dev: cloudDevTarget,
@@ -1057,6 +1076,8 @@ export const schemas = {
   traces: tracesSchema,
   conversationsList: conversationsListSchema,
   conversationsShow: conversationsShowSchema,
+  botVersionsList: botVersionsListSchema,
+  botVersionsDeploy: botVersionsDeploySchema,
   evalRun: evalRunSchema,
   evalRuns: evalRunsSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
