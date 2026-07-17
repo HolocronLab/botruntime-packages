@@ -3,8 +3,26 @@ import { W3CTraceContextPropagator } from '@opentelemetry/core'
 
 const propagator = new W3CTraceContextPropagator()
 
-export function shouldPropagateTraceContext(enabled: boolean, isFirstParty: boolean): boolean {
-  return enabled && isFirstParty
+export function tracePropagationOrigin(apiUrl: string | undefined): string | undefined {
+  if (!apiUrl) return undefined
+  try {
+    return new URL(apiUrl).origin
+  } catch {
+    return undefined
+  }
+}
+
+export function shouldPropagateTraceContext(
+  enabled: boolean,
+  requestUrl: string,
+  configuredOrigin: string | undefined
+): boolean {
+  if (!enabled || !configuredOrigin) return false
+  try {
+    return new URL(requestUrl).origin === configuredOrigin
+  } catch {
+    return false
+  }
 }
 
 export function propagationHeadersForSpan(span: Span): Record<string, string> {

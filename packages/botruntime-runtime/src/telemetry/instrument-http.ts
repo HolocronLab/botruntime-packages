@@ -17,17 +17,20 @@ function hasHeader(headers: Record<string, unknown>, name: string): boolean {
   return Object.keys(headers).some((key) => key.toLowerCase() === lower)
 }
 
-// Helper to determine if a URL is a Botpress API call
-function isBotpressUrl(fullUrl: string): boolean {
+function isBotpressUrl(fullUrl: string, configuredOrigin?: string): boolean {
   try {
     const url = new URL(fullUrl)
     const host = url.hostname
 
     return (
-      host.includes('botruntime.ru') ||
+      url.origin === configuredOrigin ||
+      host === 'botruntime.ru' ||
+      host.endsWith('.botruntime.ru') ||
       // still instrument the upstream cognitive API host (cognitive-v2 wire) until it is fully in-house
-      host.includes('api.botpress.cloud') ||
-      host.includes('api.botpress.dev')
+      host === 'api.botpress.cloud' ||
+      host.endsWith('.api.botpress.cloud') ||
+      host === 'api.botpress.dev' ||
+      host.endsWith('.api.botpress.dev')
     )
   } catch {
     return false
@@ -101,7 +104,13 @@ function decompressBody(buffer: Buffer, contentEncoding?: string): string {
   }
 }
 
-export function installHttpClientInstrumentation({ injectTraceHeader = true }: { injectTraceHeader?: boolean } = {}) {
+export function installHttpClientInstrumentation({
+  injectTraceHeader = true,
+  tracePropagationOrigin,
+}: {
+  injectTraceHeader?: boolean
+  tracePropagationOrigin?: string
+} = {}) {
   const restores: Array<() => void> = []
 
   // ---------- helpers ----------
@@ -159,7 +168,7 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
         options.headers[INSTRUMENTED_HEADER] = 'true'
 
         const method = (options.method || 'GET').toUpperCase()
-        const isBotpress = isBotpressUrl(urlString)
+        const isBotpress = isBotpressUrl(urlString, tracePropagationOrigin)
 
         // Parse body if available
         let bodyData: any = null
@@ -211,7 +220,7 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
           otelContext.active()
         )
 
-        if (shouldPropagateTraceContext(injectTraceHeader, isBotpress)) {
+        if (shouldPropagateTraceContext(injectTraceHeader, urlString, tracePropagationOrigin)) {
           for (const [name, value] of Object.entries(propagationHeadersForSpan(span))) {
             if (!hasHeader(options.headers, name)) options.headers[name] = value
           }
@@ -354,7 +363,7 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
         const origin = String(opts.origin ?? '')
         const path = String(opts.path ?? '')
         const fullUrl = `${origin}${path}`
-        const isBotpress = isBotpressUrl(fullUrl)
+        const isBotpress = isBotpressUrl(fullUrl, tracePropagationOrigin)
 
         // Parse request body
         let bodyData: any = null
@@ -438,7 +447,7 @@ export function installHttpClientInstrumentation({ injectTraceHeader = true }: {
         // Add instrumentation marker
         headers.push(INSTRUMENTED_HEADER, 'true')
 
-        if (shouldPropagateTraceContext(injectTraceHeader, isBotpress)) {
+        if (shouldPropagateTraceContext(injectTraceHeader, fullUrl, tracePropagationOrigin)) {
           for (const [name, value] of Object.entries(propagationHeadersForSpan(span))) {
             let present = false
             for (let i = 0; i < headers.length; i += 2) {
