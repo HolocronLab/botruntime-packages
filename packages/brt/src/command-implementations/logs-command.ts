@@ -88,6 +88,8 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
   // case gets the specific hint rather than a generic maybe-dev disclaimer.
   private _printDevHintIfEmpty(): void {
     if (!this.targetsDevBot) return
+    // --json обещает на stdout только сырой JSON — человекочитаемый хинт туда нельзя.
+    if (this.argv.json) return
     cloudInfo(
       'no logs found for this dev bot — `brt dev` prints worker output straight to its own ' +
         'terminal and never forwards it here; the cloud log ingest is fed only by the ' +

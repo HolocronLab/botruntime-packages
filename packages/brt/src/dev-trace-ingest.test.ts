@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LocalSpanSource } from '@holocronlab/botruntime-evals/spans'
 import { DevTraceIngestServer } from './dev-trace-ingest'
 
@@ -77,6 +77,39 @@ describe('DevTraceIngestServer', () => {
       })
     )
     source.disconnect()
+  })
+
+  it('renders worker log entries to the dev terminal instead of discarding them (DEVLP-165)', async () => {
+    server = await DevTraceIngestServer.start()
+    const outChunks: string[] = []
+    const errChunks: string[] = []
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
+      outChunks.push(String(chunk))
+      return true
+    })
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+      errChunks.push(String(chunk))
+      return true
+    })
+    try {
+      const info = await fetch(`${server.url}/v1/logs`, {
+        method: 'POST',
+        body: JSON.stringify({ timestamp: 't', type: 'stdout', args: ['hello', 'world'] }),
+      })
+      const err = await fetch(`${server.url}/v1/logs`, {
+        method: 'POST',
+        body: JSON.stringify({ timestamp: 't', type: 'error', args: ['boom'] }),
+      })
+      const malformed = await fetch(`${server.url}/v1/logs`, { method: 'POST', body: '{' })
+      expect(info.status).toBe(202)
+      expect(err.status).toBe(202)
+      expect(malformed.status).toBe(400)
+      expect(outChunks.join('')).toContain('[worker] hello world')
+      expect(errChunks.join('')).toContain('[worker] boom')
+    } finally {
+      outSpy.mockRestore()
+      errSpy.mockRestore()
+    }
   })
 
   it('rejects malformed and oversized trace payloads without breaking the stream', async () => {

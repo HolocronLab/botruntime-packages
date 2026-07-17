@@ -184,7 +184,7 @@ export class DevTraceIngestServer {
       return
     }
     if (request.method === 'POST' && url.pathname === '/v1/logs') {
-      await this.discardBoundedBody(request, response)
+      await this.renderWorkerLog(request, response)
       return
     }
     response.writeHead(404).end('Not found')
@@ -235,10 +235,34 @@ export class DevTraceIngestServer {
     response.writeHead(202).end()
   }
 
-  private async discardBoundedBody(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+  // Worker console.* records are shipped here instead of the worker's stdout whenever
+  // ADK_SPAN_INGEST_URL is set (structured-logging.ts). Discarding them made `brt dev`
+  // a log black hole for agent bots: neither the terminal nor the cloud ingest ever saw
+  // them (the cloud ingest is fed only by the production supervisor). Render each entry
+  // to the dev terminal — errors/warnings to stderr, the rest to stdout.
+  private async renderWorkerLog(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     const body = await this.readBody(request)
-    response.writeHead(body.status === 200 ? 202 : body.status).end(body.status === 200 ? undefined : body.message)
+    if (body.status !== 200) {
+      response.writeHead(body.status).end(body.message)
+      return
+    }
+    let entry: { timestamp?: string; type?: string; args?: unknown[] } | null = null
+    try {
+      entry = JSON.parse(body.value)
+    } catch {}
+    if (!entry || !Array.isArray(entry.args)) {
+      response.writeHead(400).end('Malformed log entry')
+      return
+    }
+    const line = `[worker] ${entry.args.map(String).join(' ')}\n`
+    if (entry.type === 'error' || entry.type === 'warn') {
+      process.stderr.write(line)
+    } else {
+      process.stdout.write(line)
+    }
+    response.writeHead(202).end()
   }
+
 
   private readBody(request: http.IncomingMessage): Promise<{ status: 200; value: string } | { status: 400 | 413; message: string }> {
     return new Promise((resolve) => {

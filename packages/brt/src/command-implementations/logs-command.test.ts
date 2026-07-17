@@ -80,6 +80,27 @@ describe('brt logs — dev-empty-result hint', () => {
     expect(stdout).toMatch(/production supervisor/i)
   })
 
+  it('suppresses the dev hint under --json: stdout must stay raw JSON', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'agent.local.json'),
+      JSON.stringify({ devId: DEV_RUNTIME_BOT_ID, devTargetBotId: DEV_TARGET_BOT_ID })
+    )
+    stubFetch(async (url) => {
+      const pathname = decodeURIComponent(new URL(url).pathname)
+      if (pathname === `/v1/admin/bots/${DEV_RUNTIME_BOT_ID}`) {
+        return json({
+          bot: { id: DEV_RUNTIME_BOT_ID, dev: true, tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID } },
+        })
+      }
+      return json({ logs: [] })
+    })
+
+    const result = await logsCommand({ dev: true, json: true }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(stdout).not.toMatch(/brt dev.*terminal/i)
+  })
+
   it('does not print the dev hint when a --dev target has logs', async () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.local.json'),
