@@ -145,7 +145,7 @@ jobs:
       # not exist in a registry until this PR has merged and published.
       - name: Build the current botruntime-evals package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
           cd packages/botruntime-evals
           bun install --no-save --ignore-scripts
@@ -155,7 +155,7 @@ jobs:
 
       - name: Build the current botruntime-runtime package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-sdk --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-llmz --exclude=@holocronlab/botruntime-sdk --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
           cd packages/botruntime-runtime
           bun install --no-save --ignore-scripts
@@ -176,7 +176,7 @@ jobs:
 
       - name: Build the current botruntime-adk package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
           bun install --no-save --ignore-scripts
