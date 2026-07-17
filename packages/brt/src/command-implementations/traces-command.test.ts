@@ -105,6 +105,7 @@ describe('brt traces public contract', () => {
           conversationId: expect.objectContaining({ type: 'string' }),
           dev: expect.objectContaining({ type: 'boolean' }),
           error: expect.objectContaining({ type: 'boolean' }),
+          includeLlm: expect.objectContaining({ type: 'boolean', default: false }),
           limit: expect.objectContaining({ type: 'number' }),
           nextToken: expect.objectContaining({ type: 'string' }),
           status: expect.objectContaining({ type: 'string' }),
@@ -215,7 +216,7 @@ describe('brt traces public contract', () => {
     [{ conversationId: undefined, tokens: [] }, /conversation.*required/i],
     [{ conversationId: undefined, tokens: ['workflow=builtin_eval_runner'] }, /since.*required/i],
     [{ conversationId: undefined, tokens: ['since=10m'] }, /workflow.*action.*trace/i],
-    [{ tokens: ['include-llm'] }, /include-llm.*not supported/i],
+    [{ tokens: ['include-llm'] }, /--include-llm/i],
     [{ tokens: ['trigger=handler'] }, /trigger.*not supported/i],
     [{ tokens: ['follow'] }, /follow.*not supported/i],
     [{ tokens: ['wat=unknown'] }, /unknown trace filter/i],
@@ -445,7 +446,7 @@ describe('brt traces public contract', () => {
     expect(stdout).toContain('chat.ts:381')
   })
 
-  it('preserves full developer trace content in JSON output', async () => {
+  it('preserves non-LLM trace content in JSON output', async () => {
     const complete = trace({
       conversationId: 'conv:1',
       userId: 'user:1',
@@ -484,6 +485,89 @@ describe('brt traces public contract', () => {
     expect(stdout).toMatch(/raw prompt|raw response|tool secret|document secret|raw error|arbitrary/i)
   })
 
+  it('hides LLM request and response content by default without changing stored tool payloads', async () => {
+    const cognitive = trace({
+      name: 'cognitive.request',
+      attributes: {
+        'ai.model': 'openai:gpt-5',
+        'ai.instructions': 'system prompt',
+        'ai.messages': [{ role: 'user', content: 'customer question' }],
+        'ai.tools': [{ name: 'lookup' }],
+        'ai.response': { text: 'model answer' },
+      },
+      payload: {
+        request: { messages: [{ role: 'user', content: 'customer question' }] },
+        response: { text: 'model answer' },
+      },
+    })
+    const tool = trace({
+      name: 'autonomous.tool',
+      attributes: { 'autonomous.tool.name': 'lookup' },
+      payload: { input: { id: 42 }, output: { found: true } },
+    })
+    stubFetch(async () => json({ traces: [cognitive, tool], meta: {} }))
+
+    const result = await command({ json: true }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(output.traces[0].attributes).toEqual({ 'ai.model': 'openai:gpt-5' })
+    expect(output.traces[0].payload).toEqual({})
+    expect(output.traces[1].payload).toEqual({ input: { id: 42 }, output: { found: true } })
+    expect(stdout).not.toMatch(/system prompt|customer question|model answer/)
+  })
+
+  it('shows canonical LLM request and response content with --include-llm', async () => {
+    const cognitive = trace({
+      name: 'cognitive.request',
+      attributes: {
+        'ai.instructions': 'system prompt',
+        'ai.messages': [{ role: 'user', content: 'customer question' }],
+        'ai.response': { text: 'model answer' },
+      },
+      payload: {
+        request: { messages: [{ role: 'user', content: 'customer question' }] },
+        response: { text: 'model answer' },
+      },
+    })
+    stubFetch(async () => json({ traces: [cognitive], meta: {} }))
+
+    const result = await command({ includeLlm: true, json: true }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(output.traces).toEqual([cognitive])
+    expect(stdout).toMatch(/system prompt|customer question|model answer/)
+  })
+
+  it('prints canonical LLM request and response in human mode only with --include-llm', async () => {
+    const cognitive = trace({
+      name: 'cognitive.request',
+      attributes: {
+        'ai.instructions': 'system prompt',
+        'ai.messages': 'serialized message preview',
+        'ai.tools': 'serialized tool preview',
+        'ai.response': 'serialized response preview',
+      },
+      payload: {
+        request: { messages: [{ role: 'user', content: 'customer question' }], tools: [{ name: 'lookup' }] },
+        response: { text: 'model answer' },
+      },
+    })
+    stubFetch(async () => json({ traces: [cognitive], meta: {} }))
+
+    expect((await command().handler()).exitCode).toBe(0)
+    expect(stdout).not.toMatch(/system prompt|customer question|model answer/)
+
+    stdout = ''
+    expect((await command({ includeLlm: true }).handler()).exitCode).toBe(0)
+    expect(stdout).toMatch(/instructions:.*system prompt/)
+    expect(stdout).toMatch(/messages:.*customer question/)
+    expect(stdout).toMatch(/tools:.*lookup/)
+    expect(stdout).toMatch(/response:.*model answer/)
+    expect(stdout).not.toMatch(/serialized (message|tool|response) preview/)
+  })
+
   it('prints tool input and output in human mode', async () => {
     stubFetch(async () =>
       json({
@@ -491,8 +575,12 @@ describe('brt traces public contract', () => {
           trace({
             name: 'autonomous.tool',
             attributes: {
-              'autonomous.tool.input': { query: 'customer order' },
-              'autonomous.tool.output': { id: 'order-42' },
+              'autonomous.tool.input': '{"query":"escaped preview"}',
+              'autonomous.tool.output': '{"id":"escaped-preview"}',
+            },
+            payload: {
+              input: { query: 'customer order' },
+              output: { id: 'order-42' },
             },
           }),
         ],
@@ -505,6 +593,8 @@ describe('brt traces public contract', () => {
     expect(result.exitCode).toBe(0)
     expect(stdout).toContain('input: {"query":"customer order"}')
     expect(stdout).toContain('output: {"id":"order-42"}')
+    expect(stdout).not.toContain('escaped preview')
+    expect(stdout).not.toContain('escaped-preview')
   })
 
   function command(overrides: Record<string, unknown> = {}): TracesCommand {
@@ -516,6 +606,7 @@ describe('brt traces public contract', () => {
       conversationId: 'conv:1',
       dev: false,
       error: undefined,
+      includeLlm: false,
       json: false,
       limit: 20,
       local: false,

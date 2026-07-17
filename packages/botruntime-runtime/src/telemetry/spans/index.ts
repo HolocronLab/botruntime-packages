@@ -168,6 +168,16 @@ const CognitiveSpan = {
       description: 'The system prompt/instructions for the AI model',
       title: 'AI Instructions',
     },
+    'ai.messages': {
+      type: 'string',
+      description: 'The serialized messages sent to the AI model',
+      title: 'AI Messages',
+    },
+    'ai.response': {
+      type: 'string',
+      description: 'The serialized response returned by the AI model',
+      title: 'AI Response',
+    },
     'ai.tools': {
       type: 'json',
       description: 'The tools available to the AI model',

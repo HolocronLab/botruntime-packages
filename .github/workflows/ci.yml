@@ -55,6 +55,7 @@ jobs:
 
       - name: Test public registry configuration for the runtime release train
         run: |
+          node --test scripts/formatter-safety.test.mjs
           node --test scripts/runtime-package-registry-config.test.mjs
           node --test scripts/package-release-contract.test.mjs
           node --test scripts/catalog-publication-decision.test.mjs

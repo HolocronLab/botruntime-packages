@@ -209,7 +209,7 @@ function parseListTokens(tokens: string[]): { limit?: string; since?: string } {
   const result: { limit?: string; since?: string } = {}
   for (const token of tokens) {
     if (token === 'include-llm') {
-      throw new errors.BotpressCLIError('include-llm is forbidden by the cloud metadata-only privacy boundary')
+      throw new errors.BotpressCLIError('include-llm is supported by brt traces, not brt conversations')
     }
     const separator = token.indexOf('=')
     if (separator <= 0 || separator === token.length - 1) {
