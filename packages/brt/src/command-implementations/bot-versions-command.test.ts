@@ -151,6 +151,28 @@ describe('brt bots versions list|deploy', () => {
       const headers = calls[0]!.init.headers as Record<string, string>
       expect(headers.authorization).toBe(`Bearer ${OTHER_BOT_KEY}`)
     })
+
+    it('works with --bot-id from a directory with no project link at all', async () => {
+      const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-versions-empty-'))
+      try {
+        stubFetch(async () => json({ versions: [] }))
+
+        const argv = baseArgv({ botId: OTHER_BOT_ID, workDir: emptyDir })
+        const result = await new ListBotVersionsCommand(
+          {} as any,
+          {} as any,
+          new Logger(argv as any),
+          argv as any
+        ).handler()
+
+        expect(result.exitCode).toBe(0)
+        expect(calls[0]!.url).toBe(`${API_URL}/v1/admin/bots/${OTHER_BOT_ID}/versions`)
+        const headers = calls[0]!.init.headers as Record<string, string>
+        expect(headers.authorization).toBe(`Bearer ${OTHER_BOT_KEY}`)
+      } finally {
+        fs.rmSync(emptyDir, { recursive: true, force: true })
+      }
+    })
   })
 
   describe('deploy', () => {

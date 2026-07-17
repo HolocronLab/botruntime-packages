@@ -19,7 +19,11 @@ type BotVersionsDefinition =
 
 abstract class BotVersionsCommand<C extends BotVersionsDefinition> extends CloudCommand<C> {
   protected async resolveBotVersionsTarget(): Promise<{ client: CloudapiClient; botId: string }> {
-    const link = this.loadLink()
+    // loadLinkIfPresent (not loadLink): --bot-id is a valid target on its own,
+    // same as `brt logs` — requiring agent.json/bot.json to exist even when the
+    // caller already gave an explicit id would fail commands that have
+    // everything they need.
+    const link = this.loadLinkIfPresent() ?? {}
     const botId = this.requireBotId(link)
     const { name: profileName, profile } = await this.resolveProfile()
     const apiUrl = this.resolveApiUrl(profile, link)
