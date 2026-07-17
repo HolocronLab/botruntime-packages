@@ -31,7 +31,7 @@ import {
 } from '../runtime-contract'
 import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
-import { buildDevWorkerEnvironment } from '../dev-worker-env'
+import { buildDevWorkerEnvironment, fetchDevConfigVars } from '../dev-worker-env'
 import { DevTraceIngestServer } from '../dev-trace-ingest'
 import { formatTunnelFailure, isTunnelUnavailableStatus } from '../dev-tunnel-diagnostics'
 import * as tables from '../tables'
@@ -1582,6 +1582,16 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     return worker
   }
 
+  // Overridable seam for tests (same pattern as _ensureDevBotTarget/_spawnWorker): builds
+  // its own throwaway CloudapiClient because this runs before the worker exists, off the
+  // same api.url/api.token/api.workspaceId as _ensureDevBotTarget above.
+  private _fetchDevConfigVars = (api: apiUtils.ApiClient, runtimeBotId: string): Promise<Record<string, string>> =>
+    fetchDevConfigVars({
+      client: new CloudapiClient(api.url, api.token),
+      runtimeBotId,
+      workspaceId: api.workspaceId,
+    })
+
   private async _spawnWorkerForResolvedDevTarget(
     api: apiUtils.ApiClient,
     httpTunnelUrl: string,
@@ -1596,6 +1606,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       // the opaque runtime bot in x-bot-id while storage/admin clients get the
       // distinct numeric target id from BP_/ADK_TARGET_BOT_ID.
       const { target } = await this._ensureDevBotTarget(api, httpTunnelUrl)
+      // DEVLP-124/MAJOR-8: `brt dev` spawns the worker itself — there is no supervisor
+      // here to inject env.X — so the CLI pulls its own decrypted config variables
+      // before building the child env. Same client/token/workspace as _ensureDevBotTarget
+      // above (workspace-PAT, opaque runtime id); fetchDevConfigVars fails loud on
+      // anything but a legitimate 404.
+      const configVars = await this._fetchDevConfigVars(api, target.runtimeBotId)
       env = buildDevWorkerEnvironment({
         inherited,
         apiUrl: api.url,
@@ -1603,6 +1619,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         workspaceId: api.workspaceId,
         target,
         spanIngestUrl,
+        configVars,
       })
     }
     return this._spawnWorker(env, port)
