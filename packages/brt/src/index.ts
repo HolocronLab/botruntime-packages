@@ -30,6 +30,7 @@ export default {
     delete: commandImplementations.integrations.subcommands.delete,
     install: commandImplementations.integrations.subcommands.install,
     register: commandImplementations.integrations.subcommands.register,
+    upgrade: commandImplementations.integrations.subcommands.upgrade,
     publish: commandImplementations.integrations.subcommands.publish,
   },
   interfaces: {

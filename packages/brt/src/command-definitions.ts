@@ -30,6 +30,10 @@ export default {
         description: "Register an installed integration's webhook on the selected target",
         schema: config.schemas.cloudIntegrationRegister,
       },
+      upgrade: {
+        description: 'Atomically upgrade one existing integration installation to an exact version',
+        schema: config.schemas.cloudIntegrationUpgrade,
+      },
       publish: {
         description: 'Publish an integration project to the public workspace catalog',
         schema: config.schemas.cloudIntegrationPublish,

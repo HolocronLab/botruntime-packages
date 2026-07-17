@@ -116,6 +116,13 @@ export interface WorkspaceIntegrationListResponse {
   installations: WorkspaceIntegrationInstallation[]
 }
 
+export interface WorkspaceIntegrationRepointResponse {
+  ok: boolean
+  installationId: string
+  integrationId: string
+  ref: string
+}
+
 // GET /v1/admin/bots/{id}/logs response shape, frozen from
 // packages/botruntime-api/openapi/openapi.json's getBotLogsResponse schema
 // (fields: timestamp/level/message required, workflowId/userId/conversationId
@@ -179,6 +186,7 @@ interface RequestOpts {
   timeoutMs?: number
   idempotent?: boolean // retry on 5xx/network
   privacySensitive?: 'trace' | 'conversation' | 'eval' // never reflect response bodies or transport errors into CLI errors
+  errorBodyPolicy?: 'integration-repoint' // only render Botforge's public message from the error envelope
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -277,6 +285,11 @@ export class CloudapiClient {
         if (opts.privacySensitive) {
           throw new errors.BotpressCLIError(
             `${requestLabel(opts)}: network request failed; check connectivity and the selected API URL, then retry`,
+          )
+        }
+        if (opts.errorBodyPolicy) {
+          throw new errors.BotpressCLIError(
+            `${requestLabel(opts)}: request outcome unavailable; check connectivity and the selected API URL`,
           )
         }
         throw new errors.BotpressCLIError(
@@ -520,6 +533,23 @@ export class CloudapiClient {
     })
   }
 
+  public async repointWorkspaceIntegration(
+    workspaceId: string,
+    botId: string,
+    installationId: string,
+    name: string,
+    version: string,
+  ): Promise<WorkspaceIntegrationRepointResponse> {
+    return this.raw({
+      method: 'POST',
+      path:
+        `/v1/admin/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}` +
+        `/integrations/${encodeURIComponent(installationId)}/repoint`,
+      body: { name, version },
+      errorBodyPolicy: 'integration-repoint',
+    })
+  }
+
   public async uninstallWorkspaceIntegration(
     workspaceId: string,
     botId: string,
@@ -734,6 +764,19 @@ async function backoff(attempt: number): Promise<void> {
 
 function httpMessage(opts: RequestOpts, status: number, text: string): string {
   const where = requestLabel(opts)
+  if (opts.errorBodyPolicy === 'integration-repoint') {
+    const message = safeIntegrationRepointMessage(text)
+    if (status === 404) {
+      return `${where}: 404 — ${message ?? 'integration installation or target version not found'}`
+    }
+    if (status === 409) {
+      return `${where}: 409 — ${message ?? 'integration repoint rejected as incompatible'}`
+    }
+    if (status === 403) {
+      return `${where}: 403 — ${message ?? 'target integration is outside the allowed catalog or the profile cannot mutate this target'}`
+    }
+    return `${where}: HTTP ${status} — ${message ?? 'integration repoint request failed'}`
+  }
   if (opts.privacySensitive) {
     const resource = opts.privacySensitive
     if (status === 401)
@@ -754,6 +797,22 @@ function httpMessage(opts: RequestOpts, status: number, text: string): string {
   if (status === 500 && opts.path.includes('provision'))
     return `${where}: 500 — likely "no workspace scope"; key must carry a workspace (${text})`
   return `${where}: HTTP ${status} ${text}`
+}
+
+function safeIntegrationRepointMessage(text: string): string | undefined {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record['message'] !== 'string') return undefined
+  const message = record['message'].replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+  return message ? message.slice(0, 2_048) : undefined
 }
 
 // Query values are intentionally excluded from errors: besides keeping

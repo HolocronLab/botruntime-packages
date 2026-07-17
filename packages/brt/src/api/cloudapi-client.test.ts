@@ -315,6 +315,73 @@ describe('CloudapiClient', () => {
     expect(calls[0]?.init.method).toBe('GET')
   })
 
+  it('atomically repoints one workspace installation without sending config or credentials', async () => {
+    stubFetch(() =>
+      Response.json({
+        ok: true,
+        installationId: '7',
+        integrationId: '12',
+        ref: 'telegram@1.2.0',
+      })
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_private')
+
+    await client.repointWorkspaceIntegration('ws_123', '42', '7', 'telegram', '1.2.0')
+
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
+      ['POST', 'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations/7/repoint'],
+    ])
+    for (const call of calls) {
+      expect(call.init.headers).toMatchObject({ authorization: 'Bearer brt_pat_private' })
+      expect(call.init.headers).not.toHaveProperty('x-bot-id')
+      expect(JSON.parse(String(call.init.body))).toEqual({ name: 'telegram', version: '1.2.0' })
+      expect(String(call.init.body)).not.toMatch(/secret|token|credential/i)
+    }
+  })
+
+  it('prints the Botforge repoint 409 message including the incompatible config field', async () => {
+    stubFetch(() =>
+      Response.json(
+        {
+          id: 'err_409',
+          code: 409,
+          type: 'ConflictError',
+          message: 'integration: stored config is incompatible with target version: required field "region" is missing',
+          secretValue: 'must-never-reach-the-error',
+        },
+        { status: 409 }
+      )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_private')
+
+    const error = (await client
+      .repointWorkspaceIntegration('ws_123', '42', '7', 'telegram', '1.2.0')
+      .catch((thrown) => thrown as Error)) as Error
+
+    expect(error).toBeInstanceOf(errors.HTTPError)
+    expect(error.message).toMatch(/409.*required field "region" is missing/i)
+    expect(error.message).not.toContain('must-never-reach-the-error')
+    expect(calls).toHaveLength(1)
+  })
+
+  it('surfaces a target-version 404 from direct repoint without a second request', async () => {
+    stubFetch(() =>
+      Response.json(
+        {
+          message: 'target integration version not found',
+          secretValue: 'must-not-leak',
+        },
+        { status: 404 }
+      )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_private')
+
+    await expect(
+      client.repointWorkspaceIntegration('ws_123', '42', '7', 'telegram', '9.9.9')
+    ).rejects.toThrow(/404.*target integration version not found/i)
+    expect(calls).toHaveLength(1)
+  })
+
   it('listTables/createTable send x-workspace-id + x-bot-id under a workspace PAT', async () => {
     stubFetch(() => new Response(JSON.stringify({ tables: [] }), { status: 200 }))
     const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')

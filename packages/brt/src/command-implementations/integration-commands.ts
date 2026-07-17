@@ -1,7 +1,10 @@
 import chalk from 'chalk'
 import _ from 'lodash'
 import semver from 'semver'
-import { CloudapiClient } from '../api/cloudapi-client'
+import {
+  CloudapiClient,
+  type WorkspaceIntegrationInstallation,
+} from '../api/cloudapi-client'
 import { ApiClient, PublicOrPrivateIntegration, IntegrationSummary } from '../api/client'
 import * as adkBundle from '../adk-bundle'
 import * as botsStore from '../bots-store'
@@ -246,8 +249,39 @@ export function parseExactIntegrationRef(ref: string): { name: string; version: 
   return { name, version }
 }
 
-// install/register use the bot-target Cloud API channel. publish is defined
-// below as an integration-only alias for the canonical deploy path.
+export function resolveUniqueIntegrationInstallationByAlias(
+  installations: WorkspaceIntegrationInstallation[],
+  alias: string,
+): WorkspaceIntegrationInstallation {
+  // Botforge stores an omitted alias as ""; an explicit alias must shadow any name-derived candidate.
+  const explicitMatches = installations.filter(
+    (installation) => installation.alias !== '' && installation.alias === alias,
+  )
+  const matches =
+    explicitMatches.length > 0
+      ? explicitMatches
+      : installations.filter(
+          (installation) =>
+            installation.alias === '' &&
+            (installation.name === alias ||
+              (!alias.includes('/') && installation.name.endsWith(`/${alias}`))),
+        )
+  if (matches.length === 0) {
+    throw new errors.BotpressCLIError(
+      `no integration installation found with alias "${alias}" on the selected target`,
+    )
+  }
+  if (matches.length !== 1) {
+    throw new errors.BotpressCLIError(
+      `${matches.length} integration installations found with alias "${alias}" on the selected target; ` +
+        'refusing to choose one',
+    )
+  }
+  return matches[0]!
+}
+
+// install/register/upgrade use the bot-target Cloud API channel. publish is
+// defined below as an integration-only alias for the canonical deploy path.
 
 export type CloudIntegrationInstallCommandDefinition = typeof commandDefinitions.integrations.subcommands.install
 export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegrationInstallCommandDefinition> {
@@ -346,6 +380,176 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
     } catch (thrown) {
       throw errors.BotpressCLIError.wrap(thrown, 'integration config is not valid JSON')
     }
+  }
+}
+
+export type CloudIntegrationUpgradeCommandDefinition = typeof commandDefinitions.integrations.subcommands.upgrade
+function isDefinitiveRepointRejection(thrown: unknown): boolean {
+  if (!(thrown instanceof errors.HTTPError) || thrown.status === undefined) {
+    return false
+  }
+  // Only 4xx proves rejection; transport failures and 5xx can arrive after a non-idempotent POST commits.
+  return thrown.status >= 400 && thrown.status < 500
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function shellQuoteArgument(value: string): string {
+  if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
+    return value
+  }
+  return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+export class CloudIntegrationUpgradeCommand extends CloudCommand<CloudIntegrationUpgradeCommandDefinition> {
+  public async run(): Promise<void> {
+    const { name, version } = parseExactIntegrationRef(this.argv.ref)
+    const targetRef = `${name}@${version}`
+    const alias = this.argv.alias ?? name
+    if (this.argv.wait) {
+      throw new errors.BotpressCLIError(
+        'runtime readiness is not supported by Cloud yet; remove --wait. No mutation was attempted',
+      )
+    }
+    if (!this.isAgentProject) {
+      throw new errors.BotpressCLIError(
+        'brt integrations upgrade requires an ADK agent project and its selected target',
+      )
+    }
+
+    const target = await this.diagnosticCloudapiTarget()
+    const targetBotId = 'targetBotId' in target ? target.targetBotId : target.botId
+    const listed = await target.client.listWorkspaceIntegrations(target.workspaceId, targetBotId)
+    const current = resolveUniqueIntegrationInstallationByAlias(listed.installations, alias)
+    if (current.ref === targetRef) {
+      throw new errors.BotpressCLIError(
+        `integration installation ${current.id} already points to ${targetRef}; no mutation was attempted`,
+      )
+    }
+
+    let repointed: unknown
+    try {
+      repointed = await target.client.repointWorkspaceIntegration(
+        target.workspaceId,
+        targetBotId,
+        current.id,
+        name,
+        version,
+      )
+    } catch (thrown) {
+      if (isDefinitiveRepointRejection(thrown)) {
+        throw thrown
+      }
+      throw errors.BotpressCLIError.wrap(
+        thrown,
+        this._outcomeUnknownMessage(current, targetRef, alias),
+      )
+    }
+    if (
+      !isJsonObject(repointed) ||
+      repointed.ok !== true ||
+      repointed.installationId !== current.id ||
+      typeof repointed.integrationId !== 'string' ||
+      repointed.integrationId.length === 0 ||
+      repointed.ref !== targetRef
+    ) {
+      const receivedInstallationId =
+        isJsonObject(repointed) && typeof repointed.installationId === 'string'
+          ? repointed.installationId
+          : '<invalid>'
+      const receivedRef =
+        isJsonObject(repointed) && typeof repointed.ref === 'string' ? repointed.ref : '<invalid>'
+      throw new errors.BotpressCLIError(
+        `${this._outcomeUnknownMessage(current, targetRef, alias)} ` +
+          `Cloud returned an inconsistent success response: expected installation ${current.id} at ${targetRef}, ` +
+          `received ${receivedInstallationId} at ${receivedRef}.`,
+      )
+    }
+
+    try {
+      if ('botId' in target) {
+        this._updateProductionLink(current, targetRef, alias)
+      }
+      const snapshotTarget: AgentDependencyMutationTarget =
+        'targetBotId' in target
+          ? {
+              env: 'dev',
+              apiUrl: target.client.base,
+              workspaceId: target.workspaceId,
+              targetBotId,
+              runtimeBotId: target.runtimeBotId,
+              client: target.client,
+            }
+          : {
+              env: 'prod',
+              apiUrl: target.client.base,
+              workspaceId: target.workspaceId,
+              targetBotId,
+              client: target.client,
+            }
+      await refreshCompletedAgentDependencySnapshot({
+        projectDir: this.projectDir,
+        mutation: `Integration ${alias} repoint to ${targetRef}`,
+        local: this.argv.local,
+        target: snapshotTarget,
+      })
+    } catch (thrown) {
+      throw errors.BotpressCLIError.wrap(
+        thrown,
+        `server-side repoint already completed for installation ${current.id}; do not retry install or register automatically. ` +
+          `Roll back with: ${this._rollbackCommand(current.ref, alias)}.`,
+      )
+    }
+
+    cloudInfo(`upgraded installation ${current.id} alias=${alias} ${current.ref} -> ${targetRef}`)
+    cloudInfo(`existing webhook ${current.webhookId} remains attached; install and register were not called`)
+  }
+
+  private _updateProductionLink(
+    current: WorkspaceIntegrationInstallation,
+    targetRef: string,
+    requestedAlias: string,
+  ): void {
+    const link = this.loadLink()
+    const integrations = link.integrations ?? []
+    const existing = integrations.find((candidate) => candidate.webhookId === current.webhookId)
+    const effectiveAlias = current.alias || existing?.alias || requestedAlias
+    const entry: cloudLink.IntegrationLink = {
+      ref: targetRef,
+      alias: effectiveAlias,
+      webhookId: current.webhookId,
+    }
+    this.saveLink({
+      ...link,
+      integrations: [
+        ...integrations.filter(
+          (candidate) => candidate.webhookId !== current.webhookId && candidate.alias !== effectiveAlias,
+        ),
+        entry,
+      ],
+    })
+  }
+
+  private _targetFlags(): string {
+    return `${this.argv.dev ? ' --dev' : ''}${this.argv.local ? ' --local' : ''}`
+  }
+
+  private _outcomeUnknownMessage(
+    current: WorkspaceIntegrationInstallation,
+    targetRef: string,
+    alias: string,
+  ): string {
+    return (
+      `repoint outcome is unknown for installation ${current.id}; do not retry install or register. ` +
+      `Inspect the selected target's current installation ref for alias ${JSON.stringify(alias)}. ` +
+      `If ${targetRef} is active, roll back with: ${this._rollbackCommand(current.ref, alias)}.`
+    )
+  }
+
+  private _rollbackCommand(ref: string, alias: string): string {
+    return `brt integrations upgrade ${ref} --alias=${shellQuoteArgument(alias)}${this._targetFlags()}`
   }
 }
 

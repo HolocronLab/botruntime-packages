@@ -51,6 +51,54 @@ For an integration project (with `integration.definition.ts`), `brt build`
 produces a runnable `.botpress/dist/index.cjs` exporting `{ default, handler }`,
 and `brt deploy` publishes the integration.
 
+## Upgrade an installed integration
+
+`brt integrations install <name@version>` only creates a new connection. To
+move one existing ADK agent installation to another published exact version,
+use `upgrade`:
+
+```bash
+# Production target from agent.json; alias defaults to the integration name
+brt integrations upgrade telegram@1.2.0 --alias primary
+brt deploy --adk
+
+# Development target previously established by brt dev
+brt integrations upgrade telegram@1.2.0 --alias primary --dev
+
+# Explicit rollback is the same atomic operation targeting the former version
+brt integrations upgrade telegram@1.1.3 --alias primary
+```
+
+The command accepts only canonical exact SemVer refs. It lists the selected
+bot's installations and resolves exactly one current installation by effective
+alias. An explicit stored alias has priority. If the stored alias is empty, as
+with a default `install`, the canonical integration name or its unqualified last
+segment can select it. Missing and ambiguous matches fail before mutation. The
+command rejects an already-current ref, then sends one atomic direct repoint
+request. There is no separate preflight endpoint. Cloud validates catalog
+trust, publication, stored config/secrets, and webhook authentication
+compatibility inside the repoint transaction. Any non-2xx response leaves
+local project files unchanged.
+
+Cloud atomically repoints the existing installation: installation ID, alias,
+webhook ID, status, and credentials are preserved, and no second installation
+is created. The CLI never calls `register` automatically.
+
+After repoint, the selected dev or production dependency snapshot is refreshed.
+A running dev watcher picks up its dev snapshot; production always requires the
+next `brt deploy --adk`. `--wait` is retained in the command surface but rejected
+before target lookup or mutation: Cloud does not yet expose runtime-host
+readiness. A local refresh error after a successful repoint exits non-zero while
+stating that server-side repoint already completed and printing the symmetric
+rollback command.
+
+The repoint POST is non-idempotent. Only a Cloud `4xx` is a definitive rejection.
+If the connection drops, a successful response is malformed or inconsistent,
+or any `5xx` is returned, the CLI reports the outcome as unknown and leaves
+local files unchanged. Inspect the installation's current ref first; only if the
+target ref is active should you use the printed shell-safe rollback command. Do
+not create or register a second installation during recovery.
+
 ## Rebrand boundary (hard rule)
 
 brt is rebranded only on our user-facing surface (CLI name `brt`, help/banner

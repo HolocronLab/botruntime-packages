@@ -63,6 +63,7 @@ export default {
       delete: getHandler(integrations.DeleteIntegrationCommand),
       install: getHandler(integrations.CloudIntegrationInstallCommand),
       register: getHandler(integrations.CloudIntegrationRegisterCommand),
+      upgrade: getHandler(integrations.CloudIntegrationUpgradeCommand),
       publish: getHandler(integrations.CloudIntegrationPublishCommand),
     },
   },
