@@ -26,7 +26,11 @@ const safeErrorFrom = (err: unknown): errors.ApiError => {
 // UnknownError's `error` field is typed as Error — wrap non-Error causes (e.g. the circular
 // object itself) via the native `cause` option so the original value stays reachable at
 // `.error.cause` instead of being discarded, without widening the field's type.
-const toErrorCause = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err), { cause: err }))
+const toErrorCause = (err: unknown): Error => {
+  if (err instanceof Error) return err
+  if (typeof err === 'object' && err !== null && 'cause' in err && err.cause instanceof Error) return err.cause
+  return new Error(String(err), { cause: err })
+}
 
 // A transport failure (ECONNRESET/ETIMEDOUT/DNS/socket-closed/...) never reaches the server, so
 // err.response is absent — branch on err.response, not err.response.data: an egress-gateway

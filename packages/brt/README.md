@@ -131,6 +131,20 @@ brt init my-bot && cd my-bot && brt build && brt deploy
 
 Requires **bun >= 1.3**.
 
+## Runtime logs
+
+`brt logs` reads the selected bot through the workspace profile. Production
+uses the canonical project link or a numeric `--bot-id` override. `--dev`
+resolves the cached opaque runtime target, or an opaque `--bot-id` override,
+and queries its attested numeric target bot. Passing an opaque runtime ID
+without `--dev` remains a production-target error.
+
+```bash
+brt logs --follow
+brt logs --conversation-id conv_123 --dev
+brt logs --since 2026-07-17T18:00:00Z --dev --local
+```
+
 ## Runtime traces
 
 `brt traces` reads the selected profile's trace API. It returns the complete

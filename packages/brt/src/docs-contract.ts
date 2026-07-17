@@ -65,7 +65,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'integrations upgrade': ['alias', 'dev', 'wait'],
     link: ['apiUrl', 'botId', 'keyStdin', 'workspaceId'],
     login: ['apiUrl', 'device', 'token', 'workspaceId'],
-    logs: ['botId', 'conversationId', 'follow', 'limit'],
+    logs: ['botId', 'conversationId', 'dev', 'follow', 'limit'],
     traces: [
       'action',
       'conversationId',

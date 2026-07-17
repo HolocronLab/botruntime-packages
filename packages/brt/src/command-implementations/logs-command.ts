@@ -1,4 +1,4 @@
-import type { LogEntry } from '../api/cloudapi-client'
+import type { CloudapiClient, LogEntry } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import { cloudInfo } from '../cloud-io'
 import * as errors from '../errors'
@@ -14,11 +14,7 @@ const FOLLOW_POLL_MS = 5_000
 export type LogsCommandDefinition = typeof commandDefinitions.logs
 export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
   public async run(): Promise<void> {
-    const link = this.loadLinkIfPresent() ?? {}
-    const botId = this.requireBotId(link)
-    const { profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = this.machineCloudapiClient(profile, apiUrl)
+    const { client, workspaceId, botId } = await this._resolveTarget()
 
     const level = this.argv.level
     const messageContains = this.argv.grep
@@ -34,7 +30,7 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
       let nextToken: string | undefined
       do {
         const res = await client
-          .getWorkspaceBotLogs(profile.workspaceId, botId, {
+          .getWorkspaceBotLogs(workspaceId, botId, {
             timeStart,
             timeEnd,
             level,
@@ -81,6 +77,27 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
   private _printEntry(entry: LogEntry): void {
     const conv = entry.conversationId ? ` conv=${entry.conversationId}` : ''
     process.stdout.write(`${entry.timestamp} ${entry.level.toUpperCase()} ${entry.message}${conv}\n`)
+  }
+
+  private async _resolveTarget(): Promise<{
+    client: CloudapiClient
+    workspaceId: string
+    botId: string
+  }> {
+    if (this.targetsDevBot) {
+      const target = await this.devCloudapiTarget()
+      return { client: target.client, workspaceId: target.workspaceId, botId: target.targetBotId }
+    }
+
+    const link = this.loadLinkIfPresent() ?? {}
+    const botId = this.requireBotId(link)
+    const { profile } = await this.resolveProfile()
+    const apiUrl = this.resolveApiUrl(profile, link)
+    return {
+      client: this.machineCloudapiClient(profile, apiUrl),
+      workspaceId: profile.workspaceId,
+      botId,
+    }
   }
 }
 

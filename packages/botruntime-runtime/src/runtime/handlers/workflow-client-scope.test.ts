@@ -14,5 +14,6 @@ describe('workflow handler client scope', () => {
     expect(contextSource).not.toContain('client: props.client as unknown as InternalClient<any>')
     expect(contextSource).toContain("context.get('client', { optional: true }) ??")
     expect(contextSource.match(/scopedClient\n/g)?.length).toBeGreaterThanOrEqual(3)
+    expect(contextSource).toContain('handler({ ...props, client: scopedClient })')
   })
 })
