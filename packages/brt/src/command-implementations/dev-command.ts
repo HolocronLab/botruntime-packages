@@ -31,7 +31,7 @@ import {
 } from '../runtime-contract'
 import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
-import { buildDevWorkerEnvironment } from '../dev-worker-env'
+import { buildDevWorkerEnvironment, fetchDevConfigVars } from '../dev-worker-env'
 import { DevTraceIngestServer } from '../dev-trace-ingest'
 import { formatTunnelFailure, isTunnelUnavailableStatus } from '../dev-tunnel-diagnostics'
 import * as tables from '../tables'
@@ -429,40 +429,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       this._deployedIntegrationName = handleResult.definition.name
     }
 
-    let env: Record<string, string> = Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    )
-    if (this._initialDef.type === 'integration') {
-      env = { ...env, BP_API_URL: api.url, BP_TOKEN: api.token }
-    }
-
-    const defaultPort = this._initialDef.type === 'integration' ? DEFAULT_INTEGRATION_PORT : DEFAULT_BOT_PORT
-    if (this._initialDef.type === 'integration' || this._initialDef.type === 'bot') {
-      const knownSecrets = await this._readKnownSecretsFromCache()
-      let secretEnvVariables = await this.promptSecrets(this._initialDef.definition, this.argv, {
-        knownSecrets: Object.keys(knownSecrets),
-        formatEnv: true,
-      })
-      secretEnvVariables = {
-        ...this._applyPrefixToSecrets(knownSecrets),
-        ...secretEnvVariables,
-      }
-      const nonNullSecretEnvVariables = utils.records.filterValues(secretEnvVariables, utils.guards.is.notNull)
-
-      if (!this.argv.noSecretCaching) {
-        await this._writeKnownSecretsToCache(secretEnvVariables)
-      }
-
-      env = { ...env, ...nonNullSecretEnvVariables }
-    }
-
-    const port = this.argv.port ?? defaultPort
-
-    const urlParseResult = utils.url.parse(this.argv.tunnelUrl)
-    if (urlParseResult.status === 'error') {
-      throw new errors.BotpressCLIError(`Invalid tunnel URL: ${urlParseResult.error}`)
-    }
-
+    // Resolved here (ahead of the secrets block below) purely so the dev bot's own
+    // runtime id — needed to look up its already-set CLOUD config vars before the
+    // required-secret validation below — is known early. Only the id/cache-persist
+    // step moves up; tunnel URL parsing/formatting stays where it was.
     const cachedTunnelId = await this.projectCache.get('tunnelId')
 
     let tunnelId: string
@@ -476,6 +446,23 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     if (cachedTunnelId !== tunnelId) {
       await this.projectCache.set('tunnelId', tunnelId)
+    }
+
+    let env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    )
+    if (this._initialDef.type === 'integration') {
+      env = { ...env, BP_API_URL: api.url, BP_TOKEN: api.token }
+    }
+
+    const defaultPort = this._initialDef.type === 'integration' ? DEFAULT_INTEGRATION_PORT : DEFAULT_BOT_PORT
+    env = { ...env, ...(await this._resolveDevSecretEnvVariables(api, tunnelId)) }
+
+    const port = this.argv.port ?? defaultPort
+
+    const urlParseResult = utils.url.parse(this.argv.tunnelUrl)
+    if (urlParseResult.status === 'error') {
+      throw new errors.BotpressCLIError(`Invalid tunnel URL: ${urlParseResult.error}`)
     }
 
     const { url: parsedTunnelUrl } = urlParseResult
@@ -1525,6 +1512,54 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     throw new errors.UnsupportedProjectType()
   }
 
+  // Extracted from run() so it is directly testable: resolves the env-formatted secret
+  // overrides for the dev worker (local cache + argv/prompted values), counting a bot's
+  // already-set CLOUD config vars (env.X) as known so required-secret validation does not
+  // block an unattended run whose local cache is empty/absent (--no-secret-caching or a
+  // fresh checkout). Returns {} for project types other than integration/bot.
+  private async _resolveDevSecretEnvVariables(
+    api: apiUtils.ApiClient,
+    tunnelId: string
+  ): Promise<Record<string, string>> {
+    if (this._initialDef?.type !== 'integration' && this._initialDef?.type !== 'bot') {
+      return {}
+    }
+    const knownSecrets = await this._readKnownSecretsFromCache()
+    // Codex P1 (DEVLP-124): a secret already set as a CLOUD config var (env.X) must count
+    // as "already set" for required-secret validation. `tunnelId` is the dev bot's own
+    // runtime id (see resolveDevBotTarget: bot.id is always asserted equal to it), so this
+    // is the same lookup _spawnWorkerForResolvedDevTarget performs later — memoized by
+    // _resolveRemoteDevConfigVars, so it is fetched over the network at most once per `brt
+    // dev` invocation.
+    // Только ключи, ОБЪЯВЛЕННЫЕ в definition.secrets: облачный стор может нести
+    // необъявленные/легаси ключи (ADK_CONFIGURATION, удалённый из definition секрет) —
+    // попав в knownSecrets, они заставляют promptSecrets предлагать «удаление», которое
+    // трогает лишь локальный кэш, а облачное значение остаётся → бесконечный повтор
+    // неработающего промпта.
+    const declaredSecretNames = new Set(Object.keys(this._initialDef.definition.secrets ?? {}))
+    const remoteConfigVarNames =
+      this._initialDef.type === 'bot'
+        ? Object.keys(await this._resolveRemoteDevConfigVars(api, tunnelId)).filter((name) =>
+            declaredSecretNames.has(name)
+          )
+        : []
+    let secretEnvVariables = await this.promptSecrets(this._initialDef.definition, this.argv, {
+      knownSecrets: [...new Set([...Object.keys(knownSecrets), ...remoteConfigVarNames])],
+      formatEnv: true,
+    })
+    secretEnvVariables = {
+      ...this._applyPrefixToSecrets(knownSecrets),
+      ...secretEnvVariables,
+    }
+    const nonNullSecretEnvVariables = utils.records.filterValues(secretEnvVariables, utils.guards.is.notNull)
+
+    if (!this.argv.noSecretCaching) {
+      await this._writeKnownSecretsToCache(secretEnvVariables)
+    }
+
+    return nonNullSecretEnvVariables
+  }
+
   private async _writeKnownSecretsToCache(secretEnvVariables: Record<string, string | null>) {
     const knownSecrets: Record<string, string | null> = {}
     for (const [prefixedSecretName, secretValue] of Object.entries(secretEnvVariables)) {
@@ -1582,6 +1617,33 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     return worker
   }
 
+  // Overridable seam for tests (same pattern as _ensureDevBotTarget/_spawnWorker): builds
+  // its own throwaway CloudapiClient because this runs before the worker exists, off the
+  // same api.url/api.token/api.workspaceId as _ensureDevBotTarget above.
+  private _fetchDevConfigVars = (api: apiUtils.ApiClient, runtimeBotId: string): Promise<Record<string, string>> =>
+    fetchDevConfigVars({
+      client: new CloudapiClient(api.url, api.token),
+      runtimeBotId,
+      workspaceId: api.workspaceId,
+    })
+
+  // Memoizes _fetchDevConfigVars by runtimeBotId: `run()` needs the cloud config-var
+  // NAMES early (before promptSecrets' required-secret validation), and
+  // _spawnWorkerForResolvedDevTarget needs the same VALUES a moment later for the same
+  // dev bot — both calls share this cache so the network round-trip happens at most once
+  // per `brt dev` invocation.
+  private _remoteDevConfigVarsCache: { runtimeBotId: string; values: Promise<Record<string, string>> } | undefined
+
+  private _resolveRemoteDevConfigVars(
+    api: apiUtils.ApiClient,
+    runtimeBotId: string
+  ): Promise<Record<string, string>> {
+    if (this._remoteDevConfigVarsCache?.runtimeBotId !== runtimeBotId) {
+      this._remoteDevConfigVarsCache = { runtimeBotId, values: this._fetchDevConfigVars(api, runtimeBotId) }
+    }
+    return this._remoteDevConfigVarsCache.values
+  }
+
   private async _spawnWorkerForResolvedDevTarget(
     api: apiUtils.ApiClient,
     httpTunnelUrl: string,
@@ -1596,6 +1658,13 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       // the opaque runtime bot in x-bot-id while storage/admin clients get the
       // distinct numeric target id from BP_/ADK_TARGET_BOT_ID.
       const { target } = await this._ensureDevBotTarget(api, httpTunnelUrl)
+      // DEVLP-124/MAJOR-8: `brt dev` spawns the worker itself — there is no supervisor
+      // here to inject env.X — so the CLI pulls its own decrypted config variables
+      // before building the child env. Same client/token/workspace as _ensureDevBotTarget
+      // above (workspace-PAT, opaque runtime id); fetchDevConfigVars fails loud on
+      // anything but a legitimate 404. Memoized: `run()` already resolved this bot's
+      // config vars once (by the same runtime id) ahead of the required-secret prompt.
+      const configVars = await this._resolveRemoteDevConfigVars(api, target.runtimeBotId)
       env = buildDevWorkerEnvironment({
         inherited,
         apiUrl: api.url,
@@ -1603,6 +1672,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         workspaceId: api.workspaceId,
         target,
         spanIngestUrl,
+        configVars,
       })
     }
     return this._spawnWorker(env, port)

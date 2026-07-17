@@ -215,6 +215,29 @@ describe('CloudapiClient', () => {
     expect(calls[0]!.init.method).toBe('GET')
   })
 
+  it('getDevConfigVariableValues sends workspace-PAT + x-workspace-id at the dev id path', async () => {
+    stubFetch(() => new Response(JSON.stringify({ config: { API_KEY: 'sk-secret' } }), { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    const response = await client.getDevConfigVariableValues('tunnel-opaque', 'ws_123')
+
+    expect(response.config).toEqual({ API_KEY: 'sk-secret' })
+    const [call] = calls
+    expect(call!.url).toBe('https://cloud.example/v1/admin/bots/tunnel-opaque/config-variables/values')
+    expect(call!.init.method).toBe('GET')
+    const headers = call!.init.headers as Record<string, string>
+    expect(headers['authorization']).toBe('Bearer brt_pat_xxx')
+    expect(headers['x-workspace-id']).toBe('ws_123')
+    expect(headers['x-bot-id']).toBeUndefined()
+  })
+
+  it('getDevConfigVariableValues surfaces a non-404 failure as an HTTPError (fail-loud)', async () => {
+    stubFetch(() => new Response('forbidden', { status: 403 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await expect(client.getDevConfigVariableValues('tunnel-opaque', 'ws_123')).rejects.toThrow(errors.HTTPError)
+  })
+
   it('workspace config methods use the nested human route and never x-bot-id', async () => {
     stubFetch((call) => {
       if (call.init.method === 'GET') return new Response(JSON.stringify({ variables: [] }), { status: 200 })

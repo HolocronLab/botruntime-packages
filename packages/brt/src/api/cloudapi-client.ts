@@ -377,6 +377,22 @@ export class CloudapiClient {
     })
   }
 
+  // Dev-tunnel config-vars read-back (DEVLP-124/MAJOR-8): `brt dev` spawns the worker
+  // itself (not the supervisor), so it must pull its own decrypted env.X before spawn.
+  // Same auth shape as getDevBotTarget (workspace-PAT + x-workspace-id, :id = the opaque
+  // runtime bot id) — the server gates the read on the resolved bot actually being dev.
+  public async getDevConfigVariableValues(
+    botId: string,
+    workspaceId: string,
+  ): Promise<{ config: Record<string, string> }> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}/config-variables/values`,
+      workspaceId,
+      idempotent: true,
+    })
+  }
+
   /** Botpress-wire public bot configuration (not encrypted env/config-vars). */
   public async getBotConfiguration(
     botId: string,

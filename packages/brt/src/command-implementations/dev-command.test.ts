@@ -2236,3 +2236,104 @@ describe('DevCommand dev target routing', () => {
     })
   })
 })
+
+describe('DevCommand dev secret resolution (Codex P1, DEVLP-124)', () => {
+  let botpressHome: string
+  let workDir: string
+
+  beforeEach(() => {
+    botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-home-'))
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-dev-secrets-'))
+    writeProfile(botpressHome)
+  })
+
+  afterEach(() => {
+    fs.rmSync(botpressHome, { recursive: true, force: true })
+    fs.rmSync(workDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  const api = { url: 'https://api.example', token: 'pat-secret', workspaceId: '9001' }
+
+  function makeSecretsCommand(promptText: ReturnType<typeof vi.fn>): DevCommand {
+    // Empty local cache (fresh checkout / --no-secret-caching): the project cache file
+    // does not exist yet in workDir, so `_readKnownSecretsFromCache` resolves to {}.
+    const command = new DevCommand({} as any, { text: promptText, confirm: vi.fn() } as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir),
+      check: false,
+    } as any)
+    ;(command as any)._initialDef = {
+      type: 'bot',
+      definition: { secrets: { API_KEY: { optional: false } } },
+    }
+    return command
+  }
+
+  it('counts a secret already set as a cloud config var as known, so an empty local cache does not block required-secret validation', async () => {
+    const promptText = vi.fn().mockResolvedValue(undefined) // unattended: no interactive answer
+    const command = makeSecretsCommand(promptText)
+    const fetchDevConfigVars = vi.fn().mockResolvedValue({ API_KEY: 'value-from-cloud' })
+    ;(command as any)._fetchDevConfigVars = fetchDevConfigVars
+
+    await expect((command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')).resolves.toBeDefined()
+
+    expect(fetchDevConfigVars).toHaveBeenCalledWith(api, 'dev_runtime')
+  })
+
+  it('ignores undeclared cloud keys: only definition.secrets names reach knownSecrets (stale/legacy vars never trigger the ineffective delete prompt)', async () => {
+    const promptText = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptText)
+    // Cloud carries the declared secret AND an undeclared legacy key; only the declared
+    // one may count as known — an undeclared key in knownSecrets would make promptSecrets
+    // offer a "delete" that only touches the local cache while the cloud value survives.
+    ;(command as any)._fetchDevConfigVars = vi
+      .fn()
+      .mockResolvedValue({ API_KEY: 'value-from-cloud', LEGACY_UNDECLARED: 'stale' })
+
+    const resolved = await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+
+    expect(resolved).toBeDefined()
+    const promptedAbout = promptText.mock.calls.map((call) => String(call[0]))
+    expect(promptedAbout.some((text) => text.includes('LEGACY_UNDECLARED'))).toBe(false)
+  })
+
+  it('still fails loud when a required secret is genuinely unset both locally and in the cloud', async () => {
+    const promptText = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptText)
+    ;(command as any)._fetchDevConfigVars = vi.fn().mockResolvedValue({})
+
+    await expect((command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')).rejects.toThrow(
+      /Secret "API_KEY" is required/
+    )
+  })
+
+  it('fetches the dev bot cloud config vars over the network at most once, shared between the secret pre-check and the later worker spawn', async () => {
+    const promptText = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptText)
+    const fetchDevConfigVars = vi.fn().mockResolvedValue({ API_KEY: 'value-from-cloud' })
+    ;(command as any)._fetchDevConfigVars = fetchDevConfigVars
+
+    await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+    await (command as any)._resolveRemoteDevConfigVars(api, 'dev_runtime')
+
+    expect(fetchDevConfigVars).toHaveBeenCalledOnce()
+  })
+
+  it('does not consult cloud config vars for an integration project (no dev-tunnel worker fetch wired for that type)', async () => {
+    const promptText = vi.fn().mockResolvedValue(undefined)
+    const command = new DevCommand({} as any, { text: promptText, confirm: vi.fn() } as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir),
+      check: false,
+    } as any)
+    ;(command as any)._initialDef = {
+      type: 'integration',
+      definition: { secrets: { API_KEY: { optional: true } } },
+    }
+    const fetchDevConfigVars = vi.fn()
+    ;(command as any)._fetchDevConfigVars = fetchDevConfigVars
+
+    await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+
+    expect(fetchDevConfigVars).not.toHaveBeenCalled()
+  })
+})
