@@ -255,7 +255,8 @@ export class DevTraceIngestServer {
       return
     }
     const line = `[worker] ${entry.args.map(String).join(' ')}\n`
-    if (entry.type === 'error' || entry.type === 'warn') {
+    // Wire-типы из structured-logging: console.error шлёт 'stderr', console.warn — 'warn'.
+    if (entry.type === 'stderr' || entry.type === 'warn') {
       process.stderr.write(line)
     } else {
       process.stdout.write(line)

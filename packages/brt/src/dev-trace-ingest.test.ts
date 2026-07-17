@@ -98,7 +98,7 @@ describe('DevTraceIngestServer', () => {
       })
       const err = await fetch(`${server.url}/v1/logs`, {
         method: 'POST',
-        body: JSON.stringify({ timestamp: 't', type: 'error', args: ['boom'] }),
+        body: JSON.stringify({ timestamp: 't', type: 'stderr', args: ['boom'] }),
       })
       const malformed = await fetch(`${server.url}/v1/logs`, { method: 'POST', body: '{' })
       expect(info.status).toBe(202)
