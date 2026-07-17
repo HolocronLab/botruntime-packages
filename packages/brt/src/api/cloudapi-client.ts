@@ -587,11 +587,11 @@ export class CloudapiClient {
     })
   }
 
-  // ---- traces (metadata-only readers; idempotent GET) ---------------------
+  // ---- traces (idempotent GET) --------------------------------------------
   // Production uses the human/PAT route with canonical numeric workspace and
   // bot coordinates. Development uses the bot-scoped route and narrows the PAT
   // with the attested opaque runtime bot id. Both response bodies are treated
-  // as untrusted until the command applies its own strict privacy projection.
+  // as untrusted until the command validates the response envelope.
   public async listWorkspaceTraces(
     workspaceId: string,
     botId: string,

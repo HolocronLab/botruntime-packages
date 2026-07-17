@@ -60,6 +60,8 @@ const ERROR_CODE_LIMIT = 128
 const ERROR_MESSAGE_LIMIT = 8_192
 const ERROR_STACK_LIMIT = 32_768
 const UTF8_ENCODER = new TextEncoder()
+const LLM_ATTRIBUTE_KEYS = new Set(['ai.instructions', 'ai.messages', 'ai.tools', 'ai.response'])
+const LLM_TRACE_NAMES = new Set(['cognitive.request', 'cognitive.generateText', 'cognitive.generateContent'])
 
 const METADATA_FIELDS = {
   endpoint: { kind: 'enum', values: ENDPOINTS },
@@ -164,11 +166,12 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       }
     }
 
+    const displayedTraces = this.argv.includeLlm ? traces : traces.map(withoutLlmContent)
     const output = {
       schemaVersion: 1,
       target: target.output,
       conversationId,
-      traces,
+      traces: displayedTraces,
       nextToken: nextToken ?? null,
     }
     if (this.argv.json) {
@@ -176,7 +179,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       return
     }
 
-    for (const entry of traces) this._printHuman(entry)
+    for (const entry of displayedTraces) this._printHuman(entry)
     if (nextToken) this.logger.log(`Next token: ${nextToken}`)
   }
 
@@ -231,15 +234,31 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     if (this.argv.verbose && errorStack !== undefined) {
       for (const line of errorStack.split('\n')) this.logger.log(`  ${line}`)
     }
-    const toolInput = firstTraceValue(entry, ['autonomous.tool.input', 'tool.input', 'input'])
-    const toolOutput = firstTraceValue(entry, ['autonomous.tool.output', 'tool.output', 'output'])
+    const toolInput = firstTraceValue(entry, ['input', 'autonomous.tool.input', 'tool.input'])
+    const toolOutput = firstTraceValue(entry, ['output', 'autonomous.tool.output', 'tool.output'])
     if (toolInput !== undefined) this.logger.log(`  input: ${formatTraceValue(toolInput)}`)
     if (toolOutput !== undefined) this.logger.log(`  output: ${formatTraceValue(toolOutput)}`)
+    if (this.argv.includeLlm && LLM_TRACE_NAMES.has(entry.name)) {
+      for (const [label, value] of [
+        ['instructions', firstLlmValue(entry, 'ai.instructions', 'instructions')],
+        ['messages', firstLlmValue(entry, 'ai.messages', 'messages')],
+        ['tools', firstLlmValue(entry, 'ai.tools', 'tools')],
+        ['response', entry.payload.response ?? entry.attributes['ai.response']],
+      ] as const) {
+        if (value !== undefined) this.logger.log(`  ${label}: ${formatTraceValue(value)}`)
+      }
+    }
     if (this.argv.verbose) {
       this.logger.log(`  attributes: ${formatTraceValue(entry.attributes)}`)
       this.logger.log(`  payload: ${formatTraceValue(entry.payload)}`)
     }
   }
+}
+
+function firstLlmValue(entry: TraceEntry, attributeKey: string, requestKey: string): unknown {
+  const request = entry.payload.request
+  if (isRecord(request) && request[requestKey] !== undefined) return request[requestKey]
+  return entry.attributes[attributeKey]
 }
 
 function firstTraceValue(entry: TraceEntry, keys: string[]): unknown {
@@ -351,7 +370,7 @@ function parseTraceTokens(tokens: string[]): Map<string, string> {
   for (const token of tokens) {
     if (token === 'include-llm') {
       throw new errors.BotpressCLIError(
-        'include-llm is not supported; hosted traces already return stored attributes and payload',
+        'use the --include-llm flag to include canonical LLM request and response content',
       )
     }
     if (token === 'follow') {
@@ -376,6 +395,18 @@ function parseTraceTokens(tokens: string[]): Map<string, string> {
     addToken(parsed, key, value)
   }
   return parsed
+}
+
+function withoutLlmContent(entry: TraceEntry): TraceEntry {
+  const attributes = Object.fromEntries(
+    Object.entries(entry.attributes).filter(([key]) => !LLM_ATTRIBUTE_KEYS.has(key)),
+  )
+  if (!LLM_TRACE_NAMES.has(entry.name)) return { ...entry, attributes }
+
+  const payload = { ...entry.payload }
+  delete payload.request
+  delete payload.response
+  return { ...entry, attributes, payload }
 }
 
 function addToken(tokens: Map<string, string>, key: string, value: string): void {

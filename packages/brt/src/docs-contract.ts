@@ -71,6 +71,7 @@ const documentation: BrtDocsContract['documentation'] = {
       'conversationId',
       'dev',
       'error',
+      'includeLlm',
       'limit',
       'name',
       'nextToken',

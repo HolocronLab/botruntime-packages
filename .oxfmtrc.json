@@ -1,0 +1,4 @@
+{
+  "$schema": "./packages/botruntime-adk/node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": ["**/*"]
+}

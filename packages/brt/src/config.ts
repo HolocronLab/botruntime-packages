@@ -208,6 +208,12 @@ const cloudTracesNextToken = {
   description: 'Resume listing from this server-issued pagination cursor',
 } satisfies CommandOption
 
+const cloudTracesIncludeLlm = {
+  type: 'boolean',
+  description: 'Include canonical LLM request and response content in CLI output',
+  default: false,
+} satisfies CommandOption
+
 const cloudTracesTokens = {
   type: 'string',
   description: 'Botpress-compatible filters: error, conversation=, workflow=, action=, trace=, since=, until=, limit=',
@@ -908,11 +914,11 @@ const tracesSchema = {
   until: cloudTracesUntil,
   limit: cloudTracesLimit,
   nextToken: cloudTracesNextToken,
+  includeLlm: cloudTracesIncludeLlm,
 } satisfies CommandSchema
 
-// brt conversations list|show — cloud metadata-only conversation diagnostics.
-// List projects out backend tags; show builds a privacy-safe timeline only from
-// the typed trace projection and deliberately has no include-llm bypass.
+// brt conversations list|show — compact conversation diagnostics. Detailed
+// canonical LLM content remains available through `brt traces --include-llm`.
 const conversationsListSchema = {
   ...cloudProjectSchema,
   tokens: cloudConversationsTokens,
