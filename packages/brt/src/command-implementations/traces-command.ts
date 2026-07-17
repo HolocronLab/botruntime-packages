@@ -107,8 +107,13 @@ export interface TraceEntry {
   traceId?: string
   spanId?: string
   parentSpanId?: string
+  conversationId?: string
+  userId?: string
+  messageId?: string
   durationMs: number
   metadata?: TraceMetadata
+  attributes: Record<string, unknown>
+  payload: Record<string, unknown>
 }
 
 type TracePage = { traces: TraceEntry[]; nextToken?: string }
@@ -134,7 +139,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       const raw = await target.fetchPage({ ...query, pageSize, nextToken }).catch((thrown) => {
         throw errors.BotpressCLIError.wrap(
           thrown,
-          'could not fetch runtime traces; check network connectivity, the API URL, and the selected target'
+          'could not fetch runtime traces; check network connectivity, the API URL, and the selected target',
         )
       })
       const page = parseTracePage(raw, pageSize)
@@ -210,7 +215,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     if (metadata.errorKind !== undefined) details.push(`errorKind=${metadata.errorKind}`)
     const suffix = details.length > 0 ? ` ${details.join(' ')}` : ''
     this.logger.log(
-      `${entry.createdAt} ${entry.status.toUpperCase()} ${entry.durationMs}ms ${entry.source}/${entry.name}${suffix}`
+      `${entry.createdAt} ${entry.status.toUpperCase()} ${entry.durationMs}ms ${entry.source}/${entry.name}${suffix}`,
     )
     const errorMessage = typeof metadata.errorMessage === 'string' ? metadata.errorMessage : undefined
     if (errorMessage !== undefined) {
@@ -226,7 +231,27 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     if (this.argv.verbose && errorStack !== undefined) {
       for (const line of errorStack.split('\n')) this.logger.log(`  ${line}`)
     }
+    const toolInput = firstTraceValue(entry, ['autonomous.tool.input', 'tool.input', 'input'])
+    const toolOutput = firstTraceValue(entry, ['autonomous.tool.output', 'tool.output', 'output'])
+    if (toolInput !== undefined) this.logger.log(`  input: ${formatTraceValue(toolInput)}`)
+    if (toolOutput !== undefined) this.logger.log(`  output: ${formatTraceValue(toolOutput)}`)
+    if (this.argv.verbose) {
+      this.logger.log(`  attributes: ${formatTraceValue(entry.attributes)}`)
+      this.logger.log(`  payload: ${formatTraceValue(entry.payload)}`)
+    }
   }
+}
+
+function firstTraceValue(entry: TraceEntry, keys: string[]): unknown {
+  for (const key of keys) {
+    if (entry.attributes[key] !== undefined) return entry.attributes[key]
+    if (entry.payload[key] !== undefined) return entry.payload[key]
+  }
+  return undefined
+}
+
+function formatTraceValue(value: unknown): string {
+  return JSON.stringify(value) ?? String(value)
 }
 
 type TraceFilterInput = {
@@ -251,7 +276,7 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
   const conversationId = mergedFilter(input.conversationId, tokens.get('conversation'), 'conversation')
   if (conversationId !== undefined && !CORRELATION_ID.test(conversationId)) {
     throw new errors.BotpressCLIError(
-      '--conversation-id must be 1-128 characters using only letters, digits, dot, underscore, colon, or hyphen'
+      '--conversation-id must be 1-128 characters using only letters, digits, dot, underscore, colon, or hyphen',
     )
   }
 
@@ -294,7 +319,7 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
   if (conversationId === undefined) {
     if (workflow === undefined && action === undefined && rawTraceId === undefined) {
       throw new errors.BotpressCLIError(
-        'conversation is required unless a workflow, action, or trace filter is provided'
+        'conversation is required unless a workflow, action, or trace filter is provided',
       )
     }
     if (rawTraceId === undefined && since === undefined) {
@@ -325,7 +350,9 @@ function parseTraceTokens(tokens: string[]): Map<string, string> {
   const parsed = new Map<string, string>()
   for (const token of tokens) {
     if (token === 'include-llm') {
-      throw new errors.BotpressCLIError('include-llm is forbidden by the cloud metadata-only privacy boundary')
+      throw new errors.BotpressCLIError(
+        'include-llm is not supported; hosted traces already return stored attributes and payload',
+      )
     }
     if (token === 'follow') {
       throw new errors.BotpressCLIError('follow is not supported by the cloud trace API')
@@ -392,7 +419,7 @@ const DURATION_MULTIPLIER = {
 function parseTraceTimeFilter(
   value: string,
   flag: '--since' | '--until',
-  nowMs: number
+  nowMs: number,
 ): {
   wire: string
   timeMs: number
@@ -481,8 +508,13 @@ function parseTraceEntry(value: unknown, index: number): TraceEntry {
   const traceId = optionalString(value.traceId, `${prefix}.traceId`, TRACE_ID)
   const spanId = optionalString(value.spanId, `${prefix}.spanId`, SPAN_ID)
   const parentSpanId = optionalNullableString(value.parentSpanId, `${prefix}.parentSpanId`, SPAN_ID)
+  const conversationId = optionalString(value.conversationId, `${prefix}.conversationId`, CORRELATION_ID)
+  const userId = optionalString(value.userId, `${prefix}.userId`, CORRELATION_ID)
+  const messageId = optionalString(value.messageId, `${prefix}.messageId`, CORRELATION_ID)
   const durationMs = requiredInteger(value.durationMs, `${prefix}.durationMs`, 0, MAX_DURATION_MS)
   const metadata = value.metadata === undefined ? undefined : parseMetadata(value.metadata, prefix)
+  const attributes = optionalRecord(value.attributes, `${prefix}.attributes`)
+  const payload = optionalRecord(value.payload, `${prefix}.payload`)
 
   return {
     id,
@@ -496,9 +528,20 @@ function parseTraceEntry(value: unknown, index: number): TraceEntry {
     ...(traceId !== undefined ? { traceId: traceId.toLowerCase() } : {}),
     ...(spanId !== undefined ? { spanId: spanId.toLowerCase() } : {}),
     ...(parentSpanId !== undefined ? { parentSpanId: parentSpanId.toLowerCase() } : {}),
+    ...(conversationId !== undefined ? { conversationId } : {}),
+    ...(userId !== undefined ? { userId } : {}),
+    ...(messageId !== undefined ? { messageId } : {}),
     durationMs,
     ...(metadata !== undefined ? { metadata } : {}),
+    attributes,
+    payload,
   }
+}
+
+function optionalRecord(value: unknown, field: string): Record<string, unknown> {
+  if (value === undefined) return {}
+  if (!isRecord(value)) throw new errors.BotpressCLIError(`${field} is malformed`)
+  return value
 }
 
 function parseMetadata(value: unknown, prefix: string): TraceMetadata {

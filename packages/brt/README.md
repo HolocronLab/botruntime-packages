@@ -133,13 +133,11 @@ Requires **bun >= 1.3**.
 
 ## Runtime traces
 
-`brt traces` reads the selected profile's trace API. It exposes bounded runtime
-exception diagnostics (`name`, `code`, `message`, and `stack`) so a developer
-can diagnose a failed handler after the live process or dev tunnel has stopped.
-Exception message and stack text is not redacted and may contain sensitive data.
-Prompts, model responses, tool input/output, and document content remain outside
-this API. The backend response is projected through a strict allowlist before
-either human or JSON output is written.
+`brt traces` reads the selected profile's trace API. It returns the complete
+stored span content, including attributes, platform payload, tool input/output
+and runtime exceptions. Trace content is not redacted: the bot developer owns
+the data sent by their bot and must delete traces when they are no longer needed.
+Access remains scoped to the selected workspace and bot.
 
 ```bash
 # Production target from agent.json (or bot.json for a classic project)
@@ -168,18 +166,19 @@ Supported compatibility tokens are `error`, `conversation=<id>`,
 `workflow=<name>`, `action=<name>`, `trace=<id>`, `since=<duration>`,
 `until=<duration>`, and `limit=<n>`. Relative durations such as `30s`, `5m`,
 and `1h` are converted once to absolute RFC3339 bounds. Equivalent named flags
-are available, together with `--status`, `--source`, and `--name`. A
-conversation is always required. `workflow` and `action` filter matching rows;
-use a returned `traceId` with `trace=<id>` to fetch its full tree.
+are available, together with `--status`, `--source`, and `--name`. A conversation
+is required unless `workflow`, `action`, or exact `trace` is provided; unscoped
+workflow/action queries also require `since`. Use a returned `traceId` with
+`trace=<id>` to fetch its full tree.
 
-Human output prints the exception code and message for failed spans; `--verbose`
-also prints the stack. JSON output always includes all available bounded error
-fields.
+Human output prints tool input/output plus the exception code and message for
+failed spans; `--verbose` also prints the stack and complete attributes/payload.
+JSON output always includes the complete stored span content.
 
 The cloud API deliberately does not provide unscoped listing or follow mode.
 `trigger` remains unavailable until the server exposes a bounded typed trigger
-name. `include-llm` is rejected because cloud output is metadata-only and has
-no content bypass.
+name. `include-llm` is unnecessary and rejected: hosted output already contains
+the attributes and payload stored by the platform.
 
 Production requires canonical positive-decimal `workspaceId` and `botId`
 coordinates matching the selected profile. Development requires an opaque,
@@ -193,8 +192,8 @@ trace output.
 `brt conversations` follows the current Botpress ADK CLI command shape with
 separate `list` and `show` operations, but reads the selected cloud target
 instead of a local SQLite trace store. Conversation tags and message content
-are never printed. `show` builds its timeline only from the same typed,
-metadata-only trace projection used by `brt traces`.
+are never printed. `show` builds a compact typed timeline; use `brt traces` for
+the complete stored span.
 
 ```bash
 # Production target from the canonical project link
@@ -222,9 +221,9 @@ responses, tool input/output, documents, message payloads, or conversation
 tags. Use `brt traces conversation=<id> trace=<traceId> --verbose` to inspect the
 full bounded exception diagnostics for a failed turn.
 
-The Botpress local-only `--include-llm` option is deliberately absent: the
-cloud privacy boundary has no content bypass. Production and development use
-the same fail-loud canonical target and profile-auth rules as `brt traces`.
+The Botpress local-only `--include-llm` option is absent because hosted
+`brt traces` already returns stored attributes/payload. Production and
+development use the same fail-loud canonical target and profile-auth rules.
 
 ## Hosted evals
 
