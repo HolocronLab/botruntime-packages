@@ -46,7 +46,7 @@ export const formatCode = async (code: string, filepath?: string): Promise<strin
   }
 }
 
-// This constant is injected at build time by esbuild's define
+// These constants are injected at build time by esbuild's define.
 declare const __RUNTIME_VERSION__: string
 declare const __BP_CLI_VERSION__: string
 
