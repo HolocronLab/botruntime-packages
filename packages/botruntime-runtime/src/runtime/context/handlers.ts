@@ -130,7 +130,6 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
           const cognitive = new InstrumentedCognitive({
             client: client,
-            __experimental_beta: true,
           })
 
           const result = await context.run(

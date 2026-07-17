@@ -53,7 +53,7 @@ export async function initLLMJudge(
   _log = log
   _failClosed = options?.failClosed ?? true
 
-  const cognitive = new Cognitive({ client, __experimental_beta: true })
+  const cognitive = new Cognitive({ client })
 
   try {
     _availableModels = Array.from((await cognitive.fetchRemoteModels()).keys())

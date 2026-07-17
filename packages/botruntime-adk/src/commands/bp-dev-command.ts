@@ -146,11 +146,6 @@ export class BpDevCommand extends BaseCommand<BpDevProgressEvent> {
         ADK_BOT_ID: this.options.devBotId || '',
         ADK_WORKSPACE_ID: workspaceId,
 
-        // Inject configuration so it's available at module load time
-        ...(this.options.configuration && {
-          ADK_CONFIGURATION: JSON.stringify(this.options.configuration),
-        }),
-
         // Inject secrets as SECRET_* environment variables
         ...Object.fromEntries(
           Object.entries(this.options.secrets ?? {}).map(([key, value]) => [`SECRET_${key}`, value])

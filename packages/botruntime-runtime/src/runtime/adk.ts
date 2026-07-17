@@ -50,7 +50,6 @@ function getStandaloneCognitive(): Cognitive {
 
     return new Cognitive({
       client: botClient,
-      __experimental_beta: true,
     })
   })
 }

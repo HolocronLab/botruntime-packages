@@ -47,7 +47,7 @@ const executeContextInternal = async (props: ExecutionProps): Promise<ExecutionR
     ? client
     : CognitiveBeta.isBetaClient(client)
       ? cognitiveFromBeta(client)
-      : new Cognitive({ client: client as BotpressClientLike, __experimental_beta: true })
+      : new Cognitive({ client: client as BotpressClientLike })
 
   const ctx = new Context({
     chat: props.chat,
