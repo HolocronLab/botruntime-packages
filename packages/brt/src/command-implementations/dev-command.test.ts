@@ -2280,6 +2280,22 @@ describe('DevCommand dev secret resolution (Codex P1, DEVLP-124)', () => {
     expect(fetchDevConfigVars).toHaveBeenCalledWith(api, 'dev_runtime')
   })
 
+  it('ignores undeclared cloud keys: only definition.secrets names reach knownSecrets (stale/legacy vars never trigger the ineffective delete prompt)', async () => {
+    const promptText = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptText)
+    // Cloud carries the declared secret AND an undeclared legacy key; only the declared
+    // one may count as known — an undeclared key in knownSecrets would make promptSecrets
+    // offer a "delete" that only touches the local cache while the cloud value survives.
+    ;(command as any)._fetchDevConfigVars = vi
+      .fn()
+      .mockResolvedValue({ API_KEY: 'value-from-cloud', LEGACY_UNDECLARED: 'stale' })
+
+    const resolved = await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+
+    expect(resolved).toBeDefined()
+    expect(promptText).not.toHaveBeenCalled() // nothing to ask: declared secret known, undeclared filtered out
+  })
+
   it('still fails loud when a required secret is genuinely unset both locally and in the cloud', async () => {
     const promptText = vi.fn().mockResolvedValue(undefined)
     const command = makeSecretsCommand(promptText)

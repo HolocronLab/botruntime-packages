@@ -1531,8 +1531,18 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // is the same lookup _spawnWorkerForResolvedDevTarget performs later — memoized by
     // _resolveRemoteDevConfigVars, so it is fetched over the network at most once per `brt
     // dev` invocation.
+    // Только ключи, ОБЪЯВЛЕННЫЕ в definition.secrets: облачный стор может нести
+    // необъявленные/легаси ключи (ADK_CONFIGURATION, удалённый из definition секрет) —
+    // попав в knownSecrets, они заставляют promptSecrets предлагать «удаление», которое
+    // трогает лишь локальный кэш, а облачное значение остаётся → бесконечный повтор
+    // неработающего промпта.
+    const declaredSecretNames = new Set(Object.keys(this._initialDef.definition.secrets ?? {}))
     const remoteConfigVarNames =
-      this._initialDef.type === 'bot' ? Object.keys(await this._resolveRemoteDevConfigVars(api, tunnelId)) : []
+      this._initialDef.type === 'bot'
+        ? Object.keys(await this._resolveRemoteDevConfigVars(api, tunnelId)).filter((name) =>
+            declaredSecretNames.has(name)
+          )
+        : []
     let secretEnvVariables = await this.promptSecrets(this._initialDef.definition, this.argv, {
       knownSecrets: [...new Set([...Object.keys(knownSecrets), ...remoteConfigVarNames])],
       formatEnv: true,
