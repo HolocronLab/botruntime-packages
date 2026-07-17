@@ -181,6 +181,8 @@ jobs:
 
       - name: Build the current botruntime-runtime package
         run: |
+          ln -s ../botruntime-llmz/patches packages/botruntime-runtime/patches
+          trap 'unlink packages/botruntime-runtime/patches' EXIT
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-llmz --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-zai --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
           cd packages/botruntime-runtime
@@ -202,6 +204,8 @@ jobs:
 
       - name: Build the current botruntime-adk package
         run: |
+          ln -s ../botruntime-llmz/patches packages/botruntime-adk/patches
+          trap 'unlink packages/botruntime-adk/patches' EXIT
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
@@ -223,7 +227,10 @@ jobs:
         # build-time botruntime-api dependency). --no-save resolves that local
         # graph without mutating the checked-in lock; contract generation below
         # still fails on any command/schema drift.
-        run: bun install --no-save --ignore-scripts
+        run: |
+          ln -s ../botruntime-llmz/patches patches
+          trap 'unlink patches' EXIT
+          bun install --no-save --ignore-scripts
 
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
