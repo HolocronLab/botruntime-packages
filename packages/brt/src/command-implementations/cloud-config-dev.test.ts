@@ -124,7 +124,8 @@ describe('cloud config and secret dev routing', () => {
 
         if (
           method === 'GET' &&
-          pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/logs`
+          (pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/logs` ||
+            pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/logs`)
         ) {
           return Response.json({ logs: [] })
         }
@@ -199,6 +200,10 @@ describe('cloud config and secret dev routing', () => {
     ]) {
       expect(schema).toHaveProperty('dev', expect.objectContaining({ type: 'boolean' }))
     }
+  })
+
+  it('declares --dev on logs', () => {
+    expect(schemas.logs).toHaveProperty('dev', expect.objectContaining({ type: 'boolean' }))
   })
 
   it.each(commandCases)(
@@ -785,6 +790,33 @@ describe('cloud config and secret dev routing', () => {
     })
     expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(fs.existsSync(path.join(workDir, 'bot.json'))).toBe(false)
+  })
+
+  it('reads dev logs through the attested runtime target and canonical numeric bot route', async () => {
+    writeDevCache(workDir, 'agent', 'agent-dev-opaque')
+    const command = new LogsCommand({} as any, {} as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir, valueFile, true),
+      since: '2026-07-09T00:00:00.000Z',
+      until: '2026-07-09T01:00:00.000Z',
+      follow: false,
+      level: undefined,
+      grep: undefined,
+      conversationId: undefined,
+      limit: undefined,
+    } as any)
+
+    await command.run()
+
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
+      ['GET', `${API_URL}/v1/admin/bots/agent-dev-opaque`],
+      [
+        'GET',
+        `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/logs?` +
+          'timeStart=2026-07-09T00%3A00%3A00.000Z&timeEnd=2026-07-09T01%3A00%3A00.000Z',
+      ],
+    ])
+    expect(calls.every((call) => headers(call).authorization === 'Bearer brt_pat_xxx')).toBe(true)
+    expect(calls.every((call) => headers(call)['x-bot-id'] === undefined)).toBe(true)
   })
 })
 

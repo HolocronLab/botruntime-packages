@@ -880,12 +880,13 @@ const cloudLinkSchema = {
   },
 } satisfies CommandSchema
 
-// brt logs [--bot-id] [--since] [--until] [--level] [--grep] [--conversation-id]
-// [--follow] [--limit] — GET /v1/admin/bots/{id}/logs, authenticated with the
-// selected workspace/profile PAT rather than the per-bot key. Bot ID resolution
-// mirrors other cloud-project commands: --bot-id overrides the canonical link.
+// brt logs [--bot-id] [--dev] [--since] [--until] [--level] [--grep] [--conversation-id]
+// [--follow] [--limit] — workspace-scoped logs authenticated with the selected
+// profile PAT rather than the per-bot key. Development resolves and attests the
+// opaque runtime target before reading the canonical numeric bot.
 const logsSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   since: cloudLogsSince,
   until: cloudLogsUntil,
   level: cloudLogsLevel,

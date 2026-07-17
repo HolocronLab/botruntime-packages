@@ -1,4 +1,3 @@
-import axiosRetry from 'axios-retry'
 import * as common from '../common'
 import * as gen from '../gen/billing'
 import * as types from '../types'
@@ -18,15 +17,11 @@ export class Client extends gen.Client {
 
   public constructor(clientProps: ClientProps) {
     const clientConfig = common.config.getClientConfig(clientProps)
-    const axiosInstance = common.axios.createAxiosInstance(clientConfig)
+    const axiosInstance = common.axios.createAxiosInstance(clientConfig, clientProps.retry)
 
     super(axiosInstance, {
       toApiError: common.errors.toApiError,
     })
-
-    if (clientProps.retry) {
-      axiosRetry(axiosInstance, clientProps.retry)
-    }
 
     this.config = clientConfig
   }

@@ -627,6 +627,7 @@
         "botpressHome",
         "confirm",
         "conversationId",
+        "dev",
         "follow",
         "grep",
         "json",
@@ -903,6 +904,7 @@
       "logs": [
         "botId",
         "conversationId",
+        "dev",
         "follow",
         "limit"
       ],
