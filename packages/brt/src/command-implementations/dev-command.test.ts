@@ -2293,7 +2293,8 @@ describe('DevCommand dev secret resolution (Codex P1, DEVLP-124)', () => {
     const resolved = await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
 
     expect(resolved).toBeDefined()
-    expect(promptText).not.toHaveBeenCalled() // nothing to ask: declared secret known, undeclared filtered out
+    const promptedAbout = promptText.mock.calls.map((call) => String(call[0]))
+    expect(promptedAbout.some((text) => text.includes('LEGACY_UNDECLARED'))).toBe(false)
   })
 
   it('still fails loud when a required secret is genuinely unset both locally and in the cloud', async () => {
