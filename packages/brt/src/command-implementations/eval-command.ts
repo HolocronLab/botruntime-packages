@@ -4,6 +4,7 @@ import * as errors from '../errors'
 import { CloudCommand, type EvalCloudTarget } from './cloud-command'
 import { prepareHostedEvalManifest } from '../eval-manifest-prepare'
 import { aggregateRepeatedEvals, runWithConcurrency, type RepeatedEvalAttempt } from '../eval-repeat'
+import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 
 const POSITIVE_DECIMAL = /^[1-9][0-9]*$/
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
@@ -26,6 +27,17 @@ const EVAL_DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
   EVAL_RELATION_AMBIGUOUS:
     'the declared conversation relation matched more than one conversation; make its tag selector unique',
 }
+
+const WORKFLOW_FAILURE_REASONS = {
+  EVAL_MANIFEST_MISSING: 'The requested eval manifest is unavailable',
+  EVAL_MANIFEST_SCHEMA_INCOMPATIBLE: 'The eval manifest schema is incompatible with this runtime',
+  EVAL_MANIFEST_HASH_MISMATCH: 'The eval manifest content failed integrity verification',
+  DELIVERY_UNAVAILABLE: 'Hosted eval workflow delivery unavailable',
+  WORKFLOW_FAILED: 'The hosted eval workflow failed; inspect runtime traces for details',
+} as const
+
+type WorkflowFailureCode = keyof typeof WORKFLOW_FAILURE_REASONS
+type WorkflowFailure = { code: WorkflowFailureCode; reason: string }
 
 const RUN_STATUSES = ['pending', 'running', 'completed', 'failed'] as const
 const WORKFLOW_STATUSES = [
@@ -267,6 +279,8 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       this.argv.type === undefined
         ? undefined
         : requireEnum(this.argv.type, ['capability', 'regression'] as const, '--type')
+    this.logger.debug('Checking platform toolchain compatibility')
+    assertPlatformToolchainCompatible(inspectPlatformToolchain(this.projectDir))
     this.logger.debug('Resolving hosted eval target')
     const target = await this.resolveEvalTarget()
     if ('runtimeBotId' in target) {
@@ -281,7 +295,7 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       workspaceId: target.output.workspaceId,
       client: target.client.sdkClient(apiBotId, target.output.workspaceId),
     })
-    this.logger.debug(`Hosted eval manifest ready (${manifest.manifestFileId})`)
+    this.logger.debug(`Hosted eval manifest ready (${manifest.manifestId})`)
 
     const filter = {
       ...(name !== undefined ? { names: [name] } : {}),
@@ -291,7 +305,8 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
     const input = {
       ...(Object.keys(filter).length > 0 ? { filter } : {}),
       runType: 'manual',
-      evalManifestId: manifest.manifestFileId,
+      evalManifestId: manifest.manifestId,
+      evalManifestFileId: manifest.manifestFileId,
       ...(judgeModel !== undefined ? { judgeModel } : {}),
     }
     const attempts = await runWithConcurrency(
@@ -377,13 +392,21 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
         }
       }
       if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
-        if (current.failureCode === 'delivery_unavailable') {
+        const failure = current.failure
+        if (this.argv.json) {
+          this.logger.json({
+            schemaVersion: 1,
+            target: target.output,
+            workflow: { id: current.id, status: current.status, failure },
+          })
+        }
+        if (failure.code === 'DELIVERY_UNAVAILABLE') {
           throw new errors.BotpressCLIError(
-            'hosted eval workflow delivery unavailable; verify that `brt dev` is still running and the development tunnel is connected, then retry'
+            `${failure.code}: ${failure.reason}; verify that \`brt dev\` is still running and the development tunnel is connected, then retry`
           )
         }
         throw new errors.BotpressCLIError(
-          `hosted eval workflow ${current.status}; redeploy the bot to refresh its eval manifest, then inspect runtime traces and retry`
+          `${failure.code}: ${failure.reason}; hosted eval workflow ${current.status}, inspect runtime traces and retry`
         )
       }
       await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
@@ -514,7 +537,7 @@ function parseWorkflowResponse(value: unknown): {
   id: string
   status: (typeof WORKFLOW_STATUSES)[number]
   output: Record<string, unknown>
-  failureCode?: 'delivery_unavailable'
+  failure: WorkflowFailure
 } {
   if (!isRecord(value) || !isRecord(value.workflow)) {
     throw new errors.BotpressCLIError('hosted eval workflow response is malformed')
@@ -526,9 +549,29 @@ function parseWorkflowResponse(value: unknown): {
     id: requireIdentifier(value.workflow.id, 'workflow id', 128),
     status: requireEnum(value.workflow.status, WORKFLOW_STATUSES, 'workflow status'),
     output: value.workflow.output,
-    ...(value.workflow.failureReason === 'workflow delivery unavailable'
-      ? { failureCode: 'delivery_unavailable' as const }
-      : {}),
+    failure: sanitizeWorkflowFailure(value.workflow.failureReason),
+  }
+}
+
+function sanitizeWorkflowFailure(value: unknown): WorkflowFailure {
+  if (value === 'workflow delivery unavailable') {
+    return {
+      code: 'DELIVERY_UNAVAILABLE',
+      reason: WORKFLOW_FAILURE_REASONS.DELIVERY_UNAVAILABLE,
+    }
+  }
+  if (typeof value === 'string') {
+    for (const code of [
+      'EVAL_MANIFEST_MISSING',
+      'EVAL_MANIFEST_SCHEMA_INCOMPATIBLE',
+      'EVAL_MANIFEST_HASH_MISMATCH',
+    ] as const) {
+      if (value.startsWith(`${code}:`)) return { code, reason: WORKFLOW_FAILURE_REASONS[code] }
+    }
+  }
+  return {
+    code: 'WORKFLOW_FAILED',
+    reason: WORKFLOW_FAILURE_REASONS.WORKFLOW_FAILED,
   }
 }
 

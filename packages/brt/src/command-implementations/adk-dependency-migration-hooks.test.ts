@@ -13,6 +13,7 @@ vi.mock('../adk-bundle', async (importOriginal) => ({
 
 import * as adkBundle from '../adk-bundle'
 import * as adkDevId from '../adk-dev-id'
+import * as toolchainContract from '../toolchain-contract'
 import { CloudapiClient } from '../api/cloudapi-client'
 import { Logger } from '../logger'
 import * as utils from '../utils'
@@ -55,6 +56,11 @@ function writeVerifiedBundle(
   fs.mkdirSync(path.dirname(bundlePath), { recursive: true })
   fs.writeFileSync(bundlePath, code)
   adkBundle.writeBundleProvenance(bundlePath, target, code)
+  toolchainContract.writePlatformToolchainContract(
+    workDir,
+    toolchainContract.inspectPlatformToolchain(workDir),
+    { bundleSha256: adkBundle.sha256(code) }
+  )
   return bundlePath
 }
 
@@ -136,6 +142,7 @@ describe('agent command dependency migration hooks', () => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-hook-'))
     botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-home-'))
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}\n')
+    vi.spyOn(toolchainContract, 'assertPlatformToolchainCompatible').mockImplementation(() => undefined)
   })
 
   afterEach(() => {

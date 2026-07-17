@@ -77,6 +77,11 @@ describe('isAgentSourceChange', () => {
     adkBundle.AGENT_CONFIG_FILE,
     'package.json',
     'agent.json',
+    'bun.lock',
+    'bun.lockb',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
     path.join('src', 'agent.ts'),
     path.join('src', 'knowledge', 'manual.md'),
     path.join('src', 'knowledge', 'terms.pdf'),
@@ -88,8 +93,6 @@ describe('isAgentSourceChange', () => {
 
   it.each([
     'agent.local.json',
-    'bun.lock',
-    'package-lock.json',
     'README.md',
     path.join('assets', 'logo.png'),
     path.join('tests', 'agent.test.ts'),

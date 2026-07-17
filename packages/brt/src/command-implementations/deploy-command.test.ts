@@ -3,6 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as adkBundle from '../adk-bundle'
+import * as toolchainContract from '../toolchain-contract'
 import { CloudapiClient } from '../api/cloudapi-client'
 import { Logger } from '../logger'
 import * as utils from '../utils'
@@ -40,7 +41,16 @@ function writeVerifiedBundle(
 ): string {
   const bundlePath = writeExistingBundle(workDir, code)
   adkBundle.writeBundleProvenance(bundlePath, target, code)
+  writeVerifiedToolchainContract(workDir, code)
   return bundlePath
+}
+
+function writeVerifiedToolchainContract(workDir: string, code: string): void {
+  toolchainContract.writePlatformToolchainContract(
+    workDir,
+    toolchainContract.inspectPlatformToolchain(workDir),
+    { bundleSha256: adkBundle.sha256(code) }
+  )
 }
 
 type CapturedPut = {
@@ -68,6 +78,7 @@ describe('DeployCommand ADK watch routing', () => {
 
   beforeEach(() => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-deploy-watch-'))
+    vi.spyOn(toolchainContract, 'assertPlatformToolchainCompatible').mockImplementation(() => undefined)
     vi.spyOn(adkBundle, 'loadAgentRecurringEvents').mockResolvedValue({})
     vi.spyOn(CloudapiClient.prototype, 'listWorkspaceIntegrations').mockResolvedValue({ installations: [] })
     vi.spyOn(adkBundle, 'loadAdkMigrationTools').mockResolvedValue({
@@ -715,6 +726,7 @@ describe('DeployCommand ADK watch routing', () => {
       { apiUrl: 'https://profile.example', workspaceId: 'ws_profile', botId: '42' },
       'verified override bundle'
     )
+    writeVerifiedToolchainContract(workDir, 'verified override bundle')
     vi.stubEnv('BRT_BUNDLE_PATH', overridePath)
     const command = makeCommand(workDir, {
       profile: 'selected',
@@ -832,6 +844,7 @@ describe('DeployCommand ADK watch routing', () => {
         sha256: adkBundle.sha256('verified bytes'),
       })
     )
+    writeVerifiedToolchainContract(workDir, 'verified bytes')
     const originalValidate = adkBundle.validateBundleProvenance
     const validateSpy = vi.spyOn(adkBundle, 'validateBundleProvenance').mockImplementation((...args) => {
       const verified = originalValidate(...args)

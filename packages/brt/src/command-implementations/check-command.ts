@@ -3,6 +3,7 @@ import * as path from 'path'
 import type commandDefinitions from '../command-definitions'
 import * as adkBundle from '../adk-bundle'
 import * as errors from '../errors'
+import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 import { GlobalCommand } from './global-command'
 
 const fatalDiscoveryCodes = new Set(['IMPORT_ERROR', 'INVALID_PRIMITIVE_DEFINITION'])
@@ -15,6 +16,9 @@ export class CheckCommand extends GlobalCommand<CheckCommandDefinition> {
     if (!adkBundle.isAgentProject(workDir)) {
       throw new errors.BotpressCLIError(`brt check requires an ADK project with agent.config.ts in ${workDir}`)
     }
+
+    const toolchain = inspectPlatformToolchain(workDir)
+    assertPlatformToolchainCompatible(toolchain)
 
     const { AgentProject } = await adkBundle.loadAdkProjectTools()
     const project = await AgentProject.load(workDir, { offline: true, noCache: true })

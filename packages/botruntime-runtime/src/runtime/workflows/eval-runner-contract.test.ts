@@ -24,8 +24,9 @@ describe('runtime eval workflow trace-reader contract', () => {
 
   it('binds an explicitly synchronized CLI manifest to the hosted run', () => {
     expect(source).toContain('evalManifestId: z.string().optional()')
+    expect(source).toContain('evalManifestFileId: z.string().optional()')
     expect(source).toContain('input.evalManifestId ?? loadedManifestId')
-    expect(source).toContain('manifest.manifestId ?? file.id')
+    expect(source).toContain('fileId: input.evalManifestFileId')
     expect(source).toContain('does not match the loaded eval manifest')
   })
 

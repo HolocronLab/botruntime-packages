@@ -144,3 +144,14 @@ jobs:
             fi
             sleep 5
           done
+
+          brt_version="$(node -p "require('./packages/brt/package.json').version")"
+          consumer_dir="$(mktemp -d)"
+          npm install \
+            --prefix "$consumer_dir" \
+            --ignore-scripts \
+            --package-lock=false \
+            --userconfig=/dev/null \
+            --registry="$PUBLIC_NPM_REGISTRY" \
+            "@holocronlab/brt@$brt_version"
+          node scripts/verify-installed-release-train.mjs --consumer="$consumer_dir"

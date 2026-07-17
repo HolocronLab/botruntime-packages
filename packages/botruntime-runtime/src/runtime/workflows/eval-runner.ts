@@ -1,17 +1,8 @@
 import { BaseWorkflow } from '../../primitives/workflow'
 import { z } from '@holocronlab/botruntime-sdk'
 import { context } from '../context/context'
-import type {
-  EvalDefinition,
-  EvalManifest,
-  EvalRunnerConfig,
-  EvalRunReport,
-} from '@holocronlab/botruntime-evals'
-import {
-  EVAL_MANIFEST_TAGS,
-  EVAL_MANIFEST_SCHEMA_VERSION,
-  createNativeEvalChatClient,
-} from '@holocronlab/botruntime-evals'
+import type { EvalRunnerConfig, EvalRunReport } from '@holocronlab/botruntime-evals'
+import { createNativeEvalChatClient } from '@holocronlab/botruntime-evals'
 import {
   runEvalSuite,
   validateEvalCapabilities,
@@ -28,47 +19,13 @@ import { resolveEvalExecutionEnvironment } from './eval-environment'
 import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
 import { PlatformEvalControl } from './eval-control'
-import { fetchEvalManifestFile } from './eval-file-fetch'
+import { loadEvalManifest } from './eval-manifest-loader'
 import {
   assertHostedEvalExecutionActive,
   assertHostedEvalInvocationBudget,
   assertHostedEvalStartBudget,
   resolveHostedEvalIdleTimeout,
 } from './eval-runner-policy'
-
-async function loadEvalManifest(client: Client): Promise<{
-  evals: EvalDefinition[]
-  fileId: string | undefined
-  chatWebhookId: string | undefined
-  fixtures: NonNullable<EvalManifest['fixtures']>
-}> {
-  const { files } = await client.listFiles({ tags: EVAL_MANIFEST_TAGS })
-
-  if (files.length === 0) {
-    return { evals: [], fileId: undefined, chatWebhookId: undefined, fixtures: {} }
-  }
-
-  const file = files[0]!
-  const res = await fetchEvalManifestFile(file.url, client)
-  if (!res.ok) {
-    throw new Error(`Failed to fetch eval manifest: ${res.status}`)
-  }
-
-  const manifest = (await res.json()) as EvalManifest
-
-  if (manifest.schemaVersion !== EVAL_MANIFEST_SCHEMA_VERSION) {
-    throw new Error(
-      `Eval manifest schema version ${manifest.schemaVersion} is not supported (expected ${EVAL_MANIFEST_SCHEMA_VERSION}). Update the runtime and run \`brt eval\` again to resync the manifest.`,
-    )
-  }
-
-  return {
-    evals: manifest.evals,
-    fileId: manifest.manifestId ?? file.id,
-    chatWebhookId: manifest.chatWebhookId,
-    fixtures: manifest.fixtures ?? {},
-  }
-}
 
 export const EvalRunnerWorkflow = new BaseWorkflow({
   name: 'builtin_eval_runner' as const,
@@ -84,6 +41,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       .optional(),
     runType: z.enum(['scheduled', 'manual']).optional().default('scheduled'),
     evalManifestId: z.string().optional(),
+    evalManifestFileId: z.string().optional(),
     idleTimeout: z.number().optional(),
     /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
     judgePassThreshold: z.number().optional(),
@@ -130,13 +88,12 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       evals: definitions,
       fileId: loadedManifestId,
       fixtures,
-    } = await step('load-manifest', () => loadEvalManifest(sdkClient))
-
-    if (definitions.length === 0) {
-      throw new Error(
-        'No eval manifest found. Upload eval definitions via the files API before running the eval workflow.',
-      )
-    }
+    } = await step('load-manifest', () =>
+      loadEvalManifest(sdkClient, {
+        ...(input.evalManifestFileId ? { fileId: input.evalManifestFileId } : {}),
+        ...(input.evalManifestId ? { manifestId: input.evalManifestId } : {}),
+      }),
+    )
 
     if (input.evalManifestId && loadedManifestId && input.evalManifestId !== loadedManifestId) {
       throw new Error('The synchronized eval manifest does not match the loaded eval manifest.')
