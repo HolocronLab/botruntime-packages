@@ -246,7 +246,7 @@ jobs:
         botruntime-adk
         brt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: List fork packages with a test script, in dependency order
         id: discover
@@ -274,7 +274,7 @@ jobs:
       matrix:
         package: ${{ fromJson(needs.fork-package-catalog.outputs.packages) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -394,6 +394,13 @@ jobs:
 
           echo "::group::Install $TARGET_PACKAGE"
           install_package_dependencies "$package_dir" || { echo "::error::install failed for $TARGET_PACKAGE"; exit 1; }
+          echo "::endgroup::"
+
+          # The target's own build must run in its own cell: several suites test the
+          # built artifact (zui imports its own dist/index.cjs), and the last package
+          # in PACKAGE_ORDER is never built as anyone's prefix dependency.
+          echo "::group::Build $TARGET_PACKAGE"
+          run_script_if_present "$package_dir" build || { echo "::error::build failed for $TARGET_PACKAGE"; exit 1; }
           echo "::endgroup::"
 
           # check:type/typecheck stay blocking even for known-red entries: the
