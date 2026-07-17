@@ -252,16 +252,28 @@ jobs:
         id: discover
         shell: bash
         run: |
+          set -euo pipefail
           packages="$(node -e "
             const fs = require('fs');
             const order = process.env.PACKAGE_ORDER.trim().split(/\s+/);
-            const withTests = order.filter((name) => {
-              const pkgPath = \`packages/\${name}/package.json\`;
-              if (!fs.existsSync(pkgPath)) return false;
-              const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-              return Boolean(pkg.scripts && pkg.scripts.test);
-            });
-            console.log(JSON.stringify(withTests));
+            // Enumerate the real packages/* tree, not the allowlist: a test-bearing
+            // package missing from PACKAGE_ORDER must fail the gate loudly, not be
+            // silently skipped by filtering the stale list.
+            const tested = fs.readdirSync('packages', { withFileTypes: true })
+              .filter((d) => d.isDirectory())
+              .map((d) => d.name)
+              .filter((name) => {
+                const pkgPath = \`packages/\${name}/package.json\`;
+                if (!fs.existsSync(pkgPath)) return false;
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                return Boolean(pkg.scripts && pkg.scripts.test);
+              });
+            const missing = tested.filter((name) => !order.includes(name));
+            if (missing.length > 0) {
+              console.error(\`::error::packages with a test script are missing from PACKAGE_ORDER: \${missing.join(', ')} — add them here and in publish-public-packages.yml\`);
+              process.exit(1);
+            }
+            console.log(JSON.stringify(order.filter((name) => tested.includes(name))));
           ")"
           echo "Fork packages with a test script: $packages"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
