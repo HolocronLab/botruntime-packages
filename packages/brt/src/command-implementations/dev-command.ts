@@ -885,39 +885,44 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // persisted dev bot's tunnel is reused instead of a fresh uuid being minted.
     adkDevId.restoreDevTunnelId(botPath, this.logger)
 
-    let regenerating = false
     let regenDirty = false
     let dependencySnapshotFingerprint = adkBundle.agentDependencySnapshotBuildFingerprint(
       dir,
       ADK_DEV_DEPENDENCY_ENV
     )
+    let queuedDependencySnapshotFingerprint = dependencySnapshotFingerprint
+    let regenerationPromise: Promise<void> | undefined
     // A file change during regeneration queues exactly one additional pass,
     // preventing concurrent writes to the generated bot.
-    const regenerate = async (): Promise<void> => {
-      if (regenerating) {
-        regenDirty = true
-        return
-      }
-      regenerating = true
-      try {
-        do {
-          regenDirty = false
-          // Lockfiles are watched as source inputs. Re-check the physical
-          // graph on every regeneration so an install performed while dev is
-          // running cannot silently rebuild and redeploy a mixed toolchain.
-          assertCurrentToolchain()
-          // A newly provisioned nested dev bot is persisted before choosing
-          // the next config target; agent.local.json remains the sole source.
-          adkDevId.preserveDevId(dir, botPath, this.logger)
-          await adkBundle.generateAgentBot(dir, installer, generationOptions())
-          // Same repair as the initial generation above: every regeneration
-          // re-runs the agent generator's restoreDevId(), which drops tunnelId
-          // again whenever agent.local.json already has a devId.
-          adkDevId.restoreDevTunnelId(botPath, this.logger)
-        } while (regenDirty)
-      } finally {
-        regenerating = false
-      }
+    const regenerate = (nextDependencySnapshotFingerprint: string): Promise<void> => {
+      queuedDependencySnapshotFingerprint = nextDependencySnapshotFingerprint
+      regenDirty = true
+      if (regenerationPromise) return regenerationPromise
+
+      regenerationPromise = (async () => {
+        try {
+          do {
+            regenDirty = false
+            const passDependencySnapshotFingerprint = queuedDependencySnapshotFingerprint
+            // Lockfiles are watched as source inputs. Re-check the physical
+            // graph on every regeneration so an install performed while dev is
+            // running cannot silently rebuild and redeploy a mixed toolchain.
+            assertCurrentToolchain()
+            // A newly provisioned nested dev bot is persisted before choosing
+            // the next config target; agent.local.json remains the sole source.
+            adkDevId.preserveDevId(dir, botPath, this.logger)
+            await adkBundle.generateAgentBot(dir, installer, generationOptions())
+            // Same repair as the initial generation above: every regeneration
+            // re-runs the agent generator's restoreDevId(), which drops tunnelId
+            // again whenever agent.local.json already has a devId.
+            adkDevId.restoreDevTunnelId(botPath, this.logger)
+            dependencySnapshotFingerprint = passDependencySnapshotFingerprint
+          } while (regenDirty)
+        } finally {
+          regenerationPromise = undefined
+        }
+      })()
+      return regenerationPromise
     }
 
     let watcher: Awaited<ReturnType<typeof utils.filewatcher.FileWatcher.watch>> | undefined
@@ -949,8 +954,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
           this.logger.log('Agent source changed, regenerating tunnel bot')
           try {
-            await regenerate()
-            dependencySnapshotFingerprint = nextDependencySnapshotFingerprint
+            await regenerate(nextDependencySnapshotFingerprint)
           } catch (thrown) {
             // Loud, never silent: a transient generate error (e.g. a syntax
             // error mid-edit) must not kill the dev session, but it must be

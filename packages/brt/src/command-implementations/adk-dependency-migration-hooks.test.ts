@@ -780,7 +780,7 @@ describe('agent command dependency migration hooks', () => {
     mockMigrationLoader(vi.fn(async () => undefined))
     const devSnapshotPath = path.join(workDir, '.adk', 'dependencies', 'dev.json')
     fs.mkdirSync(path.dirname(devSnapshotPath), { recursive: true })
-    fs.writeFileSync(devSnapshotPath, JSON.stringify({ integrations: { chat: { version: '1.0.0' } } }))
+    fs.writeFileSync(devSnapshotPath, JSON.stringify({ integrations: { chat: { version: '1.0.0', enabled: true } } }))
     const generate = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(workDir, '.adk', 'bot'))
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
@@ -794,7 +794,10 @@ describe('agent command dependency migration hooks', () => {
         '.adk/dependencies/dev.json',
       ]) {
         if (relative === '.adk/dependencies/dev.json') {
-          fs.writeFileSync(devSnapshotPath, JSON.stringify({ integrations: { chat: { version: '1.1.0' } } }))
+          fs.writeFileSync(
+            devSnapshotPath,
+            JSON.stringify({ integrations: { chat: { version: '1.1.0', enabled: true } } })
+          )
         }
         await onChange([{ type: 'update', path: path.join(dir, relative) }])
       }
@@ -821,7 +824,7 @@ describe('agent command dependency migration hooks', () => {
       target: { apiUrl: CLOUD_PROFILE.apiUrl, workspaceId: CLOUD_PROFILE.workspaceId, botId: '42' },
       fetchedAt: '2030-01-01T00:00:00.000Z',
       botUpdatedAt: '2030-01-01T00:00:00.000Z',
-      integrations: { chat: { name: 'botruntime/chat', version: '1.0.0' } },
+      integrations: { chat: { name: 'botruntime/chat', version: '1.0.0', enabled: true } },
       plugins: {},
     }
     fs.writeFileSync(snapshotPath, JSON.stringify(snapshot))
@@ -854,6 +857,72 @@ describe('agent command dependency migration hooks', () => {
     await (command as any)._runAgentTunnelDev()
 
     expect(generate).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not commit a queued snapshot fingerprint until regeneration succeeds', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'agent.local.json'),
+      JSON.stringify({ devId: 'dev_runtime', devTargetBotId: '42' })
+    )
+    const snapshotPath = path.join(workDir, '.adk', 'dependencies', 'dev.json')
+    fs.mkdirSync(path.dirname(snapshotPath), { recursive: true })
+    const snapshot = {
+      version: 2,
+      env: 'dev',
+      target: { apiUrl: CLOUD_PROFILE.apiUrl, workspaceId: CLOUD_PROFILE.workspaceId, botId: '42' },
+      fetchedAt: '2030-01-01T00:00:00.000Z',
+      botUpdatedAt: '2030-01-01T00:00:00.000Z',
+      integrations: { chat: { name: 'botruntime/chat', version: '1.0.0', enabled: true } },
+      plugins: {},
+    }
+    fs.writeFileSync(snapshotPath, JSON.stringify(snapshot))
+
+    const cloudClient = {
+      getBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+      createBot: vi.fn(async () => ({ bot: devBot('dev_runtime', '42') })),
+    }
+    const apiFactory = { newClient: vi.fn(() => ({ client: cloudClient })) }
+    mockMigrationLoader(vi.fn(async () => undefined))
+    let rejectRegeneration!: (reason: Error) => void
+    const generate = vi
+      .spyOn(adkBundle, 'generateAgentBot')
+      .mockResolvedValueOnce(path.join(workDir, '.adk', 'bot'))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRegeneration = reject
+          })
+      )
+      .mockResolvedValue(path.join(workDir, '.adk', 'bot'))
+    vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
+    vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
+    vi.spyOn(DevCommand.prototype, 'run').mockResolvedValue(undefined)
+    vi.spyOn(utils.filewatcher.FileWatcher, 'watch').mockImplementation(async (dir, onChange) => {
+      const event = [{ type: 'update' as const, path: path.join(dir, '.adk', 'dependencies', 'dev.json') }]
+      const changedSnapshot = {
+        ...snapshot,
+        integrations: { chat: { name: 'botruntime/chat', version: '1.1.0', enabled: true } },
+      }
+      fs.writeFileSync(snapshotPath, JSON.stringify(changedSnapshot))
+      const first = onChange(event)
+      await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2))
+
+      fs.writeFileSync(snapshotPath, JSON.stringify({ ...changedSnapshot, fetchedAt: '2030-01-02T00:00:00.000Z' }))
+      const concurrent = onChange(event)
+      await Promise.resolve()
+      rejectRegeneration(new Error('regeneration failed'))
+      await Promise.all([first, concurrent])
+
+      fs.writeFileSync(snapshotPath, JSON.stringify({ ...changedSnapshot, fetchedAt: '2030-01-03T00:00:00.000Z' }))
+      await onChange(event)
+      return { close: vi.fn(async () => undefined) } as any
+    })
+    const command = makeDevCommand({ workDir, botpressHome, apiFactory })
+    ;(command as any).argv.watch = true
+
+    await (command as any)._runAgentTunnelDev()
+
+    expect(generate).toHaveBeenCalledTimes(3)
   })
 
   it('refreshes the parent dev snapshot at most once after repeated nested deploy callbacks', async () => {

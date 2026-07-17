@@ -140,7 +140,7 @@ describe('agentDependencySnapshotBuildFingerprint', () => {
         target: { apiUrl: 'https://cloud.example', workspaceId: 'ws_1', botId: '42' },
         fetchedAt: '2030-01-01T00:00:00.000Z',
         botUpdatedAt: '2030-01-01T00:00:00.000Z',
-        integrations: { chat: { name: 'botruntime/chat', version: '1.0.0' } },
+        integrations: { chat: { name: 'botruntime/chat', version: '1.0.0', enabled: true } },
         plugins: {},
         ...overrides,
       })
@@ -157,7 +157,7 @@ describe('agentDependencySnapshotBuildFingerprint', () => {
     })
     expect(adkBundle.agentDependencySnapshotBuildFingerprint(dir, 'dev')).toBe(initial)
 
-    writeSnapshot({ integrations: { chat: { name: 'botruntime/chat', version: '1.1.0' } } })
+    writeSnapshot({ integrations: { chat: { name: 'botruntime/chat', version: '1.1.0', enabled: true } } })
     expect(adkBundle.agentDependencySnapshotBuildFingerprint(dir, 'dev')).not.toBe(initial)
   })
 })

@@ -182,6 +182,9 @@ export function agentDependencySnapshotBuildFingerprint(dir: string, env: 'dev' 
 
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>
+    // Refresh timestamps describe Cloud freshness, not generator inputs. Keeping every other
+    // field in the projection makes future schema additions rebuild by default; distinct
+    // missing/invalid sentinels keep recovery transitions observable to the watcher.
     const { fetchedAt: _fetchedAt, botUpdatedAt: _botUpdatedAt, ...buildInput } = parsed
     return sha256(JSON.stringify(sortJsonKeys(buildInput)))
   } catch {
