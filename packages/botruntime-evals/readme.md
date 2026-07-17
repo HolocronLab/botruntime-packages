@@ -13,6 +13,41 @@ The authoring contract also supports private file fixtures, synthetic actors
 routed to related conversations, delivery/mode assertions, same-target
 parallel turns, and isolated-development clock/fault controls.
 
+Durable table fixtures use the ordinary Tables API and are platform-owned:
+
+```ts
+const order = new Eval({
+  name: 'order-is-durable',
+  setup: {
+    tables: [{ table: 'OrderTable', rows: [{ externalId: 'eval-{{eval.id}}', status: 'pending' }] }],
+  },
+  conversation: [
+    {
+      message: 'Check the test order',
+      assert: {
+        tables: [{ table: 'OrderTable', row_exists: { externalId: { equals: 'eval-{{eval.id}}' } } }],
+      },
+    },
+  ],
+  outcome: {
+    tables: [
+      {
+        table: 'OrderTable',
+        row_count: { equals: 1 },
+        where: { externalId: { equals: 'eval-{{eval.id}}' } },
+      },
+    ],
+  },
+})
+```
+
+The runner creates setup rows before the first turn and deletes only their
+exact row IDs after grading. `{{eval.id}}` is one execution-scoped identity
+shared by setup values and table assertions. Reports contain match counts, not
+row contents. Partial creation or cleanup fails loudly with a stable error code.
+This is eval manifest schema v2; an older runtime rejects it rather than
+silently skipping durable setup.
+
 ## Install
 
 ```sh

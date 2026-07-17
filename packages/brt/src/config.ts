@@ -758,26 +758,6 @@ const checkSchema = {
   ...projectSchema,
 } satisfies CommandSchema
 
-const chatSchema = {
-  ...globalSchema,
-  ...credentialsSchema,
-  chatApiUrl: {
-    type: 'string',
-    description: 'The URL of the chat server',
-  },
-  botId: {
-    type: 'string',
-    positional: true,
-    idx: 0,
-    description: 'The bot ID to chat with',
-  },
-  protocol: {
-    choices: ['polling'] satisfies ReadonlyArray<ServerEventsProtocol>,
-    default: 'polling' as const,
-    description: 'The Chat response transport',
-  },
-} satisfies CommandSchema
-
 const listProfilesSchema = {
   ...globalSchema,
   displayToken: {
@@ -826,6 +806,25 @@ const cloudProjectSchema = {
   apiUrl,
   botId: cloudBotIdOverride,
   local: cloudLocal,
+} satisfies CommandSchema
+
+const chatSchema = {
+  ...cloudProjectSchema,
+  botId: {
+    ...cloudBotIdOverride,
+    positional: true,
+    idx: 0,
+  },
+  dev: cloudDevTarget,
+  chatApiUrl: {
+    type: 'string',
+    description: 'The URL of the chat server',
+  },
+  protocol: {
+    choices: ['polling'] satisfies ReadonlyArray<ServerEventsProtocol>,
+    default: 'polling' as const,
+    description: 'The Chat response transport',
+  },
 } satisfies CommandSchema
 
 const cloudConfigSetSchema = {

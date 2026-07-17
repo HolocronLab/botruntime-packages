@@ -17,6 +17,8 @@ export {
   type ConversationTurn,
   type TurnAssertions,
   type OutcomeAssertions,
+  type EvalTableSeed,
+  type TableAssertion,
   type ResponseAssertion,
   type ToolAssertion,
   type StateAssertion,

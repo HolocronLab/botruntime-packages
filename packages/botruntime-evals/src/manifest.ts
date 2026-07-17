@@ -1,6 +1,8 @@
 import type { EvalDefinition } from './definition'
 
-export const EVAL_MANIFEST_SCHEMA_VERSION = 1
+// v2 adds durable table fixtures/assertions. Older runners must reject these
+// manifests instead of silently skipping platform-owned setup.
+export const EVAL_MANIFEST_SCHEMA_VERSION = 2
 
 export const EVAL_MANIFEST_TAGS = {
   source: 'adk' as const,

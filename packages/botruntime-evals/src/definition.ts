@@ -45,6 +45,7 @@ export interface TurnAssertions {
   state?: StateAssertion[]
   workflow?: WorkflowAssertion[]
   timing?: TimingAssertion[]
+  tables?: TableAssertion[]
   deliveredTo?: string | string[]
   notDeliveredTo?: string | string[]
   conversationMode?: { target: string; equals: string; property?: string }
@@ -91,6 +92,19 @@ export interface ConversationTurn {
 export interface OutcomeAssertions {
   state?: StateAssertion[]
   workflow?: WorkflowAssertion[]
+  tables?: TableAssertion[]
+}
+
+export interface EvalTableSeed {
+  table: string
+  rows: Array<Record<string, unknown>>
+}
+
+export interface TableAssertion {
+  table: string
+  row_exists?: Record<string, MatchOperator>
+  row_count?: NumericOperator
+  where?: Record<string, MatchOperator>
 }
 
 export interface EvalSetup {
@@ -104,6 +118,8 @@ export interface EvalSetup {
     input?: Record<string, unknown>
   }
   relations?: Record<string, ConversationRelationSelector>
+  /** Rows created before the eval and removed by exact row id after outcome grading. */
+  tables?: EvalTableSeed[]
 }
 
 export interface ConversationRelationSelector {

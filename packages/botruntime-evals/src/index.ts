@@ -25,6 +25,8 @@ export type {
   MatchOperator,
   NumericOperator,
   OutcomeAssertions,
+  EvalTableSeed,
+  TableAssertion,
   ResponseAssertion,
   Span,
   SpanStatus,

@@ -137,7 +137,9 @@ describe('hosted eval chat transport', () => {
         botId: '23',
         development: true,
       }),
-    ).rejects.toThrow(/run `brt dev` in another terminal/i)
+    ).rejects.toThrow(
+      'run `brt dev` in another terminal and keep it connected while retrying this command',
+    )
 
     expect(client.uninstallWorkspaceIntegration).toHaveBeenCalledWith('2', '23', '92')
   })
