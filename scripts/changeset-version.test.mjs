@@ -45,6 +45,23 @@ test('rejects an invalid bump level', () => {
   )
 })
 
+// DEVLP-174 review round 2, defect #4: the gate exists to guarantee a
+// consumer-facing note. An empty (or whitespace-only) body would render as a
+// bare "- " bullet in the generated CHANGELOG — silently useless.
+test('rejects a changeset with an empty body (no consumer-facing summary)', () => {
+  assert.throws(
+    () => parseChangesetFile('---\n"@holocronlab/brt": patch\n---\n'),
+    /body must not be empty/
+  )
+})
+
+test('rejects a changeset with a whitespace-only body', () => {
+  assert.throws(
+    () => parseChangesetFile('---\n"@holocronlab/brt": patch\n---\n\n   \n\t\n'),
+    /body must not be empty/
+  )
+})
+
 test('combineBumps takes the highest severity across changesets for the same package', () => {
   const combined = combineBumps([
     new Map([['@holocronlab/brt', 'patch']]),

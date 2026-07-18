@@ -17,5 +17,11 @@ export function parseChangesetFile(content) {
     if (!lineMatch) throw new Error(`invalid changeset frontmatter line: ${JSON.stringify(line)}`)
     bumps.set(lineMatch[1], lineMatch[2])
   }
-  return { bumps, summary: body.trim() }
+  // The gate exists to guarantee a consumer-facing note (DEVLP-174 review
+  // round 2): an empty/whitespace-only body would render as a bare "- "
+  // bullet in the generated CHANGELOG, which is worse than no entry at all —
+  // it looks like documentation without saying anything.
+  const summary = body.trim()
+  if (!summary) throw new Error('changeset body must not be empty — describe the consumer-facing change')
+  return { bumps, summary }
 }
