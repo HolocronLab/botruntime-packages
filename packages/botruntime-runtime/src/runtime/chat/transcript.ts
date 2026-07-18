@@ -1,5 +1,7 @@
 import { z } from '@holocronlab/botruntime-sdk'
 
+import type { TranscriptCursor } from './transcript-sync'
+
 export type TranscriptAttachment = {
   type: 'image'
   url: string
@@ -64,3 +66,18 @@ const TranscriptItemSchema = z.object({
 })
 
 export const TranscriptSchema = z.array(TranscriptItemSchema)
+
+export const TranscriptCursorSchema = z.object({
+  messageId: z.string().optional(),
+  createdAt: z.string().optional(),
+})
+
+export const TranscriptStateSchema = z.object({
+  transcript: TranscriptSchema,
+  cursor: TranscriptCursorSchema.optional(),
+})
+
+export type TranscriptState = {
+  transcript: TranscriptItem[]
+  cursor?: TranscriptCursor
+}

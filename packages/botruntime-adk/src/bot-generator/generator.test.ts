@@ -311,6 +311,19 @@ describe('BotGenerator config target isolation', () => {
     expect(artifact).not.toContain('../bp_modules/interface_Listable')
   })
 
+  it('generates the atomic transcript snapshot and cursor state schema', async () => {
+    const artifact = await generateDefinition('adk-dev', {
+      environment: 'dev',
+      botId: '42',
+      runtimeBotId: 'dev_explicit',
+      credentials: DEV_CONNECTION,
+    })
+
+    expect(artifact).toContain('TranscriptStateSchema')
+    expect(artifact).toContain('schema: TranscriptStateSchema')
+    expect(artifact).not.toContain('schema: z.object({ transcript: TranscriptSchema })')
+  })
+
   it('adk-dev embeds integration and plugin config only from the explicit dev target', async () => {
     const artifact = await generateDefinition('adk-dev', {
       environment: 'dev',
