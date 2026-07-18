@@ -35,7 +35,12 @@ import { gradeTiming } from './graders/timing'
 import { gradeOutcome } from './graders/outcome'
 import { initLLMJudge } from './graders/llm'
 import { loadEvalsFromDir, filterEvals } from './loader'
-import { evalControlErrorKind, EvalRunnerError, type EvalControlErrorKind } from './errors'
+import {
+  DurableEvalEffectRetryError,
+  evalControlErrorKind,
+  EvalRunnerError,
+  type EvalControlErrorKind,
+} from './errors'
 import { isAdkError } from './internal/adk-error'
 import { randomUUID } from 'crypto'
 import { buildAttachmentPayload, fixtureReportLabel } from './attachments'
@@ -118,7 +123,11 @@ function deserializeCheckpointError(serialized: SerializedCheckpointError): Erro
 
 async function checkpointEvalOperation<T>(
   checkpoint: EvalCheckpointOperation | undefined,
-  input: { phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'; turnIndex?: number },
+  input: {
+    phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
+    turnIndex?: number
+    effectIndex?: number
+  },
   execute: () => Promise<T>
 ): Promise<T> {
   if (!checkpoint) return execute()
@@ -130,7 +139,14 @@ async function checkpointEvalOperation<T>(
         try {
           return { ok: true, value: await execute() }
         } catch (cause) {
-          if (cause instanceof EvalProgressSinkError || cause instanceof EvalCheckpointHostError) throw cause
+          if (
+            cause instanceof EvalProgressSinkError ||
+            cause instanceof EvalCheckpointHostError ||
+            cause instanceof DurableEvalEffectRetryError ||
+            input.phase === 'cleanup'
+          ) {
+            throw cause
+          }
           return { ok: false, error: serializeCheckpointError(cause) }
         }
       },
@@ -157,6 +173,7 @@ async function runEvalControlOperation(operation: EvalControlOperation, invoke: 
   try {
     await invoke()
   } catch (cause) {
+    if (cause instanceof DurableEvalEffectRetryError) throw cause
     const errorKind = evalControlErrorKind(cause)
     throw new EvalRunnerError({
       code: 'EVAL_CONTROL_FAILED',
@@ -344,17 +361,21 @@ function evalMetadata(evalDef: EvalDefinition) {
   }
 }
 
-export function validateDurableEvalDefinitions(evalDefs: EvalDefinition[], durable: boolean): void {
+export function validateDurableEvalDefinitions(
+  evalDefs: EvalDefinition[],
+  durable: boolean,
+  durableEffects?: EvalRunnerConfig['durableEffects']
+): void {
   if (!durable) return
   for (const evalDef of evalDefs) {
     const unsafeTurn = evalDef.conversation.findIndex(
       (turn) => turn.control !== undefined || turn.event !== undefined || turn.parallel?.some((item) => item.event)
     )
-    if (!evalDef.setup?.tables?.length && unsafeTurn < 0) continue
+    if ((!evalDef.setup?.tables?.length && unsafeTurn < 0) || durableEffects) continue
     throw new EvalRunnerError({
       code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED',
       message:
-        'Durable hosted eval checkpoints currently require idempotent message turns and cannot run table seeds, controls, or event inputs.',
+        'Durable hosted eval checkpoints require a host effect ledger for table seeds, controls, and event inputs.',
       expected: true,
       details: {
         evalName: evalDef.name,
@@ -404,6 +425,8 @@ export async function runEval(
     /** Stable within one suite attempt; expands `{{eval.id}}` in setup and table assertions. */
     executionId?: string
     checkpointEvalOperation?: EvalRunnerConfig['checkpointEvalOperation']
+    durableEffects?: EvalRunnerConfig['durableEffects']
+    isCheckpointYield?: EvalRunnerConfig['isCheckpointYield']
   } = {}
 ): Promise<EvalReport> {
   const devServerUrl = options.devServerUrl || DEFAULT_DEV_SERVER_URL
@@ -440,7 +463,11 @@ export async function runEval(
   }
 
   validateEvalTableContract(materializedEvalDef)
-  validateDurableEvalDefinitions([materializedEvalDef], options.checkpointEvalOperation !== undefined)
+  validateDurableEvalDefinitions(
+    [materializedEvalDef],
+    options.checkpointEvalOperation !== undefined,
+    options.durableEffects
+  )
   validateEvalCapabilities([evalDef], collector.capabilities)
   validateEvalControlCapabilities([evalDef], options.evalControl)
   if (!options.sourcePreflighted) {
@@ -468,7 +495,8 @@ export async function runEval(
     connection.botId,
     options.chatWebhookId,
     options.chatBaseUrl,
-    options.chatClient
+    options.chatClient,
+    options.durableEffects
   )
   const controlsUsed = materializedEvalDef.conversation.some((turn) => turn.control !== undefined)
   let currentConversationId: string | undefined
@@ -481,6 +509,15 @@ export async function runEval(
     if (seededTableRows.length === 0) return
     await cleanupSeededTableRows(connection.client, seededTableRows)
     seededTableRows = []
+  }
+
+  const cleanupControls = async (): Promise<void> => {
+    if (!controlsUsed) return
+    await runEvalControlOperation('clear_faults', () =>
+      options.durableEffects
+        ? options.durableEffects.clearFaults(`eval:${executionId}:control:cleanup`)
+        : options.evalControl!.clearFaults()
+    )
   }
 
   try {
@@ -507,23 +544,10 @@ export async function runEval(
           materializedSetup
         )
 
-        const setupRows = await seedEvalTables(connection.client, materializedSetup?.tables)
-        seededTableRows = setupRows
-
-        await triggerEvalWorkflow(
-          connection.client,
-          {
-            userId: session.userId,
-            ...(conversationId ? { conversationId } : {}),
-          },
-          executionId,
-          materializedSetup
-        )
-
         if (!conversationId && evalDef.conversation.length > 0) {
           conversationId = await session.ensureConversation(`eval:${executionId}:conversation:0`)
         }
-        return { userId: session.userId, conversationId, seededTableRows: setupRows }
+        return { userId: session.userId, conversationId }
       }
     )
 
@@ -535,7 +559,31 @@ export async function runEval(
     }
     let conversationId = setupState.conversationId
     currentConversationId = conversationId || undefined
-    seededTableRows = setupState.seededTableRows.map((item) => ({ ...item, ids: [...item.ids] }))
+    for (let index = 0; index < (materializedSetup?.tables?.length ?? 0); index++) {
+      const seed = materializedSetup!.tables![index]!
+      const [seeded] = await checkpointEvalOperation(
+        options.checkpointEvalOperation,
+        { phase: 'setup', effectIndex: index },
+        () => seedEvalTables(connection.client, [seed], options.durableEffects, executionId, undefined, index)
+      )
+      seededTableRows[index] = { ...seeded!, ids: [...seeded!.ids] }
+    }
+    if (materializedSetup?.workflow) {
+      await checkpointEvalOperation(
+        options.checkpointEvalOperation,
+        { phase: 'setup', effectIndex: materializedSetup.tables?.length ?? 0 },
+        () =>
+          triggerEvalWorkflow(
+            connection.client,
+            {
+              userId: setupState.userId,
+              ...(conversationId ? { conversationId } : {}),
+            },
+            executionId,
+            materializedSetup
+          )
+      )
+    }
 
     // Connect the collector filtered by conversationId
     if (conversationId) {
@@ -686,31 +734,45 @@ export async function runEval(
             { phase: 'effect', turnIndex: i },
             async () => {
               currentPhase = 'dispatch'
+              const effectId = `eval:${executionId}:turn:${i}`
               if (turn.control) {
                 const control = turn.control
                 if (control.clearFaults) {
-                  await runEvalControlOperation('clear_faults', () => options.evalControl!.clearFaults())
+                  await runEvalControlOperation('clear_faults', () =>
+                    options.durableEffects
+                      ? options.durableEffects.clearFaults(`${effectId}:control:clear`)
+                      : options.evalControl!.clearFaults()
+                  )
                 }
                 if (control.faults?.length) {
                   await runEvalControlOperation('configure_faults', () =>
-                    options.evalControl!.configureFaults(control.faults!)
+                    options.durableEffects
+                      ? options.durableEffects.configureFaults(
+                          control.faults!,
+                          `${effectId}:control:configure`
+                        )
+                      : options.evalControl!.configureFaults(control.faults!)
                   )
                 }
                 if (control.advanceClock) {
                   await runEvalControlOperation('advance_clock', () =>
-                    options.evalControl!.advanceClock(control.advanceClock!)
+                    options.durableEffects
+                      ? options.durableEffects.advanceClock(
+                          control.advanceClock!,
+                          `${effectId}:control:advance`
+                        )
+                      : options.evalControl!.advanceClock(control.advanceClock!)
                   )
                 }
               }
 
-              const effectId = `eval:${executionId}:turn:${i}`
               if (turn.event) {
-                await session.sendEvent(turn.event.payload)
+                await session.sendEvent(turn.event.payload, `${effectId}:event`)
               } else if (parallel.length > 0) {
                 await Promise.all(
                   parallel.map((item, parallelIndex) =>
                     item.event
-                      ? session!.sendEvent(item.event.payload)
+                      ? session!.sendEvent(item.event.payload, `${effectId}:event:${parallelIndex}`)
                       : session!.sendMessage(item.message!, `${effectId}:message:${parallelIndex}`)
                   )
                 )
@@ -1016,6 +1078,7 @@ export async function runEval(
       const turnsPass = turns.every((turn) => turn.pass)
       const outcomePass = outcomeAssertions.every((assertion) => assertion.pass)
 
+      await cleanupControls()
       await cleanupTables()
       return {
         ...evalMetadata(evalDef),
@@ -1027,12 +1090,36 @@ export async function runEval(
       }
     })
   } catch (err) {
-    if (err instanceof EvalCheckpointHostError) throw err.hostCause
+    const checkpointHostCause = err instanceof EvalCheckpointHostError ? err.hostCause : undefined
+    if (
+      checkpointHostCause !== undefined &&
+      (options.isCheckpointYield === undefined || options.isCheckpointYield(checkpointHostCause))
+    ) {
+      throw checkpointHostCause
+    }
     let cleanupFailure: unknown
     try {
-      await cleanupTables()
+      await checkpointEvalOperation(options.checkpointEvalOperation, { phase: 'cleanup' }, async () => {
+        await cleanupControls()
+        await cleanupTables()
+      })
     } catch (cleanupError) {
+      if (
+        cleanupError instanceof EvalCheckpointHostError &&
+        (options.isCheckpointYield === undefined || options.isCheckpointYield(cleanupError.hostCause))
+      ) {
+        throw cleanupError.hostCause
+      }
       cleanupFailure = cleanupError
+    }
+    if (checkpointHostCause !== undefined) {
+      if (cleanupFailure) {
+        throw new AggregateError(
+          [checkpointHostCause, cleanupFailure],
+          'Eval checkpoint failed and its durable effects could not be cleaned up.'
+        )
+      }
+      throw checkpointHostCause
     }
     // Progress sinks are host persistence, not eval verdicts. Folding their
     // failure into EvalReport could finalize an entry before the missing write
@@ -1102,11 +1189,6 @@ export async function runEval(
       },
     }
   } finally {
-    if (controlsUsed) {
-      await options.evalControl?.clearFaults().catch(() => {
-        logger.warn('Eval control cleanup failed.')
-      })
-    }
     collector.disconnect()
     await session.disconnect().catch((error) => {
       logger.warn(`Chat response listener cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -1148,7 +1230,7 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
   // Validate the complete selected suite before reader setup, progress writes,
   // or any target mutation. Per-eval validation would let an earlier safe eval
   // run before a later unsupported durable effect failed.
-  validateDurableEvalDefinitions(evals, config.checkpointEvalOperation !== undefined)
+  validateDurableEvalDefinitions(evals, config.checkpointEvalOperation !== undefined, config.durableEffects)
   validateEvalControlCapabilities(evals, config.evalControl)
 
   if (config.createSpanSource) {
@@ -1223,9 +1305,11 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
         ...(config.chatBaseUrl !== undefined ? { chatBaseUrl: config.chatBaseUrl } : {}),
         ...(config.resolveFixture !== undefined ? { resolveFixture: config.resolveFixture } : {}),
         ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
+        ...(config.durableEffects !== undefined ? { durableEffects: config.durableEffects } : {}),
         ...(config.checkpointEvalOperation !== undefined
           ? { checkpointEvalOperation: config.checkpointEvalOperation }
           : {}),
+        ...(config.isCheckpointYield !== undefined ? { isCheckpointYield: config.isCheckpointYield } : {}),
         sourcePreflighted: true,
         executionId: `${runId}:${i}`,
       })

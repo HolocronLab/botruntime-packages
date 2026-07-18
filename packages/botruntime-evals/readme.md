@@ -15,6 +15,11 @@ parallel turns, and isolated-development clock/fault controls.
 
 Durable table fixtures use the ordinary Tables API and are platform-owned:
 
+Hosted runners also provide a durable effect transport for table seeds,
+isolated controls, and native event turns. Every mutation carries a stable
+identity: replay returns the original committed result, while the same identity
+with a different payload fails loudly before another side effect is applied.
+
 ```ts
 const order = new Eval({
   name: 'order-is-durable',

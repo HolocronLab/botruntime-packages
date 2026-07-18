@@ -19,7 +19,8 @@ import { Client } from '@holocronlab/botruntime-client'
 import { resolveEvalExecutionEnvironment } from './eval-environment'
 import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
-import { PlatformEvalControl } from './eval-control'
+import { PlatformEvalEffects } from './eval-control'
+import { isStepSignal } from '../../primitives/workflow-signal'
 import { loadEvalManifest } from './eval-manifest-loader'
 import {
   assertHostedEvalExecutionActive,
@@ -118,10 +119,12 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     // Hosted evals always use per-operation durable checkpoints. Reject the
     // complete selected suite before creating its externally visible run so a
     // later unsupported effect cannot leave an earlier eval partially applied.
-    validateDurableEvalDefinitions(filteredDefinitions, true)
-    const evalControl = development
-      ? new PlatformEvalControl({ apiUrl, token, runtimeBotId })
-      : undefined
+    const durableEffects = new PlatformEvalEffects({ apiUrl, token, runtimeBotId })
+    const evalControl = development ? durableEffects : undefined
+    const controlsUsed = filteredDefinitions.some((definition) =>
+      definition.conversation.some((turn) => turn.control !== undefined)
+    )
+    validateDurableEvalDefinitions(filteredDefinitions, true, durableEffects)
     validateEvalControlCapabilities(filteredDefinitions, evalControl)
 
     const localSpanIngestUrl = process.env.ADK_SPAN_INGEST_URL
@@ -188,6 +191,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
         ? { resolveFixture: createHostedFixtureResolver(fixtures, sdkClient) }
         : {}),
       ...(evalControl ? { evalControl } : {}),
+      durableEffects,
       createSpanSource,
       sourcePreflighted: true,
       evalOptions: {
@@ -210,9 +214,11 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
         hostedLifecycle.rememberCompletedReport(report)
         return report
       },
-      checkpointEvalOperation: ({ phase, turnIndex, execute }) =>
+      checkpointEvalOperation: ({ phase, turnIndex, effectIndex, execute }) =>
         step(
-          phase === 'dispatch' || phase === 'effect' || phase === 'turn' || phase === 'persist'
+          phase === 'setup' && effectIndex !== undefined
+            ? `setup-effect-${effectIndex}`
+            : phase === 'dispatch' || phase === 'effect' || phase === 'turn' || phase === 'persist'
             ? `${phase}-turn-${turnIndex}`
             : phase,
           async () => {
@@ -224,8 +230,18 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
             }
             return execute()
           },
-          { maxAttempts: phase === 'persist' ? 5 : 1 }
+          {
+            maxAttempts:
+              phase === 'setup' ||
+              phase === 'effect' ||
+              phase === 'persist' ||
+              phase === 'finalize' ||
+              phase === 'cleanup'
+                ? 5
+                : 1,
+          }
         ),
+      isCheckpointYield: isStepSignal,
       signal,
     }
 
@@ -235,7 +251,20 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       assertHostedEvalExecutionActive(signal)
     } catch (error) {
       assertHostedEvalExecutionActive(signal)
-      return hostedLifecycle.terminalizeFailure(error, step)
+      let terminalError = error
+      if (!isStepSignal(error) && controlsUsed) {
+        try {
+          await step(
+            'cleanup-eval-controls',
+            () => durableEffects.clearFaults(`eval:${vortexRunId}:control:terminal-cleanup`),
+            { maxAttempts: 5 }
+          )
+        } catch (cleanupError) {
+          if (isStepSignal(cleanupError)) throw cleanupError
+          terminalError = new AggregateError([error, cleanupError], 'Eval execution and control cleanup failed')
+        }
+      }
+      return hostedLifecycle.terminalizeFailure(terminalError, step)
     }
 
     try {

@@ -4,12 +4,14 @@ import { CognitiveBeta } from '@holocronlab/botruntime-cognitive'
 import { describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition, EvalRunnerConfig, Span, SpanSource, SpanSourceCapabilities } from './types'
 import type { ChatClient } from './types'
+import { DurableEvalEffectRetryError } from './errors'
 import {
   isPartialEvalSuiteAbort,
   runEval,
   runEvalSuite,
   validateEvalCapabilities,
   validateEvalControlCapabilities,
+  validateDurableEvalDefinitions,
 } from './runner'
 
 function completedHandler(): Span {
@@ -209,6 +211,32 @@ describe('eval observation capability preflight', () => {
         checkpointEvalOperation,
       })
     ).rejects.toMatchObject({ code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED', expected: true })
+  })
+
+  it('accepts durable seeds, controls, and event inputs when the host owns idempotent effects', () => {
+    const durableEffects = {
+      createTableRows: vi.fn(),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    expect(() =>
+      validateDurableEvalDefinitions(
+        [
+          {
+            name: 'durable-effects',
+            setup: { tables: [{ table: 'CasesTable', rows: [{ id: 'fixture' }] }] },
+            conversation: [
+              { event: { payload: { type: 'hitl.approved' } } },
+              { control: { advanceClock: { milliseconds: 600_000 } } },
+            ],
+          },
+        ],
+        true,
+        durableEffects
+      )
+    ).not.toThrow()
   })
 
   it('rejects virtual time, faults, and parallel input before side effects when the host has no eval control', () => {
@@ -757,7 +785,7 @@ describe('eval observation capability preflight', () => {
       turnIndex,
       execute,
     }: {
-      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'
+      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
       turnIndex?: number
       execute: () => Promise<T>
     }): Promise<T> => {
@@ -856,6 +884,308 @@ describe('eval observation capability preflight', () => {
     expect(committedSideEffects).toBe(1)
   })
 
+  it('does not cache an ambiguous durable effect acknowledgement as an eval verdict', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    const createEvent = vi
+      .fn()
+      .mockRejectedValueOnce(new DurableEvalEffectRetryError('acknowledgement unknown'))
+      .mockResolvedValue(undefined)
+    const durableEffects = {
+      createTableRows: vi.fn(),
+      createEvent,
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const value = await execute()
+      cache.set(key, value)
+      return value
+    }
+    const options = {
+      executionId: 'run:lost-ack',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      durableEffects,
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-event-lost-ack',
+      conversation: [{ event: { payload: { type: 'hitl.approved' } }, expectSilence: true }],
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'acknowledgement unknown'
+    )
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report.pass).toBe(true)
+    expect(createEvent).toHaveBeenCalledTimes(2)
+    expect(createEvent).toHaveBeenLastCalledWith({
+      type: 'eval:event',
+      userId: 'user-1',
+      conversationId: 'conv-1',
+      payload: { type: 'hitl.approved' },
+      effectId: 'eval:run:lost-ack:turn:0:event',
+    })
+  })
+
+  it('cleans acknowledged table effects when a later setup effect exhausts checkpoint retries', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const deleteTableRows = vi.fn().mockResolvedValue({ deletedRows: 1 })
+    const durableEffects = {
+      createTableRows: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ id: 301 }] })
+        .mockRejectedValueOnce(new DurableEvalEffectRetryError('second table acknowledgement unknown')),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({ execute }) =>
+      execute()
+    const definition: EvalDefinition = {
+      name: 'durable-table-terminal-cleanup',
+      setup: {
+        tables: [
+          { table: 'CasesTable', rows: [{ value: 'known' }] },
+          { table: 'DocumentsTable', rows: [{ value: 'ambiguous' }] },
+        ],
+      },
+      conversation: [{ user: 'never reached' }],
+    }
+
+    await expect(
+      runEval(definition, { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' }, {
+        executionId: 'run:table-cleanup',
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+        durableEffects,
+        isCheckpointYield: () => false,
+      })
+    ).rejects.toThrow('second table acknowledgement unknown')
+    expect(deleteTableRows).toHaveBeenCalledOnce()
+    expect(deleteTableRows).toHaveBeenCalledWith({ table: 'CasesTable', ids: [301] })
+  })
+
+  it('retries exact-row cleanup outside a failed finalization checkpoint', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const deleteTableRows = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('table cleanup unavailable'))
+      .mockRejectedValueOnce(new Error('table cleanup still unavailable'))
+      .mockResolvedValue({ deletedRows: 1 })
+    const durableEffects = {
+      createTableRows: vi.fn().mockResolvedValue({ rows: [{ id: 351 }] }),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const cache = new Map<string, unknown>()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      effectIndex,
+      execute,
+    }) => {
+      if (phase === 'cleanup') {
+        let lastError: unknown
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            return await execute()
+          } catch (error) {
+            lastError = error
+          }
+        }
+        throw lastError
+      }
+      const key = `${phase}:${effectIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const result = await execute()
+      cache.set(key, result)
+      return result
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-table-finalize-recovery',
+      setup: { tables: [{ table: 'CasesTable', rows: [{ value: 'known' }] }] },
+      conversation: [],
+    }
+
+    const report = await runEval(
+      definition,
+      { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' },
+      {
+        executionId: 'run:table-finalize-recovery',
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+        durableEffects,
+        isCheckpointYield: () => false,
+      }
+    )
+
+    expect(report.pass).toBe(false)
+    expect(report.error).toContain('Exact-row cleanup of eval table fixtures failed')
+    expect(deleteTableRows).toHaveBeenCalledTimes(3)
+    expect(deleteTableRows).toHaveBeenNthCalledWith(1, { table: 'CasesTable', ids: [351] })
+    expect(deleteTableRows).toHaveBeenNthCalledWith(2, { table: 'CasesTable', ids: [351] })
+    expect(deleteTableRows).toHaveBeenNthCalledWith(3, { table: 'CasesTable', ids: [351] })
+  })
+
+  it('propagates a cleanup yield and resumes exact-row cleanup on the next invocation', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const deleteTableRows = vi.fn().mockResolvedValue({ deletedRows: 1 })
+    const acknowledgementUnknown = () => new DurableEvalEffectRetryError('second table acknowledgement unknown')
+    const durableEffects = {
+      createTableRows: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ id: 401 }] })
+        .mockRejectedValueOnce(acknowledgementUnknown()),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const yieldSignal = { durableYield: true }
+    let yieldCleanup = true
+    const cache = new Map<string, { ok: true; value: unknown } | { ok: false; error: unknown }>()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      effectIndex,
+      execute,
+    }) => {
+      if (phase === 'cleanup' && yieldCleanup) {
+        yieldCleanup = false
+        throw yieldSignal
+      }
+      const key = `${phase}:${turnIndex ?? ''}:${effectIndex ?? ''}`
+      const cached = cache.get(key)
+      if (cached) {
+        if (!cached.ok) throw cached.error
+        return cached.value as never
+      }
+      try {
+        const value = await execute()
+        cache.set(key, { ok: true, value })
+        return value
+      } catch (error) {
+        if (phase === 'setup' && effectIndex === 1) cache.set(key, { ok: false, error })
+        throw error
+      }
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-table-cleanup-yield',
+      setup: {
+        tables: [
+          { table: 'CasesTable', rows: [{ value: 'known' }] },
+          { table: 'DocumentsTable', rows: [{ value: 'ambiguous' }] },
+        ],
+      },
+      conversation: [{ user: 'never reached' }],
+    }
+    const options = {
+      executionId: 'run:table-cleanup-yield',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      durableEffects,
+      isCheckpointYield: (cause: unknown) => cause === yieldSignal,
+    }
+
+    await expect(
+      runEval(definition, { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' }, options)
+    ).rejects.toBe(yieldSignal)
+    expect(deleteTableRows).not.toHaveBeenCalled()
+
+    await expect(
+      runEval(definition, { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' }, options)
+    ).rejects.toThrow('second table acknowledgement unknown')
+    expect(deleteTableRows).toHaveBeenCalledOnce()
+    expect(deleteTableRows).toHaveBeenCalledWith({ table: 'CasesTable', ids: [401] })
+    expect(durableEffects.createTableRows).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps configured faults across a durable yield and clears them once at terminal finalization', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    let invocation = 1
+    const durableEffects = {
+      createTableRows: vi.fn(),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn().mockResolvedValue(undefined),
+      clearFaults: vi.fn().mockResolvedValue(undefined),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      if (invocation === 1 && phase === 'turn' && turnIndex === 1) throw new Error('durable-yield')
+      const value = await execute()
+      cache.set(key, value)
+      return value
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-control-yield',
+      conversation: [
+        {
+          control: { faults: [{ point: 'workflow.after_dispatch', mode: 'lost_ack', times: 1 }] },
+          expectSilence: true,
+        },
+        { user: 'continue' },
+      ],
+    }
+    const options = {
+      executionId: 'run:control-yield',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      durableEffects,
+      evalControl: durableEffects as unknown as NonNullable<EvalRunnerConfig['evalControl']>,
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'durable-yield'
+    )
+    expect(durableEffects.clearFaults).not.toHaveBeenCalled()
+
+    invocation = 2
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).resolves.toMatchObject({
+      pass: true,
+    })
+    expect(durableEffects.configureFaults).toHaveBeenCalledOnce()
+    expect(durableEffects.clearFaults).toHaveBeenCalledOnce()
+    expect(durableEffects.clearFaults).toHaveBeenCalledWith('eval:run:control-yield:control:cleanup')
+  })
+
   it('rehydrates a cached typed turn failure without changing its durable verdict', async () => {
     const cache = new Map<string, unknown>()
     let loseFirstTurnAck = true
@@ -911,7 +1241,7 @@ describe('eval observation capability preflight', () => {
       turnIndex,
       execute,
     }: {
-      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'
+      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
       turnIndex?: number
       execute: () => Promise<T>
     }): Promise<T> => {

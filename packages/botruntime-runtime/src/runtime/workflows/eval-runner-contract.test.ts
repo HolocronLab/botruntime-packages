@@ -105,13 +105,23 @@ describe('runtime eval workflow trace-reader contract', () => {
       /checkpointEvalOperation:[\s\S]*?step\([\s\S]*?assertHostedEvalStartBudget\([\s\S]*?return execute\(\)/,
     )
     expect(source).toContain('runId: String(vortexRunId)')
+    expect(source).toContain("phase === 'cleanup'")
   })
 
   it('rejects unsupported durable suites before creating the hosted run', () => {
-    const durablePreflight = source.indexOf('validateDurableEvalDefinitions(filteredDefinitions, true)')
+    const durablePreflight = source.indexOf('validateDurableEvalDefinitions(filteredDefinitions, true, durableEffects)')
     const createRun = source.indexOf("step('create-run'")
 
     expect(durablePreflight).toBeGreaterThan(-1)
     expect(createRun).toBeGreaterThan(durablePreflight)
+    expect(source).toContain('durableEffects,')
+  })
+
+  it('keeps controls across workflow yields and clears them before terminal failure', () => {
+    expect(source).toContain('!isStepSignal(error) && controlsUsed')
+    expect(source).toContain("'cleanup-eval-controls'")
+    expect(source).toContain('control:terminal-cleanup')
+    expect(source).toMatch(/cleanup-eval-controls[\s\S]*?maxAttempts: 5/)
+    expect(source).toContain('if (isStepSignal(cleanupError)) throw cleanupError')
   })
 })
