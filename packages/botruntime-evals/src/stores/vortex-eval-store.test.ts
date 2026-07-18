@@ -543,6 +543,42 @@ describe('VortexEvalStore strict hosted contract', () => {
     expect(fetchMock.mock.calls.map((call) => String(call[1]?.body)).join('\n')).not.toContain('CANARY')
   })
 
+  it('projects table assertions into explicit metadata-only kinds', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => json({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await store().appendTurnResults('1', '2', {
+      turnIndex: 0,
+      userMessage: '',
+      botResponse: '',
+      assertions: [
+        {
+          assertion: 'table DduTable row_exists',
+          pass: true,
+          expected: 'private expected',
+          actual: 'private actual',
+        },
+        {
+          assertion: 'table DocumentTable row_count',
+          pass: true,
+          expected: 'private expected',
+          actual: 'private actual',
+        },
+      ],
+      pass: true,
+      botDuration: 8,
+      evalDuration: 3,
+    })
+
+    expect(bodyOf(fetchMock.mock.calls[0]!)).toEqual({
+      results: [
+        expect.objectContaining({ assertionKind: 'table_row_exists', passed: true }),
+        expect.objectContaining({ assertionKind: 'table_row_count', passed: true }),
+      ],
+    })
+    expect(String(fetchMock.mock.calls[0]![1]?.body)).not.toMatch(/DduTable|DocumentTable|private/)
+  })
+
   it('performs the exact idempotent final reconciliation before completion', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
       const path = new URL(String(input)).pathname

@@ -251,8 +251,9 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     botsStoreModule.writeBotsStore(this.botsStorePath(), store)
   }
 
-  // botCloudapiClient — Bearer = the bot's per-bot key from bots.json. Required
-  // for all per-bot operations (config-vars, integrations, bundle).
+  // botCloudapiClient — Bearer = the bot's per-bot key from bots.json. Used
+  // only by API surfaces that still require the bot principal (for example
+  // production config, secret, chat, and hosted eval).
   protected async botCloudapiClient(profileName: string, botId: string, apiUrl: string): Promise<CloudapiClient> {
     const store = this.readBotsStore()
     const creds = botsStoreModule.getBotCreds(store, profileName, botId)

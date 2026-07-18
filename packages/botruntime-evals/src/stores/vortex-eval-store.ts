@@ -105,6 +105,8 @@ export const VORTEX_EVAL_ASSERTION_KINDS = [
   'delivered_to',
   'not_delivered_to',
   'conversation_mode',
+  'table_row_exists',
+  'table_row_count',
   'outcome',
   'unknown',
 ] as const
@@ -588,6 +590,8 @@ function assertionKindOf(assertion: string): VortexEvalAssertionKind {
   if (assertion.startsWith('delivered_to:')) return 'delivered_to'
   if (assertion.startsWith('not_delivered_to:')) return 'not_delivered_to'
   if (assertion.startsWith('conversation_mode:')) return 'conversation_mode'
+  if (assertion.startsWith('table ') && assertion.endsWith(' row_exists')) return 'table_row_exists'
+  if (assertion.startsWith('table ') && assertion.endsWith(' row_count')) return 'table_row_count'
   if (assertion === 'outcome') return 'outcome'
   return 'unknown'
 }

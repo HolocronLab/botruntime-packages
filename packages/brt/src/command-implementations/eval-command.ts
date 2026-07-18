@@ -79,6 +79,8 @@ const ASSERTION_KINDS = [
   'delivered_to',
   'not_delivered_to',
   'conversation_mode',
+  'table_row_exists',
+  'table_row_count',
   'outcome',
   'unknown',
 ] as const

@@ -36,6 +36,9 @@ error text. Errors cross the boundary only as a closed `errorKind`:
 Assertion results cross it only as a closed `assertionKind`, `passed`, the required
 `skipped` bit, and optional bounded numeric measurements. Privacy is therefore a
 property of the storage schema and DTO decoder, not a convention callers must remember.
+Table assertions keep their two semantic variants as `table_row_exists` and
+`table_row_count`; table names, predicates, expected values, and matched rows do not
+cross the hosted boundary.
 
 ### Bot-scoped authority only
 

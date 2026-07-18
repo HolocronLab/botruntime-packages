@@ -7,7 +7,6 @@ import {
 } from '../api/cloudapi-client'
 import { ApiClient, PublicOrPrivateIntegration, IntegrationSummary } from '../api/client'
 import * as adkBundle from '../adk-bundle'
-import * as botsStore from '../bots-store'
 import { cloudInfo, readSecretValue } from '../cloud-io'
 import type * as cloudLink from '../cloud-project-link'
 import type commandDefinitions from '../command-definitions'
@@ -322,9 +321,9 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
     }
     const link = this.loadLink()
     const botId = this.requireBotId(link)
-    const { name: profileName, profile } = await this.resolveProfile()
+    const { profile } = await this.resolveProfile()
     const apiUrl = this.resolveApiUrl(profile, link)
-    const client = await this.botCloudapiClient(profileName, botId, apiUrl)
+    const client = new CloudapiClient(apiUrl, profile.token)
 
     const conflicting = (link.integrations ?? []).find((i) => i.alias !== alias)
     if (conflicting) {
@@ -334,19 +333,14 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
     }
 
     const config = await this._readConfig()
-    const res = await client.installIntegration(botId, name, version, config, this.argv.alias)
-
-    // webhookSecret is shown once -> bots.json (never bot.json); webhookId is
-    // public -> bot.json, so `brt integrations register` can find it again.
-    const store = this.readBotsStore()
-    const existingCreds = botsStore.getBotCreds(store, profileName, botId)
-    if (!existingCreds?.apiKey) {
-      throw new errors.BotpressCLIError(
-        `bot ${botId} has no per-bot key on record in ${this.botsStorePath()} — this should not happen after a successful install`
-      )
-    }
-    botsStore.setBotCreds(store, profileName, botId, { apiKey: existingCreds.apiKey, webhookSecret: res.webhookSecret })
-    this.writeBotsStore(store)
+    const res = await client.installWorkspaceIntegration(
+      profile.workspaceId,
+      botId,
+      name,
+      version,
+      config,
+      this.argv.alias
+    )
 
     const entry: cloudLink.IntegrationLink = { ref: `${name}@${version}`, alias, webhookId: res.webhookId }
     this.saveLink({ ...link, integrations: [...(link.integrations ?? []).filter((i) => i.alias !== alias), entry] })
@@ -367,7 +361,7 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
     }
 
     cloudInfo(`installed ${name}@${version} alias=${alias} webhookId=${res.webhookId}`)
-    cloudInfo(`webhookSecret stored in ${this.botsStorePath()} (shown once). Now: brt integrations register ${res.webhookId}`)
+    cloudInfo(`register with: brt integrations register ${res.webhookId}`)
   }
 
   private async _readConfig(): Promise<Record<string, unknown>> {
@@ -583,11 +577,11 @@ export class CloudIntegrationRegisterCommand extends CloudCommand<CloudIntegrati
     }
     const link = this.loadLink()
     const botId = this.requireBotId(link)
-    const { name: profileName, profile } = await this.resolveProfile()
+    const { profile } = await this.resolveProfile()
     const apiUrl = this.resolveApiUrl(profile, link)
-    const client = await this.botCloudapiClient(profileName, botId, apiUrl)
+    const client = new CloudapiClient(apiUrl, profile.token)
 
-    const res = await client.registerIntegration(botId, this.argv.webhookId)
+    const res = await client.registerWorkspaceIntegration(profile.workspaceId, botId, this.argv.webhookId)
     if (this.isAgentProject) {
       await refreshCompletedAgentDependencySnapshot({
         projectDir: this.projectDir,
@@ -602,7 +596,7 @@ export class CloudIntegrationRegisterCommand extends CloudCommand<CloudIntegrati
         },
       })
     }
-    cloudInfo(`registered ${res.webhookId} -> ${res.webhookUrl}`)
+    cloudInfo(`registered ${this.argv.webhookId} -> ${res.webhookUrl}`)
   }
 }
 
