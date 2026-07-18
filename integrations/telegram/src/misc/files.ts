@@ -52,7 +52,9 @@ export async function resolveTelegramMedia(fileUrl: string, title?: string): Pro
   headers.authorization = `Bearer ${token}`
   headers['x-bot-id'] = botId
 
-  const response = await fetch(fileUrl, { headers })
+  const publicUrl = new URL(fileUrl)
+  const internalUrl = new URL(`${publicUrl.pathname}${publicUrl.search}`, process.env.BP_API_URL).toString()
+  const response = await fetch(internalUrl, { headers, signal: AbortSignal.timeout(20_000) })
   if (!response.ok) {
     throw new Error(`telegram: protected file download -> ${response.status}`)
   }

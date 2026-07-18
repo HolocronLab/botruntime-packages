@@ -1,6 +1,6 @@
 {
   "name": "@botruntime/telegram",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "private": true,
   "type": "module",
   "description": "Telegram integration for Botruntime with forum topics, request_contact, setMyCommands, and cloudapi routing.",
@@ -10,8 +10,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@holocronlab/botruntime-client": "^1.46.0",
-    "@holocronlab/botruntime-sdk": "^6.13.3",
+    "@holocronlab/botruntime-client": "^1.46.6",
+    "@holocronlab/botruntime-sdk": "^6.13.5",
     "@holocronlab/botruntime-zui": "^2.3.0",
     "https-proxy-agent": "^9.1.0",
     "lodash": "^4.17.21",
