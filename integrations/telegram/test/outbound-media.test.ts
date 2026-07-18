@@ -15,6 +15,7 @@ const originalEnv = {
 }
 
 const protectedImageUrl = 'https://botruntime.example/v1/files/download?key=mirror%2Fddu-page.jpg'
+const internalImageUrl = 'https://runtime.internal/v1/files/download?key=mirror%2Fddu-page.jpg'
 
 beforeEach(() => {
   process.env.BP_API_URL = 'https://runtime.internal'
@@ -23,7 +24,7 @@ beforeEach(() => {
   process.env.BP_BOT_ID = 'lawyer-bot'
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init)
-    expect(request.url).toBe(protectedImageUrl)
+    expect(request.url).toBe(internalImageUrl)
     expect(request.headers.get('authorization')).toBe('Bearer runtime-token')
     expect(request.headers.get('x-bot-id')).toBe('lawyer-bot')
     return new Response('jpeg-bytes', { headers: { 'content-type': 'image/jpeg' } })

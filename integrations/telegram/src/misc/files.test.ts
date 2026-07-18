@@ -27,7 +27,7 @@ afterEach(() => {
 test('downloads a protected Botruntime document with runtime credentials before giving it to Telegram', async () => {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
-    expect(request.url).toBe('https://botruntime.example/v1/files/download?key=claim.docx')
+    expect(request.url).toBe('https://runtime.internal/v1/files/download?key=claim.docx')
     expect(request.headers.get('authorization')).toBe('Bearer runtime-token')
     expect(request.headers.get('x-bot-id')).toBe('42')
     return new Response('approved-claim')

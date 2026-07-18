@@ -280,12 +280,16 @@ export class BaseConversationInstance<TChannel extends Channels = Channels> {
     if (mapping) {
       const message = context.get('message', { optional: true })
 
+      if (!message || message.conversationId !== this.id) {
+        return
+      }
+
       await this.client
         .callAction({
           type: mapping,
           input: {
             conversationId: this.id,
-            messageId: message?.id || '',
+            messageId: message.id,
           },
         })
         .catch(() => {})
@@ -301,12 +305,16 @@ export class BaseConversationInstance<TChannel extends Channels = Channels> {
     if (mapping) {
       const message = context.get('message', { optional: true })
 
+      if (!message || message.conversationId !== this.id) {
+        return
+      }
+
       await this.client
         .callAction({
           type: mapping,
           input: {
             conversationId: this.id,
-            messageId: message?.id || '',
+            messageId: message.id,
           },
         })
         .catch(() => {})
