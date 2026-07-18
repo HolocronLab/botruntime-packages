@@ -25,9 +25,12 @@ export const DEFAULT_TARGET_DIRS = [
   // (assistant-instructions → CLAUDE.md/AGENTS.md генерируемого бота) — любой
   // из этих путей доезжает до каждого нового проекта.
   'packages/botruntime-adk/assets-static',
+  // Source-шаблон инструкций генератора: пишется в CLAUDE.md/AGENTS.md каждого
+  // нового проекта, живёт вне assets-static.
+  'packages/botruntime-adk/src/agent-init',
 ]
 
-const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json'])
+const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json', '.html', '.yml', '.yaml', '.txt', '.css'])
 const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 
 // Matches an actual module specifier, not prose: `from '@botpress/x'`,
@@ -37,11 +40,18 @@ const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 // "botpress/skills" (a plugin-marketplace name, not an npm import).
 // \s+ после ключевых слов покрывает и перенос строки (multiline import), а
 // `import '...'` — side-effect форму без from; require допускает пробел до скобки.
-const IMPORT_PATTERN = /\b(?:from\s+|require\s*\(\s*|import\s*\(\s*|import\s+)['"`]@botpress\/[^'"`]+['"`]/
+// (?:\s|\/\*[^]*?\*\/)* — между ключевым словом и спецификатором допустимы и
+// пробелы, и блок-комментарии (import(/* webpackIgnore */ '@botpress/x')).
+const GAP = String.raw`(?:\s|\/\*[^]*?\*\/)*`
+const IMPORT_PATTERN = new RegExp(
+  String.raw`\b(?:from${GAP}|require${GAP}\(${GAP}|import${GAP}\(${GAP}|import${GAP})` + String.raw`['"\x60]@botpress\/[^'"\x60]+['"\x60]`
+)
 
 // package.json dependency/devDependency/peerDependency key, e.g.
 // `"@botpress/sdk": "1.0.0"`.
-const JSON_DEP_PATTERN = /"@botpress\/[^"]+"\s*:/
+// Ключ ИЛИ npm-алиас в значении: "runtime": "npm:@botpress/runtime@1.0.0"
+// ставит запрещённый пакет под легальным именем.
+const JSON_DEP_PATTERN = /"@botpress\/[^"]+"\s*:|"npm:@botpress\/[^"]+"/
 
 function listFilesRecursively(startDir) {
   const out = []

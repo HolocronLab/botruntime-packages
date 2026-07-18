@@ -94,3 +94,8 @@ test('template-literal динамический импорт и .mts/.cts тож
   const violations = findBannedImports('x.mts', 'const m = await import(`@botpress/runtime`)')
   assert.equal(violations.length, 1)
 })
+
+test('комментарий внутри импорта и npm-алиас в манифесте ловятся', () => {
+  assert.equal(findBannedImports('a.ts', "import(/* webpackIgnore: true */ '@botpress/runtime')").length, 1)
+  assert.equal(findBannedImports('a.json', '{"runtime": "npm:@botpress/runtime@1.0.0"}').length, 1)
+})
