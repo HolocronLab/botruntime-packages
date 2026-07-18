@@ -70,34 +70,17 @@ const registrationFailure = (target: EvalChatTarget, error: unknown) => {
 }
 
 async function registerChat(target: EvalChatTarget, webhookId: string): Promise<void> {
-  if (target.development) {
-    await registerWithReadinessRetry(() =>
-      target.client.registerWorkspaceIntegration(target.workspaceId, target.botId, webhookId)
-    )
-    return
-  }
-  await registerWithReadinessRetry(() => target.client.registerIntegration(target.botId, webhookId))
+  await registerWithReadinessRetry(() =>
+    target.client.registerWorkspaceIntegration(target.workspaceId, target.botId, webhookId)
+  )
 }
 
 export async function ensureEvalChatTransport(
   target: EvalChatTarget,
 ): Promise<EvalChatResult> {
-  const installations = target.development
-    ? (
-        await target.client.listWorkspaceIntegrations(
-          target.workspaceId,
-          target.botId,
-        )
-      ).installations
-    : Object.values(
-        (await target.client.getDevBotTarget(target.botId, target.workspaceId))
-          .bot.integrations,
-      ).map((installation) => ({
-        name: installation.name,
-        version: installation.version,
-        webhookId: installation.webhookId,
-        enabled: true,
-      }))
+  const installations = (
+    await target.client.listWorkspaceIntegrations(target.workspaceId, target.botId)
+  ).installations
 
   const existing = findChat(installations)
   if (existing) {
@@ -119,20 +102,13 @@ export async function ensureEvalChatTransport(
   }
 
   const config = { encryptionKey: randomBytes(32).toString('base64url') }
-  const installed = target.development
-    ? await target.client.installWorkspaceIntegration(
-        target.workspaceId,
-        target.botId,
-        EVAL_CHAT_NAME,
-        EVAL_CHAT_VERSION,
-        config,
-      )
-    : await target.client.installIntegration(
-        target.botId,
-        EVAL_CHAT_NAME,
-        EVAL_CHAT_VERSION,
-        config,
-      )
+  const installed = await target.client.installWorkspaceIntegration(
+    target.workspaceId,
+    target.botId,
+    EVAL_CHAT_NAME,
+    EVAL_CHAT_VERSION,
+    config,
+  )
 
   try {
     await registerChat(target, installed.webhookId)

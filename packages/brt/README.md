@@ -277,8 +277,8 @@ brt eval runs --latest --json
 brt eval runs --limit 10 --next-token MTAw --json
 ```
 
-Production requires the canonical positive-decimal project link and the
-per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
+Production hosted eval requires the canonical positive-decimal project link and
+the per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
 the selected profile PAT narrowed by the opaque runtime bot identity previously
 attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
 two authority modes cannot be mixed implicitly.
@@ -291,12 +291,15 @@ backoff for up to 120 seconds. Exhausting that budget fails loudly.
 Interactive Chat uses the same explicit target model:
 
 ```bash
-brt chat          # production target from the canonical link and per-bot key
+brt chat          # production target from the canonical link and workspace PAT
 brt chat --dev    # attested dev runtime and profile PAT
 ```
 
 The CLI ensures the exact compatible first-party Chat integration in the
-selected environment. `--local` is valid only together with `--dev`.
+selected environment. Production provisioning uses the workspace PAT with the
+canonical workspace/bot target; the conversation itself uses the Chat
+webhook/user identity. It does not require a copied per-bot key. `--local` is
+valid only together with `--dev`.
 
 Administrative configuration commands use the selected workspace profile in
 both environments. In production, `brt config set/list/rm` and
