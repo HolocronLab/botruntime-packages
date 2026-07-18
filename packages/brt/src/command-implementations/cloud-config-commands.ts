@@ -25,13 +25,14 @@ export class ConfigSetCommand extends CloudCommand<ConfigSetCommandDefinition> {
       )
       return
     }
-    const link = this.loadLink()
-    const botId = this.requireBotId(link)
-    const { name: profileName, profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = await this.botCloudapiClient(profileName, botId, apiUrl)
-
-    await setBotConfiguration(client, botId, this.argv.name, this.argv.valueFile, link.workspaceId)
+    const target = await this.workspaceAdminCloudapiTarget()
+    await setBotConfiguration(
+      target.client,
+      target.botId,
+      this.argv.name,
+      this.argv.valueFile,
+      target.workspaceId
+    )
   }
 }
 
@@ -42,13 +43,8 @@ export class ConfigListCommand extends CloudCommand<ConfigListCommandDefinition>
       const target = await this.devCloudapiTarget()
       return printBotConfiguration(await readBotConfiguration(target.client, target.targetBotId, target.workspaceId))
     }
-    const link = this.loadLink()
-    const botId = this.requireBotId(link)
-    const { name: profileName, profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = await this.botCloudapiClient(profileName, botId, apiUrl)
-
-    printBotConfiguration(await readBotConfiguration(client, botId, link.workspaceId))
+    const target = await this.workspaceAdminCloudapiTarget()
+    printBotConfiguration(await readBotConfiguration(target.client, target.botId, target.workspaceId))
   }
 }
 
@@ -60,13 +56,8 @@ export class ConfigRmCommand extends CloudCommand<ConfigRmCommandDefinition> {
       await removeBotConfiguration(target.client, target.targetBotId, this.argv.name, target.workspaceId)
       return
     }
-    const link = this.loadLink()
-    const botId = this.requireBotId(link)
-    const { name: profileName, profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = await this.botCloudapiClient(profileName, botId, apiUrl)
-
-    await removeBotConfiguration(client, botId, this.argv.name, link.workspaceId)
+    const target = await this.workspaceAdminCloudapiTarget()
+    await removeBotConfiguration(target.client, target.botId, this.argv.name, target.workspaceId)
   }
 }
 
@@ -84,13 +75,8 @@ export class SecretSetCommand extends CloudCommand<SecretSetCommandDefinition> {
       )
       return
     }
-    const link = this.loadLink()
-    const botId = this.requireBotId(link)
-    const { name: profileName, profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = await this.botCloudapiClient(profileName, botId, apiUrl)
-
-    await setSecretVar(client, botId, this.argv.name, this.argv.valueFile)
+    const target = await this.workspaceAdminCloudapiTarget()
+    await setSecretVar(target.client, target.botId, this.argv.name, this.argv.valueFile, target.workspaceId)
   }
 }
 
@@ -118,13 +104,11 @@ async function readBotConfiguration(
   botId: string,
   workspaceId?: string
 ): Promise<{
-  id: string
   data: Record<string, unknown>
   schema: Record<string, unknown>
 }> {
   const response = await client.getBotConfiguration(botId, workspaceId)
   return {
-    id: response.bot.id,
     data: response.bot.configuration?.data ?? {},
     schema: response.bot.configuration?.schema ?? {},
   }
@@ -144,9 +128,9 @@ async function setBotConfiguration(
   const raw = await readSecretValue('value', valueFile)
   const value = parseConfigurationValue(name, raw, current.schema)
   const data = { ...current.data, [name]: value }
-  await client.updateBotConfiguration(current.id, data, workspaceId)
+  await client.updateBotConfiguration(botId, data, workspaceId)
 
-  const persisted = await readBotConfiguration(client, current.id, workspaceId)
+  const persisted = await readBotConfiguration(client, botId, workspaceId)
   if (!Object.hasOwn(persisted.data, name) || !sameValue(persisted.data[name], value)) {
     throw new errors.BotpressCLIError(`configuration write for "${name}" was not persisted`)
   }
@@ -162,9 +146,9 @@ async function removeBotConfiguration(
   const current = await readBotConfiguration(client, botId, workspaceId)
   const data = { ...current.data }
   delete data[name]
-  await client.updateBotConfiguration(current.id, data, workspaceId)
+  await client.updateBotConfiguration(botId, data, workspaceId)
 
-  const persisted = await readBotConfiguration(client, current.id, workspaceId)
+  const persisted = await readBotConfiguration(client, botId, workspaceId)
   if (Object.hasOwn(persisted.data, name)) {
     throw new errors.BotpressCLIError(`configuration removal for "${name}" was not persisted`)
   }

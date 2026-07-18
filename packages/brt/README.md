@@ -298,6 +298,13 @@ brt chat --dev    # attested dev runtime and profile PAT
 The CLI ensures the exact compatible first-party Chat integration in the
 selected environment. `--local` is valid only together with `--dev`.
 
+Administrative configuration commands use the selected workspace profile in
+both environments. In production, `brt config set/list/rm` and
+`brt secret set` authenticate with the workspace PAT and the canonical
+workspace/bot coordinates; they do not require a copied per-bot key. Cloud
+rechecks workspace membership and the owner/admin role before writes. Secret
+values remain write-only and are accepted only through stdin or a value file.
+
 On botruntime cloud, `brt dev` links the isolated development runtime to the
 canonical production bot shown in the console. The link is also restored for
 an existing development target the next time `brt dev` starts. The development
