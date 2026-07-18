@@ -94,6 +94,26 @@ jobs:
           node --test scripts/changeset-parse.test.mjs
           node scripts/changeset-lint.mjs --base="$BASE_SHA"
 
+  # DEVLP-175: brt/templates/* scaffolds real projects for external developers
+  # (`brt init`), and the vendored ADK skill docs teach coding agents how to
+  # write bot code — both are copy-paste sources. An @botpress/* import
+  # surviving in either hands a copier code that only resolves against the
+  # real Botpress packages this fork forbids depending on. See
+  # scripts/botpress-banlist.mjs for what does/doesn't count as a violation.
+  botpress-banlist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check templates/ and vendored ADK skills for @botpress/* imports
+        run: |
+          node --test scripts/botpress-banlist.test.mjs
+          node scripts/botpress-banlist.mjs
+
   codegen-extensions:
     runs-on: ubuntu-latest
     steps:
