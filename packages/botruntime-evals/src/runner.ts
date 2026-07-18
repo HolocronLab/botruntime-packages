@@ -94,12 +94,17 @@ class EvalProgressSinkError extends Error {
 
 class EvalCheckpointHostError extends Error {
   constructor(readonly hostCause: unknown) {
-    super('Eval checkpoint host failed')
+    super('Eval checkpoint host failed', { cause: hostCause })
     this.name = 'EvalCheckpointHostError'
   }
 }
 
 type EvalCheckpointOperation = NonNullable<EvalRunnerConfig['checkpointEvalOperation']>
+type EvalCheckpointOperationInput = {
+  phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
+  turnIndex?: number
+  effectIndex?: number
+}
 type EvalOutcomeObservation = Pick<TurnData, 'stateMutations' | 'workflowSpans'>
 type SerializedCheckpointError = {
   name: string
@@ -146,12 +151,9 @@ function deserializeCheckpointError(serialized: SerializedCheckpointError): Erro
 
 async function checkpointEvalOperation<T>(
   checkpoint: EvalCheckpointOperation | undefined,
-  input: {
-    phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
-    turnIndex?: number
-    effectIndex?: number
-  },
-  execute: () => Promise<T>
+  input: EvalCheckpointOperationInput,
+  execute: () => Promise<T>,
+  isCheckpointYield?: (cause: unknown) => boolean
 ): Promise<T> {
   if (!checkpoint) return execute()
   let result: CheckpointResult<T>
@@ -162,6 +164,7 @@ async function checkpointEvalOperation<T>(
         try {
           return { ok: true, value: await execute() }
         } catch (cause) {
+          if (isCheckpointYield?.(cause)) throw cause
           if (
             cause instanceof EvalProgressSinkError ||
             cause instanceof EvalCheckpointHostError ||
@@ -175,7 +178,13 @@ async function checkpointEvalOperation<T>(
       },
     })
   } catch (cause) {
-    throw new EvalCheckpointHostError(cause instanceof EvalCheckpointHostError ? cause.hostCause : cause)
+    const hostCause = cause instanceof EvalCheckpointHostError ? cause.hostCause : cause
+    // A nested checkpoint can reach the host's budget boundary while an
+    // enclosing durable step is still running. Preserve that control signal
+    // before the enclosing host mistakes it for a terminal step failure and
+    // caches it for every following workflow generation.
+    if (isCheckpointYield?.(hostCause)) throw hostCause
+    throw new EvalCheckpointHostError(hostCause)
   }
   if (!result.ok) throw deserializeCheckpointError(result.error)
   return result.value
@@ -527,6 +536,16 @@ export async function runEval(
   let currentTurnIndex: number | undefined
   let currentPhase: EvalExecutionPhase = 'setup'
   let seededTableRows: SeededTableRows[] = []
+  const checkpointOperation = <T>(
+    input: EvalCheckpointOperationInput,
+    execute: () => Promise<T>
+  ): Promise<T> =>
+    checkpointEvalOperation(
+      options.checkpointEvalOperation,
+      input,
+      execute,
+      options.isCheckpointYield
+    )
 
   const cleanupTables = async (): Promise<void> => {
     if (seededTableRows.length === 0) return
@@ -545,8 +564,7 @@ export async function runEval(
 
   try {
     let connectedDuringSetup = false
-    const setupState = await checkpointEvalOperation(
-      options.checkpointEvalOperation,
+    const setupState = await checkpointOperation(
       { phase: 'setup' },
       async () => {
         await session.connect({ effectId: `eval:${executionId}:user` })
@@ -584,16 +602,14 @@ export async function runEval(
     currentConversationId = conversationId || undefined
     for (let index = 0; index < (materializedSetup?.tables?.length ?? 0); index++) {
       const seed = materializedSetup!.tables![index]!
-      const [seeded] = await checkpointEvalOperation(
-        options.checkpointEvalOperation,
+      const [seeded] = await checkpointOperation(
         { phase: 'setup', effectIndex: index },
         () => seedEvalTables(connection.client, [seed], options.durableEffects, executionId, undefined, index)
       )
       seededTableRows[index] = { ...seeded!, ids: [...seeded!.ids] }
     }
     if (materializedSetup?.workflow) {
-      await checkpointEvalOperation(
-        options.checkpointEvalOperation,
+      await checkpointOperation(
         { phase: 'setup', effectIndex: materializedSetup.tables?.length ?? 0 },
         () =>
           triggerEvalWorkflow(
@@ -636,8 +652,7 @@ export async function runEval(
 
       currentTurnIndex = i
       currentPhase = 'routing'
-      const executedTurn = await checkpointEvalOperation(
-        options.checkpointEvalOperation,
+      const executedTurn = await checkpointOperation(
         { phase: 'turn', turnIndex: i },
         async () => {
           const turn = materializedEvalDef.conversation[i]!
@@ -741,8 +756,7 @@ export async function runEval(
 
           collector.startTurn()
           if (hasInput && !directActorTurn) session.startTurn()
-          const dispatch = await checkpointEvalOperation(
-            options.checkpointEvalOperation,
+          const dispatch = await checkpointOperation(
             { phase: 'dispatch', turnIndex: i },
             async () => {
               const startedAt = Date.now()
@@ -752,8 +766,7 @@ export async function runEval(
             }
           )
 
-          await checkpointEvalOperation(
-            options.checkpointEvalOperation,
+          await checkpointOperation(
             { phase: 'effect', turnIndex: i },
             async () => {
               currentPhase = 'dispatch'
@@ -1012,8 +1025,7 @@ export async function runEval(
       )
 
       if (!executedTurn) break
-      const completedTurn = await checkpointEvalOperation(
-        options.checkpointEvalOperation,
+      const completedTurn = await checkpointOperation(
         { phase: 'persist', turnIndex: i },
         async () => {
           await emitEvalProgress(options.onProgress, {
@@ -1049,7 +1061,7 @@ export async function runEval(
       )
     }
 
-    return await checkpointEvalOperation(options.checkpointEvalOperation, { phase: 'finalize' }, async () => {
+    return await checkpointOperation({ phase: 'finalize' }, async () => {
       // Outcome assertions (after all turns)
       if (materializedEvalDef.outcome && !options.signal?.aborted) {
         // Wait for outcome-level workflow assertions. Same negative-assertion gate as the per-turn loop.
@@ -1113,6 +1125,7 @@ export async function runEval(
       }
     })
   } catch (err) {
+    if (options.isCheckpointYield?.(err)) throw err
     const checkpointHostCause = err instanceof EvalCheckpointHostError ? err.hostCause : undefined
     if (
       checkpointHostCause !== undefined &&
@@ -1122,11 +1135,12 @@ export async function runEval(
     }
     let cleanupFailure: unknown
     try {
-      await checkpointEvalOperation(options.checkpointEvalOperation, { phase: 'cleanup' }, async () => {
+      await checkpointOperation({ phase: 'cleanup' }, async () => {
         await cleanupControls()
         await cleanupTables()
       })
     } catch (cleanupError) {
+      if (options.isCheckpointYield?.(cleanupError)) throw cleanupError
       if (
         cleanupError instanceof EvalCheckpointHostError &&
         (options.isCheckpointYield === undefined || options.isCheckpointYield(cleanupError.hostCause))
