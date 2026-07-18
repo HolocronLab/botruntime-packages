@@ -73,8 +73,15 @@ function expectedDevCalls(
   return [resolve, ['GET', bot], ['PUT', bot], ['GET', bot]]
 }
 
-function expectedProdCalls(apiUrl: string, botId: string, kind: CommandKind): Array<[string, string]> {
-  if (kind === 'secret-set') return [['PUT', `${apiUrl}/v1/admin/config-variables/FOO`]]
+function expectedWorkspaceAdminCalls(
+  apiUrl: string,
+  workspaceId: string,
+  botId: string,
+  kind: CommandKind
+): Array<[string, string]> {
+  if (kind === 'secret-set') {
+    return [['PUT', `${apiUrl}/v1/admin/workspaces/${workspaceId}/bots/${botId}/config-variables/FOO`]]
+  }
   const bot = `${apiUrl}/v1/admin/bots/${botId}`
   if (kind === 'config-list') return [['GET', bot]]
   return [['GET', bot], ['PUT', bot], ['GET', bot]]
@@ -140,7 +147,7 @@ describe('cloud config and secret dev routing', () => {
           }
           return Response.json({
             bot: {
-              id: opaqueId,
+              id: opaqueId === PROD_BOT_ID ? 'prod-runtime-opaque' : opaqueId,
               dev: true,
               tags: { [DEV_TARGET_TAG]: DEV_TARGET_BOT_ID },
               configuration: {
@@ -158,9 +165,7 @@ describe('cloud config and secret dev routing', () => {
           })
         }
 
-        const devConfigPath = new RegExp(
-          `^/v1/admin/workspaces/[^/]+/bots/${DEV_TARGET_BOT_ID}/config-variables(?:/FOO)?$`
-        )
+        const devConfigPath = /^\/v1\/admin\/workspaces\/[^/]+\/bots\/[^/]+\/config-variables(?:\/FOO)?$/
         if (devConfigPath.test(pathname)) {
           if (method === 'GET') {
             return Response.json({
@@ -518,6 +523,35 @@ describe('cloud config and secret dev routing', () => {
   })
 
   it.each(commandCases)(
+    '$label uses the owner/admin workspace PAT in production without a per-bot key',
+    async ({ Command, kind }) => {
+      fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
+      fs.writeFileSync(
+        path.join(workDir, 'agent.json'),
+        JSON.stringify({ botId: PROD_BOT_ID, workspaceId: WORKSPACE_ID, apiUrl: AGENT_PROD_API_URL })
+      )
+      const command = new Command(
+        {} as any,
+        {} as any,
+        new Logger(),
+        makeArgv(botpressHome, workDir, valueFile, false)
+      )
+
+      await command.run()
+
+      expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+        expectedWorkspaceAdminCalls(AGENT_PROD_API_URL, WORKSPACE_ID, PROD_BOT_ID, kind)
+      )
+      for (const call of calls) {
+        expect(headers(call).authorization).toBe('Bearer brt_pat_xxx')
+        expect(headers(call)['x-bot-id']).toBeUndefined()
+        expect(headers(call)['x-workspace-id']).toBe(kind === 'secret-set' ? undefined : WORKSPACE_ID)
+      }
+      expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
+    }
+  )
+
+  it.each(commandCases)(
     '$label without --dev uses the production bot target',
     async ({ Command, kind }) => {
       fs.writeFileSync(path.join(workDir, 'bot.json'), JSON.stringify({ botId: Number(PROD_BOT_ID), apiUrl: API_URL }))
@@ -532,13 +566,13 @@ describe('cloud config and secret dev routing', () => {
       await command.run()
 
       expect(calls.map((call) => [call.init.method, call.url])).toEqual(
-        expectedProdCalls(API_URL, PROD_BOT_ID, kind)
+        expectedWorkspaceAdminCalls(API_URL, WORKSPACE_ID, PROD_BOT_ID, kind)
       )
       expect(headers(calls[0]!)).toMatchObject({
-        authorization: 'Bearer prod_bot_key',
+        authorization: 'Bearer brt_pat_xxx',
       })
-      expect(headers(calls[0]!)['x-bot-id']).toBe(kind === 'secret-set' ? PROD_BOT_ID : undefined)
-      expect(headers(calls[0]!)['x-workspace-id']).toBeUndefined()
+      expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
+      expect(headers(calls[0]!)['x-workspace-id']).toBe(kind === 'secret-set' ? undefined : WORKSPACE_ID)
     }
   )
 
@@ -570,12 +604,13 @@ describe('cloud config and secret dev routing', () => {
       ).run()
 
       expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-        ...expectedProdCalls(AGENT_PROD_API_URL, PROD_BOT_ID, kind),
-        ...expectedProdCalls(AGENT_PROD_API_URL, PROD_BOT_ID, kind),
+        ...expectedWorkspaceAdminCalls(AGENT_PROD_API_URL, WORKSPACE_ID, PROD_BOT_ID, kind),
+        ...expectedWorkspaceAdminCalls(AGENT_PROD_API_URL, WORKSPACE_ID, PROD_BOT_ID, kind),
       ])
       for (const call of calls) {
-        expect(headers(call).authorization).toBe('Bearer agent_prod_bot_key')
-        expect(headers(call)['x-bot-id']).toBe(kind === 'secret-set' ? PROD_BOT_ID : undefined)
+        expect(headers(call).authorization).toBe('Bearer brt_pat_xxx')
+        expect(headers(call)['x-bot-id']).toBeUndefined()
+        expect(headers(call)['x-workspace-id']).toBe(kind === 'secret-set' ? undefined : WORKSPACE_ID)
         expect(call.url).not.toContain('poisoned-bot-link')
       }
     }
@@ -609,10 +644,11 @@ describe('cloud config and secret dev routing', () => {
     await command.run()
 
     expect(calls.map((call) => [call.init.method, call.url])).toEqual(
-      expectedProdCalls(AGENT_LOCAL_API_URL, '88', 'config-set')
+      expectedWorkspaceAdminCalls(AGENT_LOCAL_API_URL, LOCAL_AGENT_WORKSPACE_ID, '88', 'config-set')
     )
     expect(headers(calls[0]!)).toMatchObject({
-      authorization: 'Bearer agent_local_bot_key',
+      authorization: 'Bearer brt_pat_xxx',
+      'x-workspace-id': LOCAL_AGENT_WORKSPACE_ID,
     })
     expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(calls[0]!.url).not.toContain('poisoned-local-link')
@@ -643,10 +679,11 @@ describe('cloud config and secret dev routing', () => {
     await command.run()
 
     expect(calls.map((call) => [call.init.method, call.url])).toEqual(
-      expectedProdCalls(LOCAL_API_URL, '88', 'config-set')
+      expectedWorkspaceAdminCalls(LOCAL_API_URL, LOCAL_CLASSIC_WORKSPACE_ID, '88', 'config-set')
     )
     expect(headers(calls[0]!)).toMatchObject({
-      authorization: 'Bearer legacy_local_bot_key',
+      authorization: 'Bearer brt_pat_xxx',
+      'x-workspace-id': LOCAL_CLASSIC_WORKSPACE_ID,
     })
     expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(JSON.parse(fs.readFileSync(path.join(workDir, 'agent.local.json'), 'utf8'))).toEqual({
@@ -655,7 +692,7 @@ describe('cloud config and secret dev routing', () => {
     })
   })
 
-  it('rejects a production agent target that differs from the selected profile before reading the per-bot key onto the wire', async () => {
+  it('rejects a production agent target that differs from the selected profile before an admin request', async () => {
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),

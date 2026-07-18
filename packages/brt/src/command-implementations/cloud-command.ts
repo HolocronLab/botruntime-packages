@@ -233,8 +233,6 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     return apiUrl
   }
 
-  // machineCloudapiClient — Bearer = the profile's (machine) token; used for
-  // provision-bot / listing. Per-bot operations must use botCloudapiClient below.
   protected machineCloudapiClient(profile: ProfileCredentials, apiUrl: string): CloudapiClient {
     return new CloudapiClient(apiUrl, profile.token)
   }
@@ -251,9 +249,6 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     botsStoreModule.writeBotsStore(this.botsStorePath(), store)
   }
 
-  // botCloudapiClient — Bearer = the bot's per-bot key from bots.json. Used
-  // only by API surfaces that still require the bot principal (for example
-  // production config, secret, chat, and hosted eval).
   protected async botCloudapiClient(profileName: string, botId: string, apiUrl: string): Promise<CloudapiClient> {
     const store = this.readBotsStore()
     const creds = botsStoreModule.getBotCreds(store, profileName, botId)
@@ -269,6 +264,27 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
       )
     }
     return new CloudapiClient(apiUrl, creds.apiKey)
+  }
+
+  protected async workspaceAdminCloudapiTarget(): Promise<{
+    client: CloudapiClient
+    workspaceId: string
+    botId: string
+  }> {
+    const link = this.loadLink()
+    const botId = this.requireBotId(link)
+    const { name: profileName, profile } = await this.resolveProfile()
+    const apiUrl = this.resolveApiUrl(profile, link)
+    if (!profile.workspaceId) {
+      throw new errors.BotpressCLIError(
+        `profile "${profileName}" has no workspaceId — re-run \`brt login\` before managing bot configuration`
+      )
+    }
+    return {
+      client: this.machineCloudapiClient(profile, apiUrl),
+      workspaceId: profile.workspaceId,
+      botId,
+    }
   }
 
   private _canonicalLinkFileName(): string {
