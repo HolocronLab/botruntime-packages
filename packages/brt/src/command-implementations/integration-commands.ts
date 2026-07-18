@@ -325,13 +325,6 @@ export class CloudIntegrationInstallCommand extends CloudCommand<CloudIntegratio
     const apiUrl = this.resolveApiUrl(profile, link)
     const client = new CloudapiClient(apiUrl, profile.token)
 
-    const conflicting = (link.integrations ?? []).find((i) => i.alias !== alias)
-    if (conflicting) {
-      throw new errors.BotpressCLIError(
-        `bot ${botId} already has integration "${conflicting.alias}" installed — this wire supports one channel per bot`
-      )
-    }
-
     const config = await this._readConfig()
     const res = await client.installWorkspaceIntegration(
       profile.workspaceId,
