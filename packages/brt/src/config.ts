@@ -115,6 +115,16 @@ const deployWatch = {
   default: false,
 } satisfies CommandOption
 
+// DEVLP-173: brt deploy --adk runs the project's own `tsc --noEmit` before
+// bundling so a tool-props type error blocks the deploy instead of surfacing at
+// runtime. This is a deliberate, logged escape hatch — never a silent skip.
+const deployNoTypecheck = {
+  type: 'boolean',
+  description:
+    'Skip the pre-deploy TypeScript typecheck for an ADK agent (brt deploy --adk only). A bot with a type error can then deploy and fail at runtime instead.',
+  default: false,
+} satisfies CommandOption
+
 // Cloud-backed bot commands (brt config/secret/link) — see
 // src/api/cloudapi-client.ts and src/cloud-project-link.ts. Agent projects use
 // agent.json/agent.local.json as canonical coordinates; classic projects use
@@ -508,6 +518,7 @@ const deploySchema = {
     default: false,
   },
   watch: deployWatch,
+  noTypecheck: deployNoTypecheck,
   local: {
     ...cloudLocal,
     description: 'For --adk, use the strict local agent link; classic deploy does not use this flag',

@@ -1372,3 +1372,111 @@ describe('DeployCommand ADK watch routing', () => {
     })
   })
 })
+
+// DEVLP-173 — `_buildAdkBundle` gates the esbuild bundle step on the
+// project's own `tsc --noEmit`, run AFTER generateAgentBot (which writes the
+// fresh dir/.adk/*-types.d.ts a tool/action call is actually checked against)
+// but BEFORE BuildCommand's esbuild pass. Placed INSIDE packages/brt (not
+// os.tmpdir(), unlike `workDir` above) so ancestor node_modules resolution
+// finds this package's own installed `typescript` — the exact escape hatch a
+// project with no resolvable `typescript` needs is covered separately in
+// adk-typecheck.test.ts.
+describe('DeployCommand ADK typecheck gating (_buildAdkBundle)', () => {
+  const packageRoot = path.resolve(__dirname, '..', '..')
+  let agentDir: string
+
+  const TSCONFIG = JSON.stringify({
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ES2022',
+      moduleResolution: 'Bundler',
+      strict: true,
+      skipLibCheck: true,
+      noEmit: true,
+    },
+    include: ['src/**/*'],
+  })
+
+  beforeEach(() => {
+    agentDir = fs.mkdtempSync(path.join(packageRoot, '.tmp-deploy-typecheck-'))
+    fs.mkdirSync(path.join(agentDir, 'src'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(agentDir, { recursive: true, force: true })
+  })
+
+  function stubBuildPipeline() {
+    const generateSpy = vi.spyOn(adkBundle, 'generateAgentBot').mockResolvedValue(path.join(agentDir, '.adk', 'bot'))
+    const normalizeSpy = vi
+      .spyOn(adkBundle, 'normalizeBundle')
+      .mockReturnValue(path.join(agentDir, '.brt', 'dist', 'index.cjs'))
+    const buildRunSpy = vi.spyOn(BuildCommand.prototype, 'run').mockResolvedValue(undefined)
+    return { generateSpy, normalizeSpy, buildRunSpy }
+  }
+
+  it('generates (for fresh .adk/*-types.d.ts) but blocks bundling with a readable file:line message when the project has a type error', async () => {
+    fs.writeFileSync(path.join(agentDir, 'tsconfig.json'), TSCONFIG)
+    fs.writeFileSync(path.join(agentDir, 'src', 'index.ts'), 'export const answer: number = "not a number"\n')
+    const { generateSpy, buildRunSpy } = stubBuildPipeline()
+    const command = makeCommand(agentDir, { noTypecheck: false })
+
+    await expect(
+      (command as any)._buildAdkBundle(agentDir, '42', { token: 'pat', apiUrl: 'https://profile.example', workspaceId: 'ws' })
+    ).rejects.toThrow(/TypeScript typecheck failed.*index\.ts.*TS2322/is)
+
+    expect(generateSpy).toHaveBeenCalledOnce()
+    expect(buildRunSpy).not.toHaveBeenCalled()
+  })
+
+  it('proceeds to generate and bundle when the project has no type errors', async () => {
+    fs.writeFileSync(path.join(agentDir, 'tsconfig.json'), TSCONFIG)
+    fs.writeFileSync(path.join(agentDir, 'src', 'index.ts'), 'export const answer: number = 42\n')
+    const { generateSpy, buildRunSpy } = stubBuildPipeline()
+    const command = makeCommand(agentDir, { noTypecheck: false })
+
+    await (command as any)._buildAdkBundle(agentDir, '42', {
+      token: 'pat',
+      apiUrl: 'https://profile.example',
+      workspaceId: 'ws',
+    })
+
+    expect(generateSpy).toHaveBeenCalledOnce()
+    expect(buildRunSpy).toHaveBeenCalledOnce()
+  })
+
+  it('--noTypecheck skips the check (with a warning) and still bundles a project with a type error', async () => {
+    fs.writeFileSync(path.join(agentDir, 'tsconfig.json'), TSCONFIG)
+    fs.writeFileSync(path.join(agentDir, 'src', 'index.ts'), 'export const answer: number = "not a number"\n')
+    const { generateSpy, buildRunSpy } = stubBuildPipeline()
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const command = makeCommand(agentDir, { noTypecheck: true })
+
+    await (command as any)._buildAdkBundle(agentDir, '42', {
+      token: 'pat',
+      apiUrl: 'https://profile.example',
+      workspaceId: 'ws',
+    })
+
+    expect(generateSpy).toHaveBeenCalledOnce()
+    expect(buildRunSpy).toHaveBeenCalledOnce()
+    expect(stderr.mock.calls.flat().join(' ')).toMatch(/noTypecheck.*skip/i)
+  })
+
+  it('warns (not silently) and still bundles when the project has no tsconfig.json', async () => {
+    // no tsconfig.json written
+    const { generateSpy, buildRunSpy } = stubBuildPipeline()
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const command = makeCommand(agentDir, { noTypecheck: false })
+
+    await (command as any)._buildAdkBundle(agentDir, '42', {
+      token: 'pat',
+      apiUrl: 'https://profile.example',
+      workspaceId: 'ws',
+    })
+
+    expect(generateSpy).toHaveBeenCalledOnce()
+    expect(buildRunSpy).toHaveBeenCalledOnce()
+    expect(stderr.mock.calls.flat().join(' ')).toMatch(/typecheck skipped.*tsconfig\.json/i)
+  })
+})
