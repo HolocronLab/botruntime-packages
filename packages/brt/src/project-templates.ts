@@ -9,19 +9,16 @@ export namespace ProjectTemplates {
     absolutePath: utils.path.AbsolutePath
   }>
   export type TemplateArray = Readonly<[Template, ...Template[]]>
-  export type ProjectType = 'bot' | 'plugin' | 'integration'
+  // 'bot' is excluded: bot init doesn't read this table at all — it generates
+  // an ADK project in-process via AgentProjectGenerator (see init-command.ts
+  // _initBot), keyed by its own 'blank'/'hello-world' template names. A
+  // scaffold-copy 'bot' entry here would be unreachable dead code (was:
+  // templates/empty-bot, the pre-ADK-collapse Botpress-native bot template).
+  export type ProjectType = 'plugin' | 'integration'
 
   const _dirNameToAbsPath = (directoryName: string) => utils.path.join(consts.cliRootDir, 'templates', directoryName)
 
   export const templates = {
-    bot: [
-      {
-        fullName: 'Empty Bot',
-        identifier: 'empty',
-        defaultProjectName: 'empty-bot',
-        absolutePath: _dirNameToAbsPath('empty-bot'),
-      },
-    ],
     plugin: [
       {
         fullName: 'Empty Plugin',

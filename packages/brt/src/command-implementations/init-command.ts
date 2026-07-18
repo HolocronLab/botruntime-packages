@@ -100,7 +100,7 @@ export class InitCommand extends GlobalCommand<InitCommandDefinition> {
     this.logger.success(`Plugin project initialized in ${chalk.bold(pathlib.join(workDir, shortName))}`)
   }
 
-  private async _getOrPromptForTemplate(type: ProjectType): Promise<ProjectTemplates.Template> {
+  private async _getOrPromptForTemplate(type: ProjectTemplates.ProjectType): Promise<ProjectTemplates.Template> {
     const availableTemplates = ProjectTemplates.templates[type]
 
     if (this.argv.template) {
