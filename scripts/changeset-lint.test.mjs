@@ -447,3 +447,27 @@ test('удаление заметки не принимается, если ве
   })
   assert.deepEqual(orphaned, ['.changeset/foo.md'])
 })
+
+test('вложенный package.json (templates) релиз-релевантен, корневой манифест — нет', () => {
+  const pkg = { name: '@holocronlab/brt', dir: 'brt', hasSrc: true }
+  assert.equal(isReleaseRelevantPath('packages/brt/package.json', pkg), false)
+  assert.equal(isReleaseRelevantPath('packages/brt/templates/hello-world/package.json', pkg), true)
+})
+
+test('удаление major-заметки с фактическим patch-бампом — orphaned', () => {
+  const statusEntries = [
+    { status: 'D', path: '.changeset/big.md' },
+    { status: 'M', path: 'packages/brt/package.json' },
+    { status: 'M', path: 'packages/brt/CHANGELOG.md' },
+  ]
+  const publicPackages = [{ name: '@holocronlab/brt', dir: 'brt', hasSrc: true }]
+  const decl = [{ path: '.changeset/big.md', packageNames: ['@holocronlab/brt'], bumps: new Map([['@holocronlab/brt', 'major']]) }]
+  const orphaned = findOrphanedChangesetDeletions({
+    statusEntries,
+    deletedChangesetDeclarations: decl,
+    publicPackages,
+    versionChangedByDir: new Map([['brt', true]]),
+    expectedVersionByDir: new Map([['brt', { expected: '1.0.0', head: '0.7.13' }]]),
+  })
+  assert.deepEqual(orphaned, ['.changeset/big.md'])
+})

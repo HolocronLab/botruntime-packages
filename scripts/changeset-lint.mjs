@@ -5,12 +5,13 @@
 // silent-degradation failure mode this repo already fails loud on elsewhere
 // (release-version-closure.mjs). Fail loud here too, before merge.
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { readPublicPackages } from './changeset-packages.mjs'
 import { parseChangesetFile } from './changeset-parse.mjs'
+import { bumpVersion, combineBumps } from './changeset-version.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -30,7 +31,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // botruntime-zui/.../test), not just __tests__ — so a docs/test-only PR never
 // needs a placeholder changeset (DEVLP-174 review round 2, defect #5).
 const IGNORED_PATH_PATTERN =
-  /(\.test\.|\.spec\.|\/(__tests__|tests?)\/|\/node_modules\/|\/CHANGELOG\.md$|\/README\.md$|\/package\.json$)/i
+  /(\.test\.|\.spec\.|\/(__tests__|tests?)\/|\/node_modules\/|\/CHANGELOG\.md$|\/README\.md$)/i
 
 // dist/ — отдельно от общего фильтра: у пакетов С src/ это сборочный артефакт,
 // а у vendored-пакетов без src/ (botruntime-chat/verel/yargs-extra) tracked
@@ -42,6 +43,10 @@ export function isReleaseRelevantPath(path, pkg) {
   const hasSrc = typeof pkg === 'string' ? true : pkg.hasSrc !== false
   const prefix = `packages/${dir}/`
   if (!path.startsWith(prefix)) return false
+  // Только КОРНЕВОЙ манифест пакета — релизный артефакт version-скрипта.
+  // Вложенные package.json (напр. brt/templates/*/package.json — SDK-пины
+  // генерируемых проектов) публикуются вместе с пакетом и требуют changeset.
+  if (path === `${prefix}package.json`) return false
   if (hasSrc && DIST_PATH_PATTERN.test(path)) return false
   return !IGNORED_PATH_PATTERN.test(path)
 }
@@ -156,11 +161,16 @@ export function computeBumpedPackageDirs(statusEntries) {
 // versionChangedByDir: «манифест тронут» — недостаточно (правка dep-спеки без
 // бампа тоже трогает package.json); релизом считается только РЕАЛЬНО
 // изменившаяся версия относительно base.
+// expectedVersionByDir (опционально): фактический HEAD-бамп сверяется с
+// АГРЕГИРОВАННЫМ заявленным уровнем всех удаляемых заметок пакета — иначе
+// вручную собранный релизный коммит мог бы схлопнуть major-заметку в patch и
+// навсегда занизить breaking-релиз.
 export function findOrphanedChangesetDeletions({
   statusEntries,
   deletedChangesetDeclarations,
   publicPackages,
   versionChangedByDir,
+  expectedVersionByDir,
 }) {
   if (deletedChangesetDeclarations.length === 0) return []
   const bumpedDirs = computeBumpedPackageDirs(statusEntries)
@@ -172,10 +182,46 @@ export function findOrphanedChangesetDeletions({
         const dir = dirByName.get(name)
         const state = dir && bumpedDirs.get(dir)
         if (!state?.packageJson || !state?.changelog) return false
-        return versionChangedByDir ? versionChangedByDir.get(dir) === true : true
+        if (versionChangedByDir && versionChangedByDir.get(dir) !== true) return false
+        if (expectedVersionByDir && expectedVersionByDir.has(dir)) {
+          const { expected, head } = expectedVersionByDir.get(dir)
+          if (expected !== head) return false
+        }
+        return true
       })
     )
     .map(({ path }) => path)
+}
+
+// Агрегированный ожидаемый semver: base-версия + combineBumps по всем
+// удаляемым заметкам каждого пакета — против фактической HEAD-версии.
+function computeExpectedVersionByDir(base, deletedChangesetDeclarations, publicPackages) {
+  const dirByName = new Map(publicPackages.map((pkg) => [pkg.name, pkg.dir]))
+  const bumpsByDir = new Map()
+  for (const { bumps } of deletedChangesetDeclarations) {
+    for (const [name, level] of bumps) {
+      const dir = dirByName.get(name)
+      if (!dir) continue
+      const list = bumpsByDir.get(dir) ?? []
+      list.push(new Map([[name, level]]))
+      bumpsByDir.set(dir, list)
+    }
+  }
+  const out = new Map()
+  for (const [dir, bumpsList] of bumpsByDir) {
+    const baseVersion = readBaseVersion(base, dir)
+    if (!baseVersion) continue
+    const combined = combineBumps(bumpsList)
+    const level = [...combined.values()][0]
+    let head = null
+    try {
+      head = JSON.parse(readFileSync(resolve(root, 'packages', dir, 'package.json'), 'utf8')).version
+    } catch {
+      head = null
+    }
+    out.set(dir, { expected: bumpVersion(baseVersion, level), head })
+  }
+  return out
 }
 
 // Версии из base против HEAD для каталогов, чьи манифесты тронуты диффом.
@@ -261,8 +307,19 @@ function readDeletedChangesetDeclarations(base, statusEntries) {
   return filterDeletedChangesetPaths(statusEntries).map((path) => {
     const content = execFileSync('git', ['show', `${base}:${path}`], { cwd: root, encoding: 'utf8' })
     const { bumps } = parseChangesetFile(content)
-    return { path, packageNames: [...bumps.keys()] }
+    return { path, packageNames: [...bumps.keys()], bumps }
   })
+}
+
+// Версии пакетов из base (для сверки фактического бампа с заявленным уровнем).
+function readBaseVersion(base, dir) {
+  try {
+    return JSON.parse(
+      execFileSync('git', ['show', `${base}:packages/${dir}/package.json`], { cwd: root, encoding: 'utf8' })
+    ).version
+  } catch {
+    return null
+  }
 }
 
 function assertBaseCommit(base) {
@@ -273,7 +330,26 @@ function assertBaseCommit(base) {
   }
 }
 
+// --require-empty: релизный режим для publish-воркфлоу — публикация со
+// свежим source под СТАРЫМ semver (npm-версия иммутабельна) молча съедала бы
+// pending-заметки; релиз обязан начинаться с прогона changeset-version.mjs.
+function requireEmptyChangesets() {
+  const pending = readdirSync(resolve(root, '.changeset'))
+    .filter((name) => name.endsWith('.md') && name.toLowerCase() !== 'readme.md')
+  if (pending.length > 0) {
+    throw new Error(
+      `pending changesets remain: ${pending.join(', ')}\n` +
+      'Run `node scripts/changeset-version.mjs`, commit the version bumps and CHANGELOGs, then publish.'
+    )
+  }
+  console.log('changeset gate: no pending changesets — publish may proceed')
+}
+
 async function main() {
+  if (process.argv.includes('--require-empty')) {
+    requireEmptyChangesets()
+    return
+  }
   const base = process.argv.find((arg) => arg.startsWith('--base='))?.slice('--base='.length)
   if (!base) throw new Error('usage: changeset-lint.mjs --base=<git-sha>')
 
@@ -306,7 +382,13 @@ async function main() {
   }
 
   const deletedChangesetDeclarations = readDeletedChangesetDeclarations(base, statusEntries)
-  const orphanedDeletions = findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages, versionChangedByDir: readVersionChangedByDir(base, statusEntries) })
+  const orphanedDeletions = findOrphanedChangesetDeletions({
+    statusEntries,
+    deletedChangesetDeclarations,
+    publicPackages,
+    versionChangedByDir: readVersionChangedByDir(base, statusEntries),
+    expectedVersionByDir: computeExpectedVersionByDir(base, deletedChangesetDeclarations, publicPackages),
+  })
   if (orphanedDeletions.length > 0) {
     const details = orphanedDeletions.map((path) => `  - ${path}`).join('\n')
     throw new Error(
