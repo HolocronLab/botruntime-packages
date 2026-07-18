@@ -443,6 +443,20 @@ export class VortexSpanSource implements SpanSource {
     }
   }
 
+  resumeTurn(startedAt: number): void {
+    this.turnStartKeys = new Set(
+      [...this.spanMap.entries()].filter(([, span]) => span.timing.startedAt < startedAt).map(([key]) => key)
+    )
+    this.seenHandlerKeys = new Set(
+      [...this.spanMap.entries()]
+        .filter(
+          ([, span]) =>
+            VortexSpanSource.TURN_HANDLER_SPAN_NAMES.has(span.name) && span.timing.startedAt < startedAt
+        )
+        .map(([key]) => key)
+    )
+  }
+
   private static readonly SETTLE_POLLS = 3
 
   async waitForTurnComplete(opts: TurnWaitOptions): Promise<void> {

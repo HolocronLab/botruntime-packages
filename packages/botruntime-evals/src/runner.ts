@@ -20,6 +20,7 @@ import type {
   BotConnection,
   EvalSetup,
   SpanSourceCapabilities,
+  TurnData,
 } from './types'
 import { defaultLogger } from './types'
 import { ChatSession, assertChatChannelBound, assertTraceStreamReadable } from './client'
@@ -61,6 +62,84 @@ class EvalProgressSinkError extends Error {
     super('Eval progress sink failed')
     this.name = 'EvalProgressSinkError'
   }
+}
+
+class EvalCheckpointHostError extends Error {
+  constructor(readonly hostCause: unknown) {
+    super('Eval checkpoint host failed')
+    this.name = 'EvalCheckpointHostError'
+  }
+}
+
+type EvalCheckpointOperation = NonNullable<EvalRunnerConfig['checkpointEvalOperation']>
+type EvalOutcomeObservation = Pick<TurnData, 'stateMutations' | 'workflowSpans'>
+type SerializedCheckpointError = {
+  name: string
+  message: string
+  stack?: string
+  code?: string
+  expected?: boolean
+  details?: Record<string, unknown>
+  suggestion?: string
+}
+type CheckpointResult<T> = { ok: true; value: T } | { ok: false; error: SerializedCheckpointError }
+
+function serializeCheckpointError(cause: unknown): SerializedCheckpointError {
+  const error = cause instanceof Error ? cause : new Error(String(cause))
+  return {
+    name: error.name,
+    message: error.message,
+    ...(error.stack ? { stack: error.stack } : {}),
+    ...(isAdkError(error)
+      ? {
+          code: error.code,
+          expected: error.expected,
+          ...(error.details ? { details: error.details } : {}),
+          ...(error.suggestion ? { suggestion: error.suggestion } : {}),
+        }
+      : {}),
+  }
+}
+
+function deserializeCheckpointError(serialized: SerializedCheckpointError): Error {
+  const error = serialized.code
+    ? new EvalRunnerError({
+        code: serialized.code as EvalRunnerError['code'],
+        message: serialized.message,
+        ...(serialized.expected !== undefined ? { expected: serialized.expected } : {}),
+        ...(serialized.details ? { details: serialized.details } : {}),
+        ...(serialized.suggestion ? { suggestion: serialized.suggestion } : {}),
+      })
+    : new Error(serialized.message)
+  error.name = serialized.name
+  if (serialized.stack) error.stack = serialized.stack
+  return error
+}
+
+async function checkpointEvalOperation<T>(
+  checkpoint: EvalCheckpointOperation | undefined,
+  input: { phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'; turnIndex?: number },
+  execute: () => Promise<T>
+): Promise<T> {
+  if (!checkpoint) return execute()
+  let result: CheckpointResult<T>
+  try {
+    result = await checkpoint<CheckpointResult<T>>({
+      ...input,
+      execute: async () => {
+        try {
+          return { ok: true, value: await execute() }
+        } catch (cause) {
+          if (cause instanceof EvalProgressSinkError || cause instanceof EvalCheckpointHostError) throw cause
+          return { ok: false, error: serializeCheckpointError(cause) }
+        }
+      },
+    })
+  } catch (cause) {
+    throw new EvalCheckpointHostError(cause instanceof EvalCheckpointHostError ? cause.hostCause : cause)
+  }
+  if (!result.ok) throw deserializeCheckpointError(result.error)
+  return result.value
 }
 
 async function emitEvalProgress(sink: EvalRunnerConfig['onProgress'], event: EvalProgressEvent): Promise<void> {
@@ -238,16 +317,19 @@ async function seedEvalState(
 async function triggerEvalWorkflow(
   client: BpClient,
   ctx: { userId: string; conversationId?: string },
+  executionId: string,
   setup?: EvalSetup
 ): Promise<void> {
   const workflow = setup?.workflow
   if (!workflow) return
 
-  await client.createWorkflow({
+  await client.getOrCreateWorkflow({
     name: workflow.trigger,
     input: workflow.input ?? {},
     status: 'pending',
     userId: ctx.userId,
+    tags: { id: `eval:${executionId}:setup-workflow` },
+    discriminateByTags: ['id'],
     timeoutAt: new Date(Date.now() + WORKFLOW_TRIGGER_TIMEOUT_MS).toISOString(),
     ...(ctx.conversationId !== undefined ? { conversationId: ctx.conversationId } : {}),
   })
@@ -259,6 +341,26 @@ function evalMetadata(evalDef: EvalDefinition) {
     ...(evalDef.description !== undefined ? { description: evalDef.description } : {}),
     ...(evalDef.type !== undefined ? { type: evalDef.type } : {}),
     ...(evalDef.tags !== undefined ? { tags: evalDef.tags } : {}),
+  }
+}
+
+export function validateDurableEvalDefinitions(evalDefs: EvalDefinition[], durable: boolean): void {
+  if (!durable) return
+  for (const evalDef of evalDefs) {
+    const unsafeTurn = evalDef.conversation.findIndex(
+      (turn) => turn.control !== undefined || turn.event !== undefined || turn.parallel?.some((item) => item.event)
+    )
+    if (!evalDef.setup?.tables?.length && unsafeTurn < 0) continue
+    throw new EvalRunnerError({
+      code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED',
+      message:
+        'Durable hosted eval checkpoints currently require idempotent message turns and cannot run table seeds, controls, or event inputs.',
+      expected: true,
+      details: {
+        evalName: evalDef.name,
+        ...(unsafeTurn >= 0 ? { turn: unsafeTurn + 1 } : {}),
+      },
+    })
   }
 }
 
@@ -301,6 +403,7 @@ export async function runEval(
     sourcePreflighted?: boolean
     /** Stable within one suite attempt; expands `{{eval.id}}` in setup and table assertions. */
     executionId?: string
+    checkpointEvalOperation?: EvalRunnerConfig['checkpointEvalOperation']
   } = {}
 ): Promise<EvalReport> {
   const devServerUrl = options.devServerUrl || DEFAULT_DEV_SERVER_URL
@@ -337,6 +440,7 @@ export async function runEval(
   }
 
   validateEvalTableContract(materializedEvalDef)
+  validateDurableEvalDefinitions([materializedEvalDef], options.checkpointEvalOperation !== undefined)
   validateEvalCapabilities([evalDef], collector.capabilities)
   validateEvalControlCapabilities([evalDef], options.evalControl)
   if (!options.sourcePreflighted) {
@@ -357,9 +461,16 @@ export async function runEval(
   }
   const start = Date.now()
   const turns: TurnReport[] = []
+  const outcomeObservations: EvalOutcomeObservation[] = []
   let outcomeAssertions: GraderResult[] = []
-  let session: ChatSession | undefined
-  let controlsUsed = false
+  const session = new ChatSession(
+    connection.client,
+    connection.botId,
+    options.chatWebhookId,
+    options.chatBaseUrl,
+    options.chatClient
+  )
+  const controlsUsed = materializedEvalDef.conversation.some((turn) => turn.control !== undefined)
   let currentConversationId: string | undefined
   let currentTraceId: string | undefined
   let currentTurnIndex: number | undefined
@@ -373,47 +484,58 @@ export async function runEval(
   }
 
   try {
-    session = new ChatSession(
-      connection.client,
-      connection.botId,
-      options.chatWebhookId,
-      options.chatBaseUrl,
-      options.chatClient
-    )
-    await session.connect()
+    let connectedDuringSetup = false
+    const setupState = await checkpointEvalOperation(
+      options.checkpointEvalOperation,
+      { phase: 'setup' },
+      async () => {
+        await session.connect({ effectId: `eval:${executionId}:user` })
+        connectedDuringSetup = true
 
-    let conversationId = ''
-    if (materializedSetup?.state?.conversation || materializedSetup?.workflow) {
-      conversationId = await session.ensureConversation()
-      currentConversationId = conversationId
+        let conversationId = ''
+        if (materializedSetup?.state?.conversation || materializedSetup?.workflow) {
+          conversationId = await session.ensureConversation(`eval:${executionId}:conversation:0`)
+        }
+
+        await seedEvalState(
+          connection.client,
+          {
+            botId: connection.botId,
+            userId: session.userId,
+            ...(conversationId ? { conversationId } : {}),
+          },
+          materializedSetup
+        )
+
+        const setupRows = await seedEvalTables(connection.client, materializedSetup?.tables)
+        seededTableRows = setupRows
+
+        await triggerEvalWorkflow(
+          connection.client,
+          {
+            userId: session.userId,
+            ...(conversationId ? { conversationId } : {}),
+          },
+          executionId,
+          materializedSetup
+        )
+
+        if (!conversationId && evalDef.conversation.length > 0) {
+          conversationId = await session.ensureConversation(`eval:${executionId}:conversation:0`)
+        }
+        return { userId: session.userId, conversationId, seededTableRows: setupRows }
+      }
+    )
+
+    if (!connectedDuringSetup) {
+      await session.connect({
+        userId: setupState.userId,
+        ...(setupState.conversationId ? { conversationId: setupState.conversationId } : {}),
+      })
     }
-
-    await seedEvalState(
-      connection.client,
-      {
-        botId: connection.botId,
-        userId: session.userId,
-        ...(conversationId ? { conversationId } : {}),
-      },
-      materializedSetup
-    )
-
-    seededTableRows = await seedEvalTables(connection.client, materializedSetup?.tables)
-
-    await triggerEvalWorkflow(
-      connection.client,
-      {
-        userId: session.userId,
-        ...(conversationId ? { conversationId } : {}),
-      },
-      materializedSetup
-    )
-
-    // Ensure we have a conversation before connecting the collector
-    if (!conversationId && evalDef.conversation.length > 0) {
-      conversationId = await session.ensureConversation()
-      currentConversationId = conversationId
-    }
+    let conversationId = setupState.conversationId
+    currentConversationId = conversationId || undefined
+    seededTableRows = setupState.seededTableRows.map((item) => ({ ...item, ids: [...item.ids] }))
 
     // Connect the collector filtered by conversationId
     if (conversationId) {
@@ -430,6 +552,7 @@ export async function runEval(
       {
         primaryConversationId: conversationId,
         primaryUserId: session.userId,
+        executionId,
         relations: materializedSetup?.relations ?? {},
       },
       { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
@@ -440,400 +563,471 @@ export async function runEval(
       // multi-turn eval doesn't keep ticking through turns after Stop.
       if (options.signal?.aborted) break
 
-      const turn = materializedEvalDef.conversation[i]!
       currentTurnIndex = i
       currentPhase = 'routing'
-      const turnMessage = turn.message ?? turn.user
-      const actor = turn.actor ?? 'client'
-      const target = turn.target?.relation ?? 'client'
-      const directActorTurn = actor !== 'client' || turn.target !== undefined
-      const parallel = turn.parallel ?? []
-      const hasInput = Boolean(turnMessage || turn.event || turn.attachments?.length || parallel.length)
+      const executedTurn = await checkpointEvalOperation(
+        options.checkpointEvalOperation,
+        { phase: 'turn', turnIndex: i },
+        async () => {
+          const turn = materializedEvalDef.conversation[i]!
+          const turnMessage = turn.message ?? turn.user
+          const actor = turn.actor ?? 'client'
+          const target = turn.target?.relation ?? 'client'
+          const directActorTurn = actor !== 'client' || turn.target !== undefined
+          const parallel = turn.parallel ?? []
+          const hasInput = Boolean(turnMessage || turn.event || turn.attachments?.length || parallel.length)
 
-      const turnConfigError = (message: string) =>
-        new EvalRunnerError({
-          code: 'EVAL_TURN_CONFIG_INVALID',
-          message: `Turn ${i + 1}: ${message}`,
-          expected: true,
-          details: { turn: i + 1 },
-        })
-
-      if (turn.expectSilence && turn.assert?.response) {
-        throw turnConfigError(`'expectSilence' and 'assert.response' are mutually exclusive.`)
-      }
-      if (turn.user && turn.message) {
-        throw turnConfigError(`'user' and 'message' are aliases and cannot both be set.`)
-      }
-      if (turn.event && (turnMessage || turn.attachments?.length || turn.actor || turn.target)) {
-        throw turnConfigError(`message, attachments, actor, target, and event are mutually exclusive.`)
-      }
-      if (!hasInput && !turn.control) {
-        throw turnConfigError(`must have input or a control operation.`)
-      }
-      if (directActorTurn && !turn.target) {
-        throw turnConfigError(`actor '${actor}' requires target.relation.`)
-      }
-      if (parallel.length > 0 && (turnMessage || turn.event || turn.attachments?.length || directActorTurn)) {
-        throw turnConfigError(`'parallel' cannot be combined with other turn input or relation routing.`)
-      }
-      if (parallel.some((item) => Boolean(item.message) === Boolean(item.event))) {
-        throw turnConfigError(`each parallel input must have exactly one of 'message' or 'event'.`)
-      }
-      if (parallel.some((item) => item.event) && parallel.some((item) => item.message)) {
-        throw turnConfigError(`parallel inputs must be all messages or all events.`)
-      }
-
-      const resolvedFixtures = await Promise.all(
-        (turn.attachments ?? []).map(async ({ fixture }) => {
-          if (!options.resolveFixture) {
-            throw turnConfigError(`attachment fixture '${fixture}' cannot be resolved by this host.`)
-          }
-          return options.resolveFixture(fixture, {
-            botId: connection.botId,
-            evalName: evalDef.name,
-            turnIndex: i,
-          })
-        })
-      )
-      const turnLabel = turn.event
-        ? '[event]'
-        : parallel.length > 0
-          ? `[parallel:${parallel.length}]`
-          : !hasInput
-            ? '[control]'
-            : `${directActorTurn ? `[${actor}->${target}] ` : ''}${fixtureReportLabel(turnMessage, resolvedFixtures)}`
-      await emitEvalProgress(options.onProgress, {
-        type: 'turn_start',
-        evalName: evalDef.name,
-        evalIndex: options.evalIndex ?? 0,
-        turnIndex: i,
-        totalTurns: evalDef.conversation.length,
-        userMessage: turnLabel,
-      })
-
-      // Cross a conversation boundary under the same user. Ignored on the first turn.
-      if (turn.newConversation && i > 0) {
-        const newConversationId = await session.newConversation()
-        currentConversationId = newConversationId
-        await collector.repoint({ conversationId: newConversationId })
-        collectorConversationId = newConversationId
-        actorRouter = new ActorRouter(
-          connection.client,
-          {
-            primaryConversationId: newConversationId,
-            primaryUserId: session.userId,
-            relations: materializedSetup?.relations ?? {},
-          },
-          { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
-        )
-      }
-
-      const activeConversationId = directActorTurn
-        ? await actorRouter.conversationId(target)
-        : await session.ensureConversation()
-      currentConversationId = activeConversationId
-      if (activeConversationId !== collectorConversationId) {
-        await collector.repoint({ conversationId: activeConversationId })
-        collectorConversationId = activeConversationId
-      }
-      const deliveredTo = normalizeTargets(turn.assert?.deliveredTo)
-      const notDeliveredTo = normalizeTargets(turn.assert?.notDeliveredTo)
-      const observedTargets = [...(directActorTurn ? [target] : []), ...deliveredTo, ...notDeliveredTo]
-      if (observedTargets.length > 0) {
-        await actorRouter.startDeliveryObservation(observedTargets)
-      }
-
-      // Mark turn boundary, emit message, wait for handler completion via traces
-      collector.startTurn()
-      if (hasInput && !directActorTurn) session.startTurn()
-      currentPhase = 'dispatch'
-
-      if (turn.control) {
-        const control = turn.control
-        controlsUsed = true
-        if (control.clearFaults) {
-          await runEvalControlOperation('clear_faults', () => options.evalControl!.clearFaults())
-        }
-        if (control.faults?.length) {
-          await runEvalControlOperation('configure_faults', () =>
-            options.evalControl!.configureFaults(control.faults!)
-          )
-        }
-        if (control.advanceClock) {
-          await runEvalControlOperation('advance_clock', () =>
-            options.evalControl!.advanceClock(control.advanceClock!)
-          )
-        }
-      }
-
-      if (turn.event) {
-        await session.sendEvent(turn.event.payload)
-      } else if (parallel.length > 0) {
-        await Promise.all(
-          parallel.map((item) =>
-            item.event ? session!.sendEvent(item.event.payload) : session!.sendMessage(item.message!)
-          )
-        )
-      } else if (directActorTurn) {
-        await actorRouter.send({
-          actor,
-          relation: target,
-          ...(resolvedFixtures.length > 0
-            ? { payload: buildAttachmentPayload(turnMessage, resolvedFixtures) }
-            : { message: turnMessage! }),
-        })
-      } else if (resolvedFixtures.length > 0) {
-        await session.sendPayload(buildAttachmentPayload(turnMessage, resolvedFixtures))
-      } else {
-        await session.sendMessage(turnMessage!)
-      }
-
-      currentPhase = 'observation'
-      try {
-        // A user-message turn completes via handler.conversation; an event turn
-        // via handler.event. Scoping the wait keeps async noise (e.g. a workflow
-        // callback's silent handler.event) from releasing the turn early.
-        const completion = hasInput
-          ? collector.waitForTurnComplete({
-              timeout: idleTimeout,
-              acceptSpanNames:
-                turn.event || parallel.some((item) => item.event)
-                  ? new Set(['handler.event'])
-                  : new Set(['handler.conversation']),
-              // Long quiet window: a tool-started workflow and its callback only run
-              // AFTER the handler closes; sending the next message into that window
-              // can get it absorbed by their transcript saves and silently skipped.
-              settleQuietMs: 1_500,
-              settleMaxMs: 15_000,
-              // Event turns fail fast when nothing is subscribed (see the constant).
-              ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
-              ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+          const turnConfigError = (message: string) =>
+            new EvalRunnerError({
+              code: 'EVAL_TURN_CONFIG_INVALID',
+              message: `Turn ${i + 1}: ${message}`,
+              expected: true,
+              details: { turn: i + 1 },
             })
-          : Promise.resolve()
-        await (directActorTurn || !hasInput ? completion : session.raceWithListenerError(completion))
-      } catch (err) {
-        // If the wait was aborted, exit the turn loop cleanly rather than
-        // surfacing an error on the eval — Stop is a user action, not a
-        // failure. Other errors (timeout, etc.) still propagate.
-        if (options.signal?.aborted) break
-        throw err
-      }
 
-      // Wait for per-turn workflow assertions.
-      // Skip the wait for negative assertions (entered: false / completed: false) — the
-      // grader will check already-collected spans, so blocking on a signal that's expected
-      // not to arrive just burns the full idleTimeout per assertion.
-      if (turn.assert?.workflow) {
-        for (const wfAssert of turn.assert.workflow) {
-          const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
-          if (!expectsPositive) continue
-          const wfSignal = wfAssert.completed ? 'completed' : 'entered'
-          const workflowWait = collector.waitForWorkflow(wfAssert.name, {
-            signal: wfSignal,
-            timeout: idleTimeout,
-            ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+          if (turn.expectSilence && turn.assert?.response) {
+            throw turnConfigError(`'expectSilence' and 'assert.response' are mutually exclusive.`)
+          }
+          if (turn.user && turn.message) {
+            throw turnConfigError(`'user' and 'message' are aliases and cannot both be set.`)
+          }
+          if (turn.event && (turnMessage || turn.attachments?.length || turn.actor || turn.target)) {
+            throw turnConfigError(`message, attachments, actor, target, and event are mutually exclusive.`)
+          }
+          if (!hasInput && !turn.control) {
+            throw turnConfigError(`must have input or a control operation.`)
+          }
+          if (directActorTurn && !turn.target) {
+            throw turnConfigError(`actor '${actor}' requires target.relation.`)
+          }
+          if (parallel.length > 0 && (turnMessage || turn.event || turn.attachments?.length || directActorTurn)) {
+            throw turnConfigError(`'parallel' cannot be combined with other turn input or relation routing.`)
+          }
+          if (parallel.some((item) => Boolean(item.message) === Boolean(item.event))) {
+            throw turnConfigError(`each parallel input must have exactly one of 'message' or 'event'.`)
+          }
+          if (parallel.some((item) => item.event) && parallel.some((item) => item.message)) {
+            throw turnConfigError(`parallel inputs must be all messages or all events.`)
+          }
+
+          const resolvedFixtures = await Promise.all(
+            (turn.attachments ?? []).map(async ({ fixture }) => {
+              if (!options.resolveFixture) {
+                throw turnConfigError(`attachment fixture '${fixture}' cannot be resolved by this host.`)
+              }
+              return options.resolveFixture(fixture, {
+                botId: connection.botId,
+                evalName: evalDef.name,
+                turnIndex: i,
+              })
+            })
+          )
+          const turnLabel = turn.event
+            ? '[event]'
+            : parallel.length > 0
+              ? `[parallel:${parallel.length}]`
+              : !hasInput
+                ? '[control]'
+                : `${directActorTurn ? `[${actor}->${target}] ` : ''}${fixtureReportLabel(turnMessage, resolvedFixtures)}`
+          await emitEvalProgress(options.onProgress, {
+            type: 'turn_start',
+            evalName: evalDef.name,
+            evalIndex: options.evalIndex ?? 0,
+            turnIndex: i,
+            totalTurns: evalDef.conversation.length,
+            userMessage: turnLabel,
           })
-          await (directActorTurn ? workflowWait : session.raceWithListenerError(workflowWait)).catch((error) => {
-            if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
-            // Timeout is OK — the grader will report the failure
-          })
-        }
-      }
 
-      // Transform turn spans into grader-friendly data
-      const turnSpans = collector.getTurnSpans()
-      currentTraceId =
-        turnSpans.find((span) => span.name.startsWith('handler.'))?.id.trace ??
-        turnSpans[turnSpans.length - 1]?.id.trace
-      let turnData = transformSpans(turnSpans)
-      let responseMessages = !hasInput
-        ? []
-        : directActorTurn
-          ? await actorRouter.responsesFor(target)
-          : session.getTurnResponses()
+          // Cross a conversation boundary under the same user. Ignored on the first turn.
+          if (turn.newConversation && i > 0) {
+            const newConversationId = await session.newConversation(`eval:${executionId}:conversation:${i}`)
+            currentConversationId = newConversationId
+            await collector.repoint({ conversationId: newConversationId })
+            collectorConversationId = newConversationId
+            actorRouter = new ActorRouter(
+              connection.client,
+              {
+                primaryConversationId: newConversationId,
+                primaryUserId: session.userId,
+                executionId,
+                relations: materializedSetup?.relations ?? {},
+              },
+              { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
+            )
+          }
 
-      // The chat signal can land just after the trace completion snapshot.
-      if (hasInput && !turn.expectSilence && responseMessages.length === 0 && turnData.handlerDuration > 0) {
-        for (let waited = 0; waited < 600 && responseMessages.length === 0; waited += 150) {
-          const delay = new Promise<void>((resolve) => setTimeout(resolve, 150))
-          await (directActorTurn ? delay : session.raceWithListenerError(delay))
-          responseMessages = directActorTurn ? await actorRouter.responsesFor(target) : session.getTurnResponses()
-          if (turn.event) turnData = transformSpans(collector.getTurnSpans())
-        }
-      }
+          const activeConversationId = directActorTurn
+            ? await actorRouter.conversationId(target)
+            : await session.ensureConversation(`eval:${executionId}:conversation:0`)
+          currentConversationId = activeConversationId
+          if (activeConversationId !== collectorConversationId) {
+            await collector.repoint({ conversationId: activeConversationId })
+            collectorConversationId = activeConversationId
+          }
+          const deliveredTo = normalizeTargets(turn.assert?.deliveredTo)
+          const notDeliveredTo = normalizeTargets(turn.assert?.notDeliveredTo)
+          const observedTargets = [...(directActorTurn ? [target] : []), ...deliveredTo, ...notDeliveredTo]
 
-      const botResponse = responseMessages.join('\n')
-      const botDuration = turnData.handlerDuration
+          collector.startTurn()
+          if (hasInput && !directActorTurn) session.startTurn()
+          const dispatch = await checkpointEvalOperation(
+            options.checkpointEvalOperation,
+            { phase: 'dispatch', turnIndex: i },
+            async () => {
+              const startedAt = Date.now()
+              const deliveryBaseline =
+                observedTargets.length > 0 ? await actorRouter.startDeliveryObservation(observedTargets) : {}
+              return { startedAt, deliveryBaseline }
+            }
+          )
 
-      const evalStart = Date.now()
-      currentPhase = 'grading'
-      let assertions: GraderResult[] = []
-      const noResponse = hasInput && !turn.expectSilence && responseMessages.length === 0
+          await checkpointEvalOperation(
+            options.checkpointEvalOperation,
+            { phase: 'effect', turnIndex: i },
+            async () => {
+              currentPhase = 'dispatch'
+              if (turn.control) {
+                const control = turn.control
+                if (control.clearFaults) {
+                  await runEvalControlOperation('clear_faults', () => options.evalControl!.clearFaults())
+                }
+                if (control.faults?.length) {
+                  await runEvalControlOperation('configure_faults', () =>
+                    options.evalControl!.configureFaults(control.faults!)
+                  )
+                }
+                if (control.advanceClock) {
+                  await runEvalControlOperation('advance_clock', () =>
+                    options.evalControl!.advanceClock(control.advanceClock!)
+                  )
+                }
+              }
 
-      if (noResponse) {
-        // A missing response is a graded outcome, not an exceptional state —
-        // record the failure and keep going so later turns and outcome
-        // assertions still produce data (a throw here used to abort the whole
-        // eval and discard everything after this turn).
-        assertions.push({
-          assertion: 'response',
-          pass: false,
-          expected: 'Bot produces a response',
-          actual: `Turn ${i + 1}: bot produced no response.`,
-        })
-      }
+              const effectId = `eval:${executionId}:turn:${i}`
+              if (turn.event) {
+                await session.sendEvent(turn.event.payload)
+              } else if (parallel.length > 0) {
+                await Promise.all(
+                  parallel.map((item, parallelIndex) =>
+                    item.event
+                      ? session!.sendEvent(item.event.payload)
+                      : session!.sendMessage(item.message!, `${effectId}:message:${parallelIndex}`)
+                  )
+                )
+              } else if (directActorTurn) {
+                await actorRouter.send({
+                  actor,
+                  relation: target,
+                  effectId: `${effectId}:message`,
+                  ...(resolvedFixtures.length > 0
+                    ? { payload: buildAttachmentPayload(turnMessage, resolvedFixtures) }
+                    : { message: turnMessage! }),
+                })
+              } else if (resolvedFixtures.length > 0) {
+                await session.sendPayload(buildAttachmentPayload(turnMessage, resolvedFixtures), `${effectId}:message`)
+              } else {
+                await session.sendMessage(turnMessage!, `${effectId}:message`)
+              }
+            }
+          )
 
-      if (turn.expectSilence && hasInput) {
-        const wasSilent = responseMessages.length === 0
-        assertions.push({
-          assertion: 'no_response',
-          pass: wasSilent,
-          expected: 'No response',
-          actual: wasSilent ? 'No response' : `Bot responded: "${botResponse}"`,
-        })
-      }
+          if (collector.resumeTurn) collector.resumeTurn(dispatch.startedAt)
+          if (hasInput && !directActorTurn) await session.resumeTurn(dispatch.startedAt)
+          actorRouter.restoreDeliveryObservation(dispatch.deliveryBaseline)
 
-      // Response assertions — skipped when there's no response: the failing
-      // 'response' assertion above already covers it, and grading an empty
-      // string would only add noise.
-      if (turn.assert?.response && !noResponse) {
-        assertions = await gradeResponse(botResponse, turn.assert.response, {
-          userMessage: turnLabel,
-          ...(judgePassThreshold !== undefined ? { judgePassThreshold } : {}),
-        })
-      }
+          currentPhase = 'observation'
+          try {
+            // A user-message turn completes via handler.conversation; an event turn
+            // via handler.event. Scoping the wait keeps async noise (e.g. a workflow
+            // callback's silent handler.event) from releasing the turn early.
+            const completion = hasInput
+              ? collector.waitForTurnComplete({
+                  timeout: idleTimeout,
+                  acceptSpanNames:
+                    turn.event || parallel.some((item) => item.event)
+                      ? new Set(['handler.event'])
+                      : new Set(['handler.conversation']),
+                  // Long quiet window: a tool-started workflow and its callback only run
+                  // AFTER the handler closes; sending the next message into that window
+                  // can get it absorbed by their transcript saves and silently skipped.
+                  settleQuietMs: 1_500,
+                  settleMaxMs: 15_000,
+                  // Event turns fail fast when nothing is subscribed (see the constant).
+                  ...(turn.event ? { handlerStartTimeoutMs: EVENT_HANDLER_START_TIMEOUT_MS } : {}),
+                  ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+                })
+              : Promise.resolve()
+            await (directActorTurn || !hasInput ? completion : session.raceWithListenerError(completion))
+          } catch (err) {
+            // If the wait was aborted, exit the turn loop cleanly rather than
+            // surfacing an error on the eval — Stop is a user action, not a
+            // failure. Other errors (timeout, etc.) still propagate.
+            if (options.signal?.aborted) return undefined
+            throw err
+          }
 
-      // Tool assertions from turn spans
-      if (turn.assert?.tools) {
-        const toolResults = gradeTools(turnData.toolCalls, turn.assert.tools)
-        assertions = [...assertions, ...toolResults]
-      }
-
-      // Per-turn state assertions
-      if (turn.assert?.state) {
-        try {
-          const stateResults = gradeState(turnData.stateMutations, turn.assert.state)
-          assertions.push(...stateResults)
-        } catch (err) {
-          assertions.push({
-            assertion: 'state',
-            pass: false,
-            expected: 'State assertions executed',
-            actual: `Error: ${(err as Error).message}`,
-          })
-        }
-      }
-
-      // Per-turn workflow assertions
-      if (turn.assert?.workflow) {
-        const workflowResults = gradeWorkflows(turnData.workflowSpans, turn.assert.workflow)
-        assertions.push(...workflowResults)
-      }
-
-      // Per-turn timing assertions
-      if (turn.assert?.timing) {
-        const timingResults = gradeTiming(botDuration, turn.assert.timing)
-        assertions.push(...timingResults)
-      }
-
-      if (turn.assert?.tables) {
-        assertions.push(...(await gradeTableAssertions(connection.client, turn.assert.tables)))
-      }
-
-      const conversationMode = turn.assert?.conversationMode
-      if (deliveredTo.length > 0 || notDeliveredTo.length > 0 || conversationMode) {
-        assertions.push(
-          ...(await actorRouter.gradeDelivery({
-            deliveredTo,
-            notDeliveredTo,
-            ...(conversationMode ? { conversationMode } : {}),
-          }))
-        )
-      }
-
-      const turnPass = assertions.every((a) => a.pass)
-
-      const evalDuration = Date.now() - evalStart
-
-      const turnReport: TurnReport = {
-        turnIndex: i,
-        conversationId: activeConversationId,
-        ...(currentTraceId ? { traceId: currentTraceId } : {}),
-        ...(actor !== 'client' ? { actor } : {}),
-        ...(target !== 'client' ? { target } : {}),
-        userMessage: turnLabel,
-        botResponse,
-        assertions,
-        pass: turnPass,
-        botDuration,
-        evalDuration,
-      }
-      turns.push(turnReport)
-
-      await emitEvalProgress(options.onProgress, {
-        type: 'turn_complete',
-        evalName: evalDef.name,
-        evalIndex: options.evalIndex ?? 0,
-        turnIndex: i,
-        totalTurns: evalDef.conversation.length,
-        turnReport,
-      })
-      currentTraceId = undefined
-    }
-
-    // Outcome assertions (after all turns)
-    if (materializedEvalDef.outcome && !options.signal?.aborted) {
-      // Wait for outcome-level workflow assertions. Same negative-assertion gate as the per-turn loop.
-      if (materializedEvalDef.outcome.workflow) {
-        for (const wfAssert of materializedEvalDef.outcome.workflow) {
-          const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
-          if (!expectsPositive) continue
-          const wfSignal = wfAssert.completed ? 'completed' : 'entered'
-          await session
-            .raceWithListenerError(
-              collector.waitForWorkflow(wfAssert.name, {
+          // Wait for per-turn workflow assertions.
+          // Skip the wait for negative assertions (entered: false / completed: false) — the
+          // grader will check already-collected spans, so blocking on a signal that's expected
+          // not to arrive just burns the full idleTimeout per assertion.
+          if (turn.assert?.workflow) {
+            for (const wfAssert of turn.assert.workflow) {
+              const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
+              if (!expectsPositive) continue
+              const wfSignal = wfAssert.completed ? 'completed' : 'entered'
+              const workflowWait = collector.waitForWorkflow(wfAssert.name, {
                 signal: wfSignal,
                 timeout: idleTimeout,
                 ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
               })
-            )
-            .catch((error) => {
-              if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
-              // Timeout is OK — the grader will report the failure
+              await (directActorTurn ? workflowWait : session.raceWithListenerError(workflowWait)).catch((error) => {
+                if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
+                // Timeout is OK — the grader will report the failure
+              })
+            }
+          }
+
+          // Transform turn spans into grader-friendly data
+          const turnSpans = collector.getTurnSpans()
+          currentTraceId =
+            turnSpans.find((span) => span.name.startsWith('handler.'))?.id.trace ??
+            turnSpans[turnSpans.length - 1]?.id.trace
+          let turnData = transformSpans(turnSpans)
+          let responseMessages = !hasInput
+            ? []
+            : directActorTurn
+              ? await actorRouter.responsesFor(target)
+              : session.getTurnResponses()
+
+          // The chat signal can land just after the trace completion snapshot.
+          if (hasInput && !turn.expectSilence && responseMessages.length === 0 && turnData.handlerDuration > 0) {
+            for (let waited = 0; waited < 600 && responseMessages.length === 0; waited += 150) {
+              const delay = new Promise<void>((resolve) => setTimeout(resolve, 150))
+              await (directActorTurn ? delay : session.raceWithListenerError(delay))
+              responseMessages = directActorTurn ? await actorRouter.responsesFor(target) : session.getTurnResponses()
+              if (turn.event) turnData = transformSpans(collector.getTurnSpans())
+            }
+          }
+
+          const botResponse = responseMessages.join('\n')
+          const botDuration = turnData.handlerDuration
+
+          const evalStart = Date.now()
+          currentPhase = 'grading'
+          let assertions: GraderResult[] = []
+          const noResponse = hasInput && !turn.expectSilence && responseMessages.length === 0
+
+          if (noResponse) {
+            // A missing response is a graded outcome, not an exceptional state —
+            // record the failure and keep going so later turns and outcome
+            // assertions still produce data (a throw here used to abort the whole
+            // eval and discard everything after this turn).
+            assertions.push({
+              assertion: 'response',
+              pass: false,
+              expected: 'Bot produces a response',
+              actual: `Turn ${i + 1}: bot produced no response.`,
             })
+          }
+
+          if (turn.expectSilence && hasInput) {
+            const wasSilent = responseMessages.length === 0
+            assertions.push({
+              assertion: 'no_response',
+              pass: wasSilent,
+              expected: 'No response',
+              actual: wasSilent ? 'No response' : `Bot responded: "${botResponse}"`,
+            })
+          }
+
+          // Response assertions — skipped when there's no response: the failing
+          // 'response' assertion above already covers it, and grading an empty
+          // string would only add noise.
+          if (turn.assert?.response && !noResponse) {
+            assertions = await gradeResponse(botResponse, turn.assert.response, {
+              userMessage: turnLabel,
+              ...(judgePassThreshold !== undefined ? { judgePassThreshold } : {}),
+            })
+          }
+
+          // Tool assertions from turn spans
+          if (turn.assert?.tools) {
+            const toolResults = gradeTools(turnData.toolCalls, turn.assert.tools)
+            assertions = [...assertions, ...toolResults]
+          }
+
+          // Per-turn state assertions
+          if (turn.assert?.state) {
+            try {
+              const stateResults = gradeState(turnData.stateMutations, turn.assert.state)
+              assertions.push(...stateResults)
+            } catch (err) {
+              assertions.push({
+                assertion: 'state',
+                pass: false,
+                expected: 'State assertions executed',
+                actual: `Error: ${(err as Error).message}`,
+              })
+            }
+          }
+
+          // Per-turn workflow assertions
+          if (turn.assert?.workflow) {
+            const workflowResults = gradeWorkflows(turnData.workflowSpans, turn.assert.workflow)
+            assertions.push(...workflowResults)
+          }
+
+          // Per-turn timing assertions
+          if (turn.assert?.timing) {
+            const timingResults = gradeTiming(botDuration, turn.assert.timing)
+            assertions.push(...timingResults)
+          }
+
+          if (turn.assert?.tables) {
+            assertions.push(...(await gradeTableAssertions(connection.client, turn.assert.tables)))
+          }
+
+          const conversationMode = turn.assert?.conversationMode
+          if (deliveredTo.length > 0 || notDeliveredTo.length > 0 || conversationMode) {
+            assertions.push(
+              ...(await actorRouter.gradeDelivery({
+                deliveredTo,
+                notDeliveredTo,
+                ...(conversationMode ? { conversationMode } : {}),
+              }))
+            )
+          }
+
+          const turnPass = assertions.every((a) => a.pass)
+
+          const evalDuration = Date.now() - evalStart
+
+          const turnReport: TurnReport = {
+            turnIndex: i,
+            conversationId: activeConversationId,
+            ...(currentTraceId ? { traceId: currentTraceId } : {}),
+            ...(actor !== 'client' ? { actor } : {}),
+            ...(target !== 'client' ? { target } : {}),
+            userMessage: turnLabel,
+            botResponse,
+            assertions,
+            pass: turnPass,
+            botDuration,
+            evalDuration,
+          }
+          return {
+            report: turnReport,
+            outcomeObservation: {
+              stateMutations: turnData.stateMutations,
+              workflowSpans: turnData.workflowSpans,
+            },
+            primaryConversationId: session.activeConversationId ?? activeConversationId,
+          }
+        }
+      )
+
+      if (!executedTurn) break
+      const completedTurn = await checkpointEvalOperation(
+        options.checkpointEvalOperation,
+        { phase: 'persist', turnIndex: i },
+        async () => {
+          await emitEvalProgress(options.onProgress, {
+            type: 'turn_complete',
+            evalName: evalDef.name,
+            evalIndex: options.evalIndex ?? 0,
+            turnIndex: i,
+            totalTurns: evalDef.conversation.length,
+            turnReport: executedTurn.report,
+          })
+          return executedTurn
+        }
+      )
+      currentTraceId = undefined
+      turns.push(completedTurn.report)
+      outcomeObservations.push(completedTurn.outcomeObservation)
+      conversationId = completedTurn.primaryConversationId
+      currentConversationId = conversationId
+      if (session.activeConversationId !== conversationId) await session.useConversation(conversationId)
+      if (collectorConversationId !== conversationId) {
+        await collector.repoint({ conversationId })
+        collectorConversationId = conversationId
+      }
+      actorRouter = new ActorRouter(
+        connection.client,
+        {
+          primaryConversationId: conversationId,
+          primaryUserId: session.userId,
+          executionId,
+          relations: materializedSetup?.relations ?? {},
+        },
+        { resolveTimeoutMs: Math.min(idleTimeout, 5_000) }
+      )
+    }
+
+    return await checkpointEvalOperation(options.checkpointEvalOperation, { phase: 'finalize' }, async () => {
+      // Outcome assertions (after all turns)
+      if (materializedEvalDef.outcome && !options.signal?.aborted) {
+        // Wait for outcome-level workflow assertions. Same negative-assertion gate as the per-turn loop.
+        if (materializedEvalDef.outcome.workflow) {
+          for (const wfAssert of materializedEvalDef.outcome.workflow) {
+            const expectsPositive = wfAssert.entered !== false && wfAssert.completed !== false
+            if (!expectsPositive) continue
+            const wfSignal = wfAssert.completed ? 'completed' : 'entered'
+            await session
+              .raceWithListenerError(
+                collector.waitForWorkflow(wfAssert.name, {
+                  signal: wfSignal,
+                  timeout: idleTimeout,
+                  ...(options.signal !== undefined ? { abortSignal: options.signal } : {}),
+                })
+              )
+              .catch((error) => {
+                if (isAdkError(error) && error.code === 'CHAT_LISTENER_FAILED') throw error
+                // Timeout is OK — the grader will report the failure
+              })
+          }
+        }
+
+        try {
+          const finalObservation = transformSpans(collector.getAllSpans())
+          const stateMutations = [
+            ...outcomeObservations.flatMap((observation) => observation.stateMutations),
+            ...finalObservation.stateMutations,
+          ]
+          const workflowSpans = [
+            ...outcomeObservations.flatMap((observation) => observation.workflowSpans),
+            ...finalObservation.workflowSpans,
+          ]
+          outcomeAssertions = gradeOutcome(stateMutations, materializedEvalDef, workflowSpans)
+          outcomeAssertions.push(...(await gradeTableAssertions(connection.client, materializedEvalDef.outcome.tables)))
+        } catch (err) {
+          outcomeAssertions = [
+            {
+              assertion: 'outcome',
+              pass: false,
+              expected: 'Outcome assertions executed',
+              actual: `Error: ${(err as Error).message}`,
+            },
+          ]
         }
       }
 
-      try {
-        const allTurnData = transformSpans(collector.getAllSpans())
-        outcomeAssertions = gradeOutcome(allTurnData.stateMutations, materializedEvalDef, allTurnData.workflowSpans)
-        outcomeAssertions.push(...(await gradeTableAssertions(connection.client, materializedEvalDef.outcome.tables)))
-      } catch (err) {
-        outcomeAssertions = [
-          {
-            assertion: 'outcome',
-            pass: false,
-            expected: 'Outcome assertions executed',
-            actual: `Error: ${(err as Error).message}`,
-          },
-        ]
+      const aborted = options.signal?.aborted === true
+      const turnsPass = turns.every((turn) => turn.pass)
+      const outcomePass = outcomeAssertions.every((assertion) => assertion.pass)
+
+      await cleanupTables()
+      return {
+        ...evalMetadata(evalDef),
+        turns,
+        outcomeAssertions,
+        pass: !aborted && turnsPass && outcomePass,
+        duration: Date.now() - start,
+        ...(aborted ? { error: 'Eval aborted', errorCode: 'EVAL_ABORTED' as const } : {}),
       }
-    }
-
-    const aborted = options.signal?.aborted === true
-    const turnsPass = turns.every((t) => t.pass)
-    const outcomePass = outcomeAssertions.every((a) => a.pass)
-
-    await cleanupTables()
-    return {
-      ...evalMetadata(evalDef),
-      turns,
-      outcomeAssertions,
-      pass: !aborted && turnsPass && outcomePass,
-      duration: Date.now() - start,
-      ...(aborted ? { error: 'Eval aborted', errorCode: 'EVAL_ABORTED' as const } : {}),
-    }
+    })
   } catch (err) {
+    if (err instanceof EvalCheckpointHostError) throw err.hostCause
     let cleanupFailure: unknown
     try {
       await cleanupTables()
@@ -914,7 +1108,7 @@ export async function runEval(
       })
     }
     collector.disconnect()
-    await session?.disconnect().catch((error) => {
+    await session.disconnect().catch((error) => {
       logger.warn(`Chat response listener cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
     })
   }
@@ -951,6 +1145,10 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
     }
   }
 
+  // Validate the complete selected suite before reader setup, progress writes,
+  // or any target mutation. Per-eval validation would let an earlier safe eval
+  // run before a later unsupported durable effect failed.
+  validateDurableEvalDefinitions(evals, config.checkpointEvalOperation !== undefined)
   validateEvalControlCapabilities(evals, config.evalControl)
 
   if (config.createSpanSource) {
@@ -1025,6 +1223,9 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
         ...(config.chatBaseUrl !== undefined ? { chatBaseUrl: config.chatBaseUrl } : {}),
         ...(config.resolveFixture !== undefined ? { resolveFixture: config.resolveFixture } : {}),
         ...(config.evalControl !== undefined ? { evalControl: config.evalControl } : {}),
+        ...(config.checkpointEvalOperation !== undefined
+          ? { checkpointEvalOperation: config.checkpointEvalOperation }
+          : {}),
         sourcePreflighted: true,
         executionId: `${runId}:${i}`,
       })

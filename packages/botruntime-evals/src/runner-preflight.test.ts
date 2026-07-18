@@ -2,7 +2,7 @@ import type { Client as BpClient } from '@holocronlab/botruntime-client'
 import type { SignalListener, Signals } from '@holocronlab/botruntime-chat'
 import { CognitiveBeta } from '@holocronlab/botruntime-cognitive'
 import { describe, expect, it, vi } from 'vitest'
-import type { EvalDefinition, Span, SpanSource, SpanSourceCapabilities } from './types'
+import type { EvalDefinition, EvalRunnerConfig, Span, SpanSource, SpanSourceCapabilities } from './types'
 import type { ChatClient } from './types'
 import {
   isPartialEvalSuiteAbort,
@@ -185,6 +185,32 @@ describe('eval observation capability preflight', () => {
     ).not.toThrow()
   })
 
+  it.each([
+    [{ name: 'event', conversation: [{ event: { payload: { type: 'wake' } } }] }],
+    [{ name: 'control', conversation: [{ control: { clearFaults: true } }] }],
+    [
+      {
+        name: 'table-seed',
+        setup: { tables: [{ table: 'Cases', rows: [{ key: 'value' }] }] },
+        conversation: [{ user: 'hello' }],
+      },
+    ],
+  ] as const)('fails loud before mutation when a durable host lacks target idempotency', async (definition) => {
+    const { chatClient } = chatHarness()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({ execute }) =>
+      execute()
+
+    await expect(
+      runEval(definition as unknown as EvalDefinition, { client: {} as BpClient, botId: 'bot' }, {
+        spanSource: spanSource(),
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+      })
+    ).rejects.toMatchObject({ code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED', expected: true })
+  })
+
   it('rejects virtual time, faults, and parallel input before side effects when the host has no eval control', () => {
     const definition: EvalDefinition = {
       name: 'controlled',
@@ -352,7 +378,7 @@ describe('eval observation capability preflight', () => {
     )
 
     expect(resolveFixture).toHaveBeenCalledWith('ddu-valid', expect.objectContaining({ botId: 'runtime-bot' }))
-    expect(authenticatedClient.createMessage).toHaveBeenCalledWith({
+    expect(authenticatedClient.createMessage).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'conv-1',
       payload: {
         type: 'bloc',
@@ -365,7 +391,7 @@ describe('eval observation capability preflight', () => {
           },
         ],
       },
-    })
+    }))
     expect(JSON.stringify({ report, progress: onProgress.mock.calls })).not.toContain('signed.example')
     expect(JSON.stringify({ report, progress: onProgress.mock.calls })).not.toContain('token=secret')
     expect(report.turns[0]?.userMessage).toContain('ddu-valid')
@@ -388,8 +414,8 @@ describe('eval observation capability preflight', () => {
           },
         ],
       }),
-      createUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
-      createMessage: vi.fn(async () => {
+      getOrCreateUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
+      getOrCreateMessage: vi.fn(async () => {
         messages.get('conv-1')!.push({
           id: 'relay-1',
           direction: 'outgoing',
@@ -439,7 +465,7 @@ describe('eval observation capability preflight', () => {
       target: 'hitl_thread',
       pass: true,
     })
-    expect(client.createMessage).toHaveBeenCalledWith(
+    expect(client.getOrCreateMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         origin: 'synthetic',
         conversationId: 'hitl-1',
@@ -714,6 +740,213 @@ describe('eval observation capability preflight', () => {
     expect(progress).toEqual(['suite_start', 'suite_complete'])
   })
 
+  it('resumes a multi-turn eval from the first unfinished durable turn', async () => {
+    vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const definition: EvalDefinition = {
+      name: 'durable-turns',
+      conversation: [{ user: 'first' }, { user: 'second' }],
+    }
+    const cache = new Map<string, unknown>()
+    let invocation = 1
+    const persistedTurns: number[] = []
+
+    const checkpointEvalOperation = async <T>({
+      phase,
+      turnIndex,
+      execute,
+    }: {
+      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'
+      turnIndex?: number
+      execute: () => Promise<T>
+    }): Promise<T> => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as T
+      if (invocation === 1 && phase === 'turn' && turnIndex === 1) {
+        throw new Error('durable-yield')
+      }
+      const value = await execute()
+      cache.set(key, value)
+      return value
+    }
+
+    await expect(
+      runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, {
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+        onProgress: (event) => {
+          if (event.type === 'turn_complete') persistedTurns.push(event.turnIndex)
+        },
+      })
+    ).rejects.toThrow('durable-yield')
+
+    invocation = 2
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, {
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      onProgress: (event) => {
+        if (event.type === 'turn_complete') persistedTurns.push(event.turnIndex)
+      },
+    })
+
+    expect(report.turns.map((turn) => turn.turnIndex)).toEqual([0, 1])
+    expect(persistedTurns).toEqual([0, 1])
+    expect(authenticatedClient.createConversation).toHaveBeenCalledOnce()
+    expect(authenticatedClient.createMessage).toHaveBeenCalledTimes(2)
+    expect(chatClient.connect).toHaveBeenNthCalledWith(2, expect.objectContaining({ userId: 'user-1' }))
+  })
+
+  it('reuses the original intent boundary when an idempotent effect loses its acknowledgement', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    const committedEffects = new Set<string>()
+    let committedSideEffects = 0
+    ;(authenticatedClient.createMessage as any).mockImplementation(async (input: { effectId?: string }) => {
+      const id = input.effectId ?? 'unkeyed'
+      if (!committedEffects.has(id)) {
+        committedEffects.add(id)
+        committedSideEffects++
+      }
+      return {}
+    })
+    let loseFirstEffectAck = true
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const value = await execute()
+      if (phase === 'effect' && loseFirstEffectAck) {
+        loseFirstEffectAck = false
+        throw new Error('effect-ack-lost')
+      }
+      cache.set(key, value)
+      return value
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-dispatch',
+      conversation: [{ user: 'send once', expectSilence: true }],
+    }
+    const options = {
+      executionId: 'run:0',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'effect-ack-lost'
+    )
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report.pass).toBe(true)
+    expect(authenticatedClient.createMessage).toHaveBeenCalledTimes(2)
+    expect(committedSideEffects).toBe(1)
+  })
+
+  it('rehydrates a cached typed turn failure without changing its durable verdict', async () => {
+    const cache = new Map<string, unknown>()
+    let loseFirstTurnAck = true
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const value = await execute()
+      cache.set(key, value)
+      if (phase === 'turn' && loseFirstTurnAck) {
+        loseFirstTurnAck = false
+        throw new Error('turn-ack-lost')
+      }
+      return value
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-typed-error',
+      conversation: [{ user: 'one alias', message: 'second alias' }],
+    }
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const options = {
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'turn-ack-lost'
+    )
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report).toMatchObject({
+      pass: false,
+      errorCode: 'EVAL_TURN_CONFIG_INVALID',
+      diagnostic: { code: 'EVAL_TURN_CONFIG_INVALID', phase: 'routing', turnIndex: 0 },
+    })
+  })
+
+  it('retries an ambiguous result write from the cached turn report without resending chat input', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    const persistedReports: string[] = []
+    let loseFirstPersistenceAck = true
+    const checkpointEvalOperation = async <T>({
+      phase,
+      turnIndex,
+      execute,
+    }: {
+      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'
+      turnIndex?: number
+      execute: () => Promise<T>
+    }): Promise<T> => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as T
+      const value = await execute()
+      if (phase === 'persist' && loseFirstPersistenceAck) {
+        loseFirstPersistenceAck = false
+        throw new Error('persistence-ack-lost')
+      }
+      cache.set(key, value)
+      return value
+    }
+    const options = {
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      onProgress: (event: Parameters<NonNullable<EvalRunnerConfig['onProgress']>>[0]) => {
+        if (event.type === 'turn_complete') persistedReports.push(JSON.stringify(event.turnReport))
+      },
+    }
+
+    await expect(runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'persistence-ack-lost'
+    )
+    const report = await runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report.pass).toBe(true)
+    expect(authenticatedClient.createMessage).toHaveBeenCalledOnce()
+    expect(persistedReports).toHaveLength(2)
+    expect(persistedReports[1]).toBe(persistedReports[0])
+  })
+
   it('validates only filtered definitions before reader preflight', async () => {
     const source = spanSource({
       assertReadable: vi.fn().mockRejectedValue(new Error('reader-preflight-marker')),
@@ -757,6 +990,37 @@ describe('eval observation capability preflight', () => {
     ).rejects.toMatchObject({ code: 'EVAL_OBSERVATION_UNSUPPORTED' })
 
     expect(source.assertReadable).not.toHaveBeenCalled()
+    expect(chatClient.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unsafe durable suite before an earlier safe eval can mutate the target', async () => {
+    const { chatClient } = chatHarness()
+    const createSpanSource = vi.fn(() => spanSource())
+    const onProgress = vi.fn()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({ execute }) =>
+      execute()
+    const unsafe: EvalDefinition = {
+      name: 'unsafe-event',
+      conversation: [{ event: { payload: { type: 'unsafe' } } }],
+    }
+
+    await expect(
+      runEvalSuite({
+        client: {} as BpClient,
+        botId: 'runtime-bot',
+        definitions: [basicEval, unsafe],
+        createSpanSource,
+        chatClient,
+        checkpointEvalOperation,
+        onProgress,
+      })
+    ).rejects.toMatchObject({
+      code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED',
+      details: { evalName: 'unsafe-event', turn: 1 },
+    })
+
+    expect(createSpanSource).not.toHaveBeenCalled()
+    expect(onProgress).not.toHaveBeenCalled()
     expect(chatClient.connect).not.toHaveBeenCalled()
   })
 

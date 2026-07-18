@@ -46,6 +46,12 @@ export interface SpanSource {
    */
   repoint(filter: { conversationId: string }): Promise<void>
   startTurn(): void
+  /**
+   * Reconstruct the boundary from the dispatch timestamp so pre-dispatch spans
+   * cannot satisfy this turn. This is required on first execution and makes the
+   * same boundary recoverable after durable replay.
+   */
+  resumeTurn?(startedAt: number): void
   waitForTurnComplete(opts: TurnWaitOptions): Promise<void>
   waitForWorkflow(name: string, opts: WorkflowWaitOptions): Promise<void>
   getTurnSpans(): Span[]

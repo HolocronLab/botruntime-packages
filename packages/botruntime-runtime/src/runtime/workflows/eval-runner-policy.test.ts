@@ -4,9 +4,11 @@ import { isStepSignal } from '../../primitives/workflow-signal'
 import {
   assertHostedEvalExecutionActive,
   assertHostedEvalInvocationBudget,
+  assertHostedEvalPersistenceBudget,
   assertHostedEvalStartBudget,
   MAX_HOSTED_EVAL_IDLE_TIMEOUT_MS,
   MIN_HOSTED_EVAL_START_BUDGET_MS,
+  MIN_HOSTED_EVAL_PERSISTENCE_BUDGET_MS,
   resolveHostedEvalIdleTimeout,
 } from './eval-runner-policy'
 
@@ -58,6 +60,22 @@ describe('assertHostedEvalStartBudget', () => {
   it('fails closed for an invalid remaining-time reading', () => {
     expect(() => assertHostedEvalStartBudget(Number.NaN)).toThrow()
     expect(() => assertHostedEvalStartBudget(Number.POSITIVE_INFINITY)).toThrow()
+  })
+})
+
+describe('assertHostedEvalPersistenceBudget', () => {
+  it('allows cached result persistence later in the same invocation', () => {
+    expect(() => assertHostedEvalPersistenceBudget(MIN_HOSTED_EVAL_PERSISTENCE_BUDGET_MS)).not.toThrow()
+  })
+
+  it('yields before a result write when there is no persistence reserve', () => {
+    let caught: unknown
+    try {
+      assertHostedEvalPersistenceBudget(MIN_HOSTED_EVAL_PERSISTENCE_BUDGET_MS - 1)
+    } catch (error) {
+      caught = error
+    }
+    expect(isStepSignal(caught)).toBe(true)
   })
 })
 

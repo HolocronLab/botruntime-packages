@@ -197,4 +197,14 @@ describe('durable eval table fixtures', () => {
     await expect(cleanupSeededTableRows(client, seeded)).resolves.toBeUndefined()
     expect(seeded).toEqual([])
   })
+
+  it('accepts an already-applied exact-id delete when finalize acknowledgement is replayed', async () => {
+    const client = {
+      deleteTableRows: vi.fn().mockResolvedValue({ deletedRows: 0 }),
+    } as any
+    const seeded = [{ table: 'DocumentTable', ids: [101, 102] }]
+
+    await expect(cleanupSeededTableRows(client, seeded)).resolves.toBeUndefined()
+    expect(seeded).toEqual([])
+  })
 })

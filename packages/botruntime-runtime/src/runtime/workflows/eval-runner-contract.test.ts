@@ -94,4 +94,24 @@ describe('runtime eval workflow trace-reader contract', () => {
     )
     expect(source.match(/assertHostedEvalExecutionActive\(signal\)/g)).toHaveLength(4)
   })
+
+  it('checkpoints each eval turn inside the enclosing eval step', () => {
+    const evalCheckpoint = source.indexOf('checkpointEval: async')
+    const operationCheckpoint = source.indexOf('checkpointEvalOperation:')
+
+    expect(operationCheckpoint).toBeGreaterThan(evalCheckpoint)
+    expect(source).toContain("phase === 'dispatch' || phase === 'effect' || phase === 'turn' || phase === 'persist'")
+    expect(source).toMatch(
+      /checkpointEvalOperation:[\s\S]*?step\([\s\S]*?assertHostedEvalStartBudget\([\s\S]*?return execute\(\)/,
+    )
+    expect(source).toContain('runId: String(vortexRunId)')
+  })
+
+  it('rejects unsupported durable suites before creating the hosted run', () => {
+    const durablePreflight = source.indexOf('validateDurableEvalDefinitions(filteredDefinitions, true)')
+    const createRun = source.indexOf("step('create-run'")
+
+    expect(durablePreflight).toBeGreaterThan(-1)
+    expect(createRun).toBeGreaterThan(durablePreflight)
+  })
 })

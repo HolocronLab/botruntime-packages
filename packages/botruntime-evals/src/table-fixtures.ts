@@ -120,7 +120,11 @@ export async function cleanupSeededTableRows(client: TableClient, seeded: Seeded
           table: item.table,
           ids: item.ids,
         })
-        if (response.deletedRows !== item.ids.length) {
+        // A durable finalize step can be replayed after the delete committed but
+        // before its acknowledgement was checkpointed. Zero is therefore the
+        // successful replay of an already-completed exact-id cleanup; any
+        // partial non-zero count still signals a real divergence.
+        if (response.deletedRows !== 0 && response.deletedRows !== item.ids.length) {
           throw new Error('Tables API reported partial eval fixture cleanup.')
         }
       }
