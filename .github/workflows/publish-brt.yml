@@ -35,6 +35,15 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # DEVLP-174: публикация с неконсьюмленными changeset-заметками паковала бы
+      # новый source под СТАРЫМ иммутабельным npm-semver и молча съедала записи —
+      # релиз обязан начинаться с changeset-version.mjs. Только для
+      # СЕРИАЛИЗОВАННОГО релиза (workflow_call с tag): ручные dev-тарболы с
+      # фиче-веток (workflow_dispatch) — отдельные артефакты, не npm-релиз.
+      - name: No pending changesets
+        if: ${{ inputs.tag != '' }}
+        run: node scripts/changeset-lint.mjs --require-empty
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"

@@ -69,6 +69,31 @@ jobs:
           node --test scripts/registry-release-readiness.test.mjs
           node scripts/release-version-closure.mjs --base="$BASE_SHA"
 
+  # DEVLP-174: no CHANGELOG anywhere meant an updated brt/ADK shipped with no
+  # record of what changed or what could break. A PR that changes a published
+  # package's source (packages/*, excluding tests/dist/docs — see
+  # changeset-lint.mjs) must add a .changeset/*.md entry, or this fails closed.
+  changeset-gate:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The diff against the PR's base commit must be locally available.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check every changed published package has a changeset entry
+        run: |
+          node --test scripts/changeset-lint.test.mjs
+          node --test scripts/changeset-version.test.mjs
+          node --test scripts/changeset-parse.test.mjs
+          node scripts/changeset-lint.mjs --base="$BASE_SHA"
+
   codegen-extensions:
     runs-on: ubuntu-latest
     steps:

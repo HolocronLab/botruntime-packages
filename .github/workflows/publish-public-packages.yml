@@ -49,6 +49,12 @@ jobs:
           ref: ${{ github.event.inputs.ref || github.ref }}
           fetch-depth: 0
 
+      # DEVLP-174: публикация с неконсьюмленными changeset-заметками паковала бы
+      # новый source под СТАРЫМ иммутабельным npm-semver и молча съедала записи —
+      # релиз обязан начинаться с changeset-version.mjs.
+      - name: No pending changesets
+        run: node scripts/changeset-lint.mjs --require-empty
+
       - name: Resolve immutable release SHA
         id: release-ref
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
