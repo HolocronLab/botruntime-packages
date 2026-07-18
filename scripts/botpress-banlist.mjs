@@ -40,19 +40,42 @@ const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 // "botpress/skills" (a plugin-marketplace name, not an npm import).
 // \s+ после ключевых слов покрывает и перенос строки (multiline import), а
 // `import '...'` — side-effect форму без from; require допускает пробел до скобки.
-// GAP — между ключевым словом и спецификатором допустимы пробелы, блок- И
-// строчные комментарии (import( // lazy\n '@botpress/x')).
-const GAP = String.raw`(?:\s|\/\*[^]*?\*\/|\/\/[^\n]*\n)*`
+// После stripComments прозы в кодовых файлах не остаётся (она живёт в
+// комментариях), а .md сканится только по fenced-код-блокам — поэтому паттерны
+// просты и не пере-статментны: кавычки и ; исключены из «окна», матч не может
+// перепрыгнуть чужой спецификатор или соседний statement.
 const SPEC = String.raw`['"\x60]@botpress\/[^'"\x60]+['"\x60]`
-// `from` матчится ТОЛЬКО в контексте import/export-декларации (ограниченное
-// окно до 200 симв.): проза вида «Migrate from '@botpress/runtime'» в
-// сканируемых скиллах/README — не импорт и не должна краснить CI.
 const IMPORT_PATTERN = new RegExp(
-  String.raw`\b(?:import|export)\b[^;]{0,200}?\bfrom${GAP}${SPEC}` +
-  String.raw`|\brequire${GAP}\(${GAP}${SPEC}` +
-  String.raw`|\bimport${GAP}\(${GAP}${SPEC}` +
-  String.raw`|\bimport${GAP}${SPEC}`
+  String.raw`\b(?:import|export)\b[\s\w$\{\},*]*?\bfrom\s*${SPEC}` +
+  String.raw`|\b(?:require|import)\s*\(\s*${SPEC}` +
+  String.raw`|\bimport\s*${SPEC}`
 )
+
+// stripComments: закомментированный импорт — не живая зависимость; заодно
+// исчезает проза в комментариях, которая иначе давала бы ложные срабатывания
+// («This import was migrated from '@botpress/x'»). Наивно (не учитывает
+// кавычки) — для гейта приемлемо.
+export function stripComments(code) {
+  return code
+    .replace(/\/\*[^]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
+}
+
+// extractFencedCode: в Markdown сканируются ТОЛЬКО fenced-код-блоки — прочий
+// текст это документация (provenance-проза легитимна). Позиции строк
+// сохраняются заменой не-кодовых строк пустыми.
+export function extractFencedCode(markdown) {
+  const lines = markdown.split('\n')
+  let inFence = false
+  const out = lines.map((line) => {
+    if (/^\s*(?:\x60{3,}|~{3,})/.test(line)) {
+      inFence = !inFence
+      return ''
+    }
+    return inFence ? line : ''
+  })
+  return out.join('\n')
+}
 
 // package.json dependency/devDependency/peerDependency key, e.g.
 // `"@botpress/sdk": "1.0.0"`.
@@ -85,8 +108,14 @@ function listFilesRecursively(startDir) {
 }
 
 export function findBannedImports(absoluteFilePath, content) {
-  const isJson = extname(absoluteFilePath) === '.json'
+  const ext = extname(absoluteFilePath)
+  const isJson = ext === '.json'
   const pattern = isJson ? JSON_DEP_PATTERN : IMPORT_PATTERN
+  if (ext === '.md' || ext === '.mdx') {
+    content = extractFencedCode(content)
+  } else if (!isJson) {
+    content = stripComments(content)
+  }
   // По ВСЕМУ контенту, не построчно: multiline-форма (`from` в конце строки,
   // спецификатор на следующей) иначе проходила бы чистой. Номер строки — по
   // смещению совпадения.

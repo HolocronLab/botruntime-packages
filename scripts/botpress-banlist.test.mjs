@@ -8,7 +8,13 @@ import { findBannedImports, scanDirectories } from './botpress-banlist.mjs'
 
 test('findBannedImports flags a static import from an @botpress/* package', () => {
   const violations = findBannedImports('some.ts', "import { Table, z } from '@botpress/runtime'\n")
-  assert.deepEqual(violations, [{ line: 1, text: "from '@botpress/runtime'" }])
+  assert.deepEqual(violations, [{ line: 1, text: "import { Table, z } from '@botpress/runtime'" }])
+})
+
+test('.md сканится только по fenced-блокам; комментарии в коде не считаются', () => {
+  assert.equal(findBannedImports('a.md', "Migrate from '@botpress/runtime' to the fork").length, 0)
+  assert.equal(findBannedImports('a.md', 'x\n```ts\nimport { z } from \'@botpress/sdk\'\n```').length, 1)
+  assert.equal(findBannedImports('a.ts', "// import { x } from '@botpress/sdk'").length, 0)
 })
 
 test('side-effect импорт, require с пробелом и multiline-форма тоже ловятся', () => {
