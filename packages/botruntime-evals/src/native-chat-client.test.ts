@@ -135,4 +135,82 @@ describe('native eval chat client', () => {
     expect(client.getBot).not.toHaveBeenCalled()
     await session.disconnect()
   })
+
+  it('reattaches a durable eval session without creating another user or conversation', async () => {
+    const listener = {
+      on: vi.fn(),
+      off: vi.fn(),
+      disconnect: vi.fn(async () => undefined),
+    }
+    const client = {
+      createUser: vi.fn(async () => ({ user: { id: 'u_eval' } })),
+      getUser: vi.fn(async () => ({ user: { id: 'u_eval' } })),
+      createConversation: vi.fn(async () => ({ conversation: { id: 'c_eval' } })),
+      listMessages: vi.fn(async () => ({ messages: [], meta: {} })),
+    } as unknown as Client
+    const chatClient = createNativeEvalChatClient(client)
+
+    const first = new ChatSession(client, 'runtime-bot', undefined, undefined, chatClient)
+    await first.connect()
+    expect(await first.ensureConversation()).toBe('c_eval')
+    await first.disconnect()
+
+    const resumed = new ChatSession(client, 'runtime-bot', undefined, undefined, chatClient)
+    await resumed.connect({ userId: 'u_eval', conversationId: 'c_eval' })
+
+    expect(resumed.userId).toBe('u_eval')
+    expect(resumed.activeConversationId).toBe('c_eval')
+    expect(client.createUser).toHaveBeenCalledOnce()
+    expect(client.getUser).toHaveBeenCalledWith({ id: 'u_eval' })
+    expect(client.createConversation).toHaveBeenCalledOnce()
+    await resumed.disconnect()
+  })
+
+  it('recovers an already-dispatched native turn by stable effect id', async () => {
+    const messages = [
+      {
+        id: 'm_out',
+        createdAt: '2026-07-15T00:00:01.000Z',
+        direction: 'outgoing',
+        conversationId: 'c_eval',
+        userId: 'u_eval',
+        type: 'text',
+        payload: { text: 'recovered reply' },
+      },
+    ]
+    const client = {
+      getOrCreateUser: vi.fn(async () => ({ user: { id: 'u_eval' }, meta: { created: false } })),
+      getOrCreateConversation: vi.fn(async () => ({ conversation: { id: 'c_eval' }, meta: { created: false } })),
+      getOrCreateMessage: vi.fn(async () => ({
+        message: {
+          id: 'm_in',
+          createdAt: '2026-07-15T00:00:00.000Z',
+          direction: 'incoming',
+          conversationId: 'c_eval',
+          userId: 'u_eval',
+        },
+        meta: { created: false },
+      })),
+      listMessages: vi.fn(async () => ({ messages, meta: {} })),
+    } as unknown as Client
+    const session = new ChatSession(client, 'runtime-bot', undefined, undefined, createNativeEvalChatClient(client))
+
+    await session.connect({ effectId: 'eval:run:user' })
+    await session.ensureConversation('eval:run:conversation:0')
+    session.startTurn()
+    await session.sendMessage('hello', 'eval:run:turn:0:message')
+    await session.resumeTurn(Date.parse('2026-07-15T00:00:00.000Z'))
+
+    expect(session.getTurnResponses()).toEqual(['recovered reply'])
+    expect(client.getOrCreateUser).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: { id: 'eval:run:user' }, discriminateByTags: ['id'] })
+    )
+    expect(client.getOrCreateConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: { id: 'eval:run:conversation:0' }, discriminateByTags: ['id'] })
+    )
+    expect(client.getOrCreateMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: { id: 'eval:run:turn:0:message' }, discriminateByTags: ['id'] })
+    )
+    await session.disconnect()
+  })
 })

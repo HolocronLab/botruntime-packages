@@ -242,7 +242,11 @@ export interface EvalRunnerConfig {
    * still performed; only the duplicate reader-auth probe is skipped.
    */
   sourcePreflighted?: boolean
-  /** Externally-provided run ID. When set, the runner uses this instead of generating its own. */
+  /**
+   * Externally-provided run ID. Durable hosts must reuse the same value on every
+   * replay: it scopes get-or-create identities for eval resources and messages,
+   * so changing it would repeat external effects.
+   */
   runId?: string
   /** Pre-resolved chat integration webhook ID. Skips the getBot() discovery call when provided. */
   chatWebhookId?: string
@@ -263,6 +267,21 @@ export interface EvalRunnerConfig {
     index: number
     execute: () => Promise<EvalReport>
   }) => Promise<EvalReport>
+  /**
+   * Durable hosts use this boundary to persist setup, each complete turn,
+   * result persistence, and finalization inside the enclosing eval. `dispatch`
+   * records the observation timestamp and delivery baseline before mutation;
+   * `effect` performs the actual external message mutation. A stable
+   * `(phase, turnIndex)` is one operation identity: after completion the host
+   * must return the cached success or serialized failure without invoking
+   * `execute` again. Host/checkpoint failures must propagate and are not eval
+   * verdicts.
+   */
+  checkpointEvalOperation?: <T>(input: {
+    phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize'
+    turnIndex?: number
+    execute: () => Promise<T>
+  }) => Promise<T>
 }
 
 export interface EvalControl {

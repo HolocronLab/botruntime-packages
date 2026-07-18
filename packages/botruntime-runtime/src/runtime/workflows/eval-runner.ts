@@ -5,6 +5,7 @@ import type { EvalRunnerConfig, EvalRunReport } from '@holocronlab/botruntime-ev
 import { createNativeEvalChatClient } from '@holocronlab/botruntime-evals'
 import {
   runEvalSuite,
+  validateDurableEvalDefinitions,
   validateEvalCapabilities,
   validateEvalControlCapabilities,
 } from '@holocronlab/botruntime-evals/runner'
@@ -23,6 +24,7 @@ import { loadEvalManifest } from './eval-manifest-loader'
 import {
   assertHostedEvalExecutionActive,
   assertHostedEvalInvocationBudget,
+  assertHostedEvalPersistenceBudget,
   assertHostedEvalStartBudget,
   resolveHostedEvalIdleTimeout,
 } from './eval-runner-policy'
@@ -113,6 +115,10 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       throw new Error('No eval definitions matched the requested filter.')
     }
     validateHostedEvalDefinitions(filteredDefinitions)
+    // Hosted evals always use per-operation durable checkpoints. Reject the
+    // complete selected suite before creating its externally visible run so a
+    // later unsupported effect cannot leave an earlier eval partially applied.
+    validateDurableEvalDefinitions(filteredDefinitions, true)
     const evalControl = development
       ? new PlatformEvalControl({ apiUrl, token, runtimeBotId })
       : undefined
@@ -175,6 +181,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     const config: EvalRunnerConfig = {
       client: evalSdkClient,
       botId,
+      runId: String(vortexRunId),
       definitions: filteredDefinitions,
       chatClient,
       ...(Object.keys(fixtures).length > 0
@@ -203,6 +210,22 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
         hostedLifecycle.rememberCompletedReport(report)
         return report
       },
+      checkpointEvalOperation: ({ phase, turnIndex, execute }) =>
+        step(
+          phase === 'dispatch' || phase === 'effect' || phase === 'turn' || phase === 'persist'
+            ? `${phase}-turn-${turnIndex}`
+            : phase,
+          async () => {
+            const remainingTimeMs = context.get('runtime').getRemainingExecutionTimeInMs()
+            if (phase === 'setup' || phase === 'dispatch' || phase === 'effect' || phase === 'turn') {
+              assertHostedEvalStartBudget(remainingTimeMs)
+            } else {
+              assertHostedEvalPersistenceBudget(remainingTimeMs)
+            }
+            return execute()
+          },
+          { maxAttempts: phase === 'persist' ? 5 : 1 }
+        ),
       signal,
     }
 

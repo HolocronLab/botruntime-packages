@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition } from '../definition'
 import type { EvalRunReport, TurnReport } from '../types'
-import { classifyVortexEvalReport, VortexEvalStore, validateHostedEvalDefinitions } from './vortex-eval-store'
+import {
+  classifyVortexEvalError,
+  classifyVortexEvalReport,
+  VortexEvalStore,
+  validateHostedEvalDefinitions,
+} from './vortex-eval-store'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -635,6 +640,11 @@ describe('VortexEvalStore strict hosted contract', () => {
     expect((caught as Error).message).toContain('PATCH /v1/evals/runs/10/entries/20')
     expect((caught as Error).message).toContain('HTTP 409')
     expect((caught as Error).message).not.toContain('CANARY_RAW_SERVER_SECRET')
+  })
+
+  it('classifies durable contract and chat resume errors by their owning boundary', () => {
+    expect(classifyVortexEvalError({ code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED' })).toBe('configuration')
+    expect(classifyVortexEvalError({ code: 'CHAT_SESSION_RESUME_FAILED' })).toBe('chat')
   })
 
   it('projects read responses to safe metadata even if a legacy server includes content fields', async () => {

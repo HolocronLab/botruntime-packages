@@ -208,6 +208,17 @@ export class SSECollector {
     }
   }
 
+  resumeTurn(startedAt: number): void {
+    this.turnStartKeys = new Set(
+      [...this.spanMap.entries()].filter(([, span]) => span.timing.startedAt < startedAt).map(([key]) => key)
+    )
+    this.seenHandlerKeys = new Set(
+      [...this.spanMap.entries()]
+        .filter(([, span]) => isTurnHandlerSpan(span) && span.timing.startedAt < startedAt)
+        .map(([key]) => key)
+    )
+  }
+
   private static readonly SETTLE_MS = 100
 
   /**

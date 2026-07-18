@@ -22,7 +22,7 @@ type PlatformMessage = {
 }
 type ActorClient = Pick<
   BotruntimeClient,
-  'listConversations' | 'createUser' | 'createMessage' | 'listMessages' | 'getConversation'
+  'listConversations' | 'getOrCreateUser' | 'getOrCreateMessage' | 'listMessages' | 'getConversation'
 >
 
 type DeliveryAssertions = {
@@ -41,6 +41,7 @@ export class ActorRouter {
     private readonly context: {
       primaryConversationId: string
       primaryUserId: string
+      executionId?: string
       relations: Record<string, ConversationRelationSelector>
     },
     private readonly options: {
@@ -54,6 +55,7 @@ export class ActorRouter {
     relation: string
     message?: string
     payload?: Record<string, unknown> & { type: string }
+    effectId?: string
   }): Promise<void> {
     const conversationId = await this.resolveTarget(input.relation)
     const userId = await this.resolveActor(input.actor)
@@ -62,17 +64,19 @@ export class ActorRouter {
       text: input.message ?? '',
     }
     const encoded = chatPayloadToPlatformMessage(payload as Message['payload'])
-    await this.client.createMessage({
+    const effectId = input.effectId ?? `eval:${this.context.executionId ?? this.context.primaryConversationId}:actor:${input.actor}`
+    await this.client.getOrCreateMessage({
       conversationId,
       userId,
       type: encoded.type,
       payload: encoded.payload,
-      tags: {},
+      tags: { id: effectId },
+      discriminateByTags: ['id'],
       origin: 'synthetic',
     })
   }
 
-  async startDeliveryObservation(targets: string[]): Promise<void> {
+  async startDeliveryObservation(targets: string[]): Promise<Record<string, string[]>> {
     this.deliveryBaseline.clear()
     await Promise.all(
       [...new Set(targets)].map(async (target) => {
@@ -80,6 +84,14 @@ export class ActorRouter {
         this.deliveryBaseline.set(target, new Set(messages.map((message) => message.id)))
       })
     )
+    return Object.fromEntries([...this.deliveryBaseline].map(([target, ids]) => [target, [...ids]]))
+  }
+
+  restoreDeliveryObservation(baseline: Record<string, string[]>): void {
+    this.deliveryBaseline.clear()
+    for (const [target, ids] of Object.entries(baseline)) {
+      this.deliveryBaseline.set(target, new Set(ids))
+    }
   }
 
   async gradeDelivery(assertions: DeliveryAssertions): Promise<GraderResult[]> {
@@ -135,8 +147,10 @@ export class ActorRouter {
     if (actor === 'client') return this.context.primaryUserId
     const cached = this.actorUsers.get(actor)
     if (cached) return cached
-    const { user } = await this.client.createUser({
-      tags: {},
+    const id = `eval:${this.context.executionId ?? this.context.primaryConversationId}:actor:${actor}`
+    const { user } = await this.client.getOrCreateUser({
+      tags: { id },
+      discriminateByTags: ['id'],
       name: `eval:${actor}`,
     })
     this.actorUsers.set(actor, user.id)
