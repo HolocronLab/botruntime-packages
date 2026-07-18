@@ -118,3 +118,8 @@ test('inline-код в md, dep-литерал в коде и четырёх-бэ
   const nested = '````md\nexample:\n```ts\nimport { z } from \'@botpress/x\'\n```\n````'
   assert.equal(findBannedImports('a.md', nested).length, 1)
 })
+
+test('отступный код-блок в md и .vue-файлы под гейтом', () => {
+  assert.equal(findBannedImports('a.md', "text\n\n    import { z } from '@botpress/runtime'\n").length, 1)
+  assert.equal(findBannedImports('c.vue', "<script>import { z } from '@botpress/sdk'</script>").length, 1)
+})

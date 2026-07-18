@@ -30,7 +30,7 @@ export const DEFAULT_TARGET_DIRS = [
   'packages/botruntime-adk/src/agent-init',
 ]
 
-const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json', '.html', '.yml', '.yaml', '.txt', '.css'])
+const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json', '.html', '.yml', '.yaml', '.txt', '.css', '.vue', '.svelte', '.astro'])
 const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 
 // Matches an actual module specifier, not prose: `from '@botpress/x'`,
@@ -90,6 +90,8 @@ export function extractFencedCode(markdown) {
       return line
     }
     if (fence) return line
+    // Отступный код-блок (4+ пробела) — валидный Markdown-код, тоже сканируем.
+    if (/^ {4,}\S/.test(line)) return line
     // Вне fence: инлайновые код-спаны (\x60...\x60) — тоже обучающая поверхность
     // («Use \x60import ... from '@botpress/x'\x60»); сохраняем только их.
     const spans = [...line.matchAll(/\x60([^\x60]+)\x60/g)].map((s) => s[1]).join(' ; ')
