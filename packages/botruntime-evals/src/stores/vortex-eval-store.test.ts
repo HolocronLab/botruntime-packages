@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition } from '../definition'
 import type { EvalRunReport, TurnReport } from '../types'
-import { VortexEvalStore, validateHostedEvalDefinitions } from './vortex-eval-store'
+import { classifyVortexEvalReport, VortexEvalStore, validateHostedEvalDefinitions } from './vortex-eval-store'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -16,6 +16,21 @@ const basicDefinition: EvalDefinition = {
   tags: ['smoke'],
   conversation: [{ user: 'hello', assert: { response: [{ contains: 'hello' }] } }],
 }
+
+it('preserves the typed eval-control failure kind for hosted history', () => {
+  expect(
+    classifyVortexEvalReport({
+      name: 'clock-failure',
+      turns: [],
+      outcomeAssertions: [],
+      pass: false,
+      duration: 1,
+      error: 'Eval control operation advance_clock failed.',
+      errorCode: 'EVAL_CONTROL_FAILED',
+      diagnostic: { code: 'EVAL_CONTROL_FAILED', phase: 'dispatch', errorKind: 'auth' },
+    })
+  ).toBe('auth')
+})
 
 function store(development = false, evalManifestId = 'file_1'): VortexEvalStore {
   return new VortexEvalStore({

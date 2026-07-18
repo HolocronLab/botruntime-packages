@@ -493,6 +493,46 @@ describe('eval observation capability preflight', () => {
     expect(evalControl.clearFaults).toHaveBeenCalledOnce()
   })
 
+  it('returns a typed safe diagnostic when isolated eval control fails', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const onException = vi.fn()
+    const evalControl = {
+      advanceClock: vi.fn().mockRejectedValue({ kind: 'auth', message: 'upstream body with customer secret' }),
+      configureFaults: vi.fn().mockResolvedValue(undefined),
+      clearFaults: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const report = await runEval(
+      {
+        name: 'clock-failure',
+        conversation: [
+          {
+            message: 'continue',
+            control: { advanceClock: { milliseconds: 1_000, runDueWorkflows: true } },
+          },
+        ],
+      },
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      { spanSource: source, chatClient, chatWebhookId: 'webhook', evalControl, onException }
+    )
+
+    expect(report).toMatchObject({
+      pass: false,
+      error: 'Eval control operation advance_clock failed.',
+      errorCode: 'EVAL_CONTROL_FAILED',
+      diagnostic: {
+        code: 'EVAL_CONTROL_FAILED',
+        phase: 'dispatch',
+        errorKind: 'auth',
+        turnIndex: 0,
+        conversationId: 'conv-1',
+      },
+    })
+    expect(JSON.stringify(report)).not.toContain('customer secret')
+    expect(onException).not.toHaveBeenCalled()
+  })
+
   it('propagates turn-complete progress sink failures from both runEval and runEvalSuite', async () => {
     const sinkError = new Error('hosted persistence failed')
     const failTurnComplete = async (event: { type: string }) => {

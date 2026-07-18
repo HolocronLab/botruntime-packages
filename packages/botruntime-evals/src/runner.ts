@@ -34,7 +34,7 @@ import { gradeTiming } from './graders/timing'
 import { gradeOutcome } from './graders/outcome'
 import { initLLMJudge } from './graders/llm'
 import { loadEvalsFromDir, filterEvals } from './loader'
-import { EvalRunnerError } from './errors'
+import { evalControlErrorKind, EvalRunnerError, type EvalControlErrorKind } from './errors'
 import { isAdkError } from './internal/adk-error'
 import { randomUUID } from 'crypto'
 import { buildAttachmentPayload, fixtureReportLabel } from './attachments'
@@ -71,6 +71,29 @@ async function emitEvalProgress(sink: EvalRunnerConfig['onProgress'], event: Eva
     throw new EvalProgressSinkError(error)
   }
 }
+
+type EvalControlOperation = 'clear_faults' | 'configure_faults' | 'advance_clock'
+
+async function runEvalControlOperation(operation: EvalControlOperation, invoke: () => Promise<unknown>): Promise<void> {
+  try {
+    await invoke()
+  } catch (cause) {
+    const errorKind = evalControlErrorKind(cause)
+    throw new EvalRunnerError({
+      code: 'EVAL_CONTROL_FAILED',
+      message: `Eval control operation ${operation} failed.`,
+      expected: true,
+      details: { operation, errorKind },
+    })
+  }
+}
+
+function controlErrorKind(error: EvalRunnerError | undefined): EvalControlErrorKind | undefined {
+  if (error?.code !== 'EVAL_CONTROL_FAILED') return undefined
+  const kind = error.details?.errorKind
+  return typeof kind === 'string' ? evalControlErrorKind({ kind }) : undefined
+}
+
 /**
  * Grace window for an event turn's handler span to appear. A subscribed handler starts its span in
  * milliseconds, so no span after this window means nothing is subscribed and the turn can never
@@ -526,10 +549,21 @@ export async function runEval(
       currentPhase = 'dispatch'
 
       if (turn.control) {
+        const control = turn.control
         controlsUsed = true
-        if (turn.control.clearFaults) await options.evalControl!.clearFaults()
-        if (turn.control.faults?.length) await options.evalControl!.configureFaults(turn.control.faults)
-        if (turn.control.advanceClock) await options.evalControl!.advanceClock(turn.control.advanceClock)
+        if (control.clearFaults) {
+          await runEvalControlOperation('clear_faults', () => options.evalControl!.clearFaults())
+        }
+        if (control.faults?.length) {
+          await runEvalControlOperation('configure_faults', () =>
+            options.evalControl!.configureFaults(control.faults!)
+          )
+        }
+        if (control.advanceClock) {
+          await runEvalControlOperation('advance_clock', () =>
+            options.evalControl!.advanceClock(control.advanceClock!)
+          )
+        }
       }
 
       if (turn.event) {
@@ -843,6 +877,7 @@ export async function runEval(
     // PostHog error tracking.
     const adkErr = isAdkError(failure) ? failure : undefined
     const evalErr = failure instanceof EvalRunnerError ? failure : undefined
+    const controlFailureKind = controlErrorKind(evalErr)
     if (!adkErr || !adkErr.expected) {
       const errMsg = (failure as Error).message ?? String(failure)
       const errStack = (failure as Error).stack ?? ''
@@ -866,6 +901,7 @@ export async function runEval(
       diagnostic: {
         code: evalErr?.code ?? 'EVAL_INTERNAL',
         phase: currentPhase,
+        ...(controlFailureKind ? { errorKind: controlFailureKind } : {}),
         ...(currentTurnIndex !== undefined ? { turnIndex: currentTurnIndex } : {}),
         ...(currentConversationId ? { conversationId: currentConversationId } : {}),
         ...(currentTraceId ? { traceId: currentTraceId } : {}),
@@ -873,8 +909,8 @@ export async function runEval(
     }
   } finally {
     if (controlsUsed) {
-      await options.evalControl?.clearFaults().catch((error) => {
-        logger.warn(`Eval control cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
+      await options.evalControl?.clearFaults().catch(() => {
+        logger.warn('Eval control cleanup failed.')
       })
     }
     collector.disconnect()

@@ -114,7 +114,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     }
     validateHostedEvalDefinitions(filteredDefinitions)
     const evalControl = development
-      ? new PlatformEvalControl({ apiUrl, token, runtimeBotId, workspaceId: workspaceId! })
+      ? new PlatformEvalControl({ apiUrl, token, runtimeBotId })
       : undefined
     validateEvalControlCapabilities(filteredDefinitions, evalControl)
 

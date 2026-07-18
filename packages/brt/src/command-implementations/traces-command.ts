@@ -16,7 +16,14 @@ const MAX_DURATION_MS = 86_400_000
 const MAX_COUNT = 1_000_000_000
 const MAX_COST = 1_000_000
 
-const TRACE_SOURCES = new Set(['otlp', 'cognitive_v2', 'cognitive_action', 'observation', 'unknown'])
+const TRACE_SOURCES = new Set([
+  'otlp',
+  'cognitive_v2',
+  'cognitive_action',
+  'integration_action',
+  'observation',
+  'unknown',
+])
 const TRACE_NAMES = new Set([
   'request.incoming',
   'handler.conversation',
@@ -32,10 +39,17 @@ const TRACE_NAMES = new Set([
   'cognitive.request',
   'cognitive.generateText',
   'cognitive.generateContent',
+  'integration.action',
   'observation',
   'unknown',
 ])
-const TRACE_FILTER_SOURCES = new Set(['otlp', 'cognitive_v2', 'cognitive_action', 'observation'])
+const TRACE_FILTER_SOURCES = new Set([
+  'otlp',
+  'cognitive_v2',
+  'cognitive_action',
+  'integration_action',
+  'observation',
+])
 const TRACE_FILTER_NAMES = new Set([...TRACE_NAMES].filter((name) => name !== 'unknown'))
 const TRACE_KINDS = new Set(['internal', 'server', 'client', 'producer', 'consumer', 'observation'])
 const TRACE_STATUSES = new Set(['unset', 'ok', 'error'])
@@ -66,6 +80,7 @@ const LLM_TRACE_NAMES = new Set(['cognitive.request', 'cognitive.generateText', 
 const METADATA_FIELDS = {
   endpoint: { kind: 'enum', values: ENDPOINTS },
   actionType: { kind: 'enum', values: ACTION_TYPES },
+  actionName: { kind: 'pattern', pattern: CODE_ID },
   aiRequestedModel: { kind: 'pattern', pattern: MODEL_ID },
   aiModel: { kind: 'pattern', pattern: MODEL_ID },
   aiProvider: { kind: 'pattern', pattern: CODE_ID },
@@ -215,6 +230,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     if (metadata.aiOutputTokens !== undefined) details.push(`outputTokens=${metadata.aiOutputTokens}`)
     if (metadata.workflowName !== undefined) details.push(`workflow=${metadata.workflowName}`)
     if (metadata.autonomousToolName !== undefined) details.push(`tool=${metadata.autonomousToolName}`)
+    if (metadata.actionName !== undefined) details.push(`action=${metadata.actionName}`)
     if (metadata.errorKind !== undefined) details.push(`errorKind=${metadata.errorKind}`)
     const suffix = details.length > 0 ? ` ${details.join(' ')}` : ''
     this.logger.log(
