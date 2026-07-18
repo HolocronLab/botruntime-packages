@@ -7,7 +7,14 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export function readPublicPackages(root) {
-  return readPublicPackageManifests(root).map((pkg) => ({ name: pkg.manifest.name, dir: pkg.dir }))
+  // hasSrc: у vendored-пакетов (botruntime-chat/verel/yargs-extra) НЕТ src/ —
+  // их отслеживаемый dist/ и есть публикуемая реализация, гейт не должен её
+  // игнорировать как «сборочный артефакт».
+  return readPublicPackageManifests(root).map((pkg) => ({
+    name: pkg.manifest.name,
+    dir: pkg.dir,
+    hasSrc: existsSync(resolve(root, 'packages', pkg.dir, 'src')),
+  }))
 }
 
 // Adds each package's own version and its LOCAL (file:) dependency edges — the

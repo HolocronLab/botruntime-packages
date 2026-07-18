@@ -30,16 +30,24 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // botruntime-zui/.../test), not just __tests__ — so a docs/test-only PR never
 // needs a placeholder changeset (DEVLP-174 review round 2, defect #5).
 const IGNORED_PATH_PATTERN =
-  /(\.test\.|\.spec\.|\/(__tests__|tests?)\/|\/(dist|node_modules)\/|\/CHANGELOG\.md$|\/README\.md$|\/package\.json$)/i
+  /(\.test\.|\.spec\.|\/(__tests__|tests?)\/|\/node_modules\/|\/CHANGELOG\.md$|\/README\.md$|\/package\.json$)/i
 
-export function isReleaseRelevantPath(path, packageDir) {
-  const prefix = `packages/${packageDir}/`
+// dist/ — отдельно от общего фильтра: у пакетов С src/ это сборочный артефакт,
+// а у vendored-пакетов без src/ (botruntime-chat/verel/yargs-extra) tracked
+// dist/ и ЕСТЬ публикуемая реализация — её правка обязана требовать changeset.
+const DIST_PATH_PATTERN = /\/dist\//
+
+export function isReleaseRelevantPath(path, pkg) {
+  const dir = typeof pkg === 'string' ? pkg : pkg.dir
+  const hasSrc = typeof pkg === 'string' ? true : pkg.hasSrc !== false
+  const prefix = `packages/${dir}/`
   if (!path.startsWith(prefix)) return false
+  if (hasSrc && DIST_PATH_PATTERN.test(path)) return false
   return !IGNORED_PATH_PATTERN.test(path)
 }
 
 export function findMissingChangesets({ changedPaths, publicPackages, declaredPackageNames }) {
-  const touched = publicPackages.filter((pkg) => changedPaths.some((path) => isReleaseRelevantPath(path, pkg.dir)))
+  const touched = publicPackages.filter((pkg) => changedPaths.some((path) => isReleaseRelevantPath(path, pkg)))
   return touched
     .map((pkg) => pkg.name)
     .filter((name) => !declaredPackageNames.has(name))
@@ -145,7 +153,15 @@ export function computeBumpedPackageDirs(statusEntries) {
 // carries, per deleted path, the package names that changeset declared AS IT
 // EXISTED IN BASE (before the deletion) — every one of them must show its own
 // bump, or the deletion is orphaned.
-export function findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }) {
+// versionChangedByDir: «манифест тронут» — недостаточно (правка dep-спеки без
+// бампа тоже трогает package.json); релизом считается только РЕАЛЬНО
+// изменившаяся версия относительно base.
+export function findOrphanedChangesetDeletions({
+  statusEntries,
+  deletedChangesetDeclarations,
+  publicPackages,
+  versionChangedByDir,
+}) {
   if (deletedChangesetDeclarations.length === 0) return []
   const bumpedDirs = computeBumpedPackageDirs(statusEntries)
   const dirByName = new Map(publicPackages.map((pkg) => [pkg.name, pkg.dir]))
@@ -155,21 +171,58 @@ export function findOrphanedChangesetDeletions({ statusEntries, deletedChangeset
       !packageNames.every((name) => {
         const dir = dirByName.get(name)
         const state = dir && bumpedDirs.get(dir)
-        return Boolean(state?.packageJson && state?.changelog)
+        if (!state?.packageJson || !state?.changelog) return false
+        return versionChangedByDir ? versionChangedByDir.get(dir) === true : true
       })
     )
     .map(({ path }) => path)
+}
+
+// Версии из base против HEAD для каталогов, чьи манифесты тронуты диффом.
+function readVersionChangedByDir(base, statusEntries) {
+  const changed = new Map()
+  for (const entry of statusEntries) {
+    const match = /^packages\/([^/]+)\/package\.json$/.exec(entry.path)
+    if (!match || entry.status === 'D') continue
+    const dir = match[1]
+    let baseVersion = null
+    try {
+      baseVersion = JSON.parse(
+        execFileSync('git', ['show', `${base}:${entry.path}`], { cwd: root, encoding: 'utf8' })
+      ).version
+    } catch {
+      // Нового в base нет — любой HEAD-манифест считается изменившейся версией.
+    }
+    let headVersion = null
+    try {
+      headVersion = JSON.parse(readFileSync(resolve(root, entry.path), 'utf8')).version
+    } catch {
+      headVersion = null
+    }
+    changed.set(dir, baseVersion !== headVersion)
+  }
+  return changed
 }
 
 // DEVLP-174 review round 3, defect #2: runs the same STRICT parser as an
 // added changeset, but only to validate — a modified pending note must stay
 // well-formed and non-empty, or a since-broken edit to an existing entry
 // merges silently and only blows up later at release time.
-export function findInvalidModifiedChangesets(modifiedChangesetEntries) {
+export function findInvalidModifiedChangesets(modifiedChangesetEntries, publicPackages) {
+  const knownNames = publicPackages ? new Set(publicPackages.map((pkg) => pkg.name)) : null
   const invalid = []
   for (const { path, content } of modifiedChangesetEntries) {
     try {
-      parseChangesetFile(content)
+      const parsed = parseChangesetFile(content)
+      // Правка существующей заметки может подменить пакет на опечатку/private —
+      // без кросс-чека это всплыло бы только при релизе и заблокировало его.
+      if (knownNames) {
+        for (const name of parsed.bumps.keys()) {
+          if (!knownNames.has(name)) {
+            throw new Error(`unknown or non-public package: ${name}`)
+          }
+        }
+      }
     } catch (err) {
       invalid.push({ path, message: err.message })
     }
@@ -229,7 +282,7 @@ async function main() {
   const changedPaths = statusEntries.map((entry) => entry.path)
   const publicPackages = readPublicPackages(root)
 
-  const invalidModified = findInvalidModifiedChangesets(readModifiedChangesetEntries(statusEntries))
+  const invalidModified = findInvalidModifiedChangesets(readModifiedChangesetEntries(statusEntries), publicPackages)
   if (invalidModified.length > 0) {
     const details = invalidModified.map((entry) => `  - ${entry.path}: ${entry.message}`).join('\n')
     throw new Error(
@@ -253,7 +306,7 @@ async function main() {
   }
 
   const deletedChangesetDeclarations = readDeletedChangesetDeclarations(base, statusEntries)
-  const orphanedDeletions = findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages })
+  const orphanedDeletions = findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages, versionChangedByDir: readVersionChangedByDir(base, statusEntries) })
   if (orphanedDeletions.length > 0) {
     const details = orphanedDeletions.map((path) => `  - ${path}`).join('\n')
     throw new Error(

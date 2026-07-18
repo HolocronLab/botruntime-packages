@@ -422,3 +422,28 @@ test('CLI fails closed when no --base is given', () => {
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /usage: changeset-lint\.mjs --base=/)
 })
+
+test('dist/ правка vendored-пакета (без src/) релиз-релевантна, у пакета с src/ — нет', () => {
+  const vendored = { name: '@holocronlab/botruntime-chat', dir: 'botruntime-chat', hasSrc: false }
+  const generated = { name: '@holocronlab/brt', dir: 'brt', hasSrc: true }
+  assert.equal(isReleaseRelevantPath('packages/botruntime-chat/dist/index.js', vendored), true)
+  assert.equal(isReleaseRelevantPath('packages/brt/dist/index.js', generated), false)
+})
+
+test('удаление заметки не принимается, если версия пакета фактически не изменилась', () => {
+  const statusEntries = [
+    { status: 'D', path: '.changeset/foo.md' },
+    { status: 'M', path: 'packages/brt/package.json' },
+    { status: 'M', path: 'packages/brt/CHANGELOG.md' },
+  ]
+  const publicPackages = [{ name: '@holocronlab/brt', dir: 'brt', hasSrc: true }]
+  const deletedChangesetDeclarations = [{ path: '.changeset/foo.md', packageNames: ['@holocronlab/brt'] }]
+  const versionChangedByDir = new Map([['brt', false]])
+  const orphaned = findOrphanedChangesetDeletions({
+    statusEntries,
+    deletedChangesetDeclarations,
+    publicPackages,
+    versionChangedByDir,
+  })
+  assert.deepEqual(orphaned, ['.changeset/foo.md'])
+})
