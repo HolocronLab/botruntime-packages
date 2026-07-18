@@ -58,3 +58,10 @@ export function evalControlErrorKind(error: unknown): EvalControlErrorKind {
  * avoid shadowing the JS built-in `EvalError`.
  */
 export class EvalRunnerError extends AdkError<EvalErrorCode> {}
+
+export class DurableEvalEffectRetryError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'DurableEvalEffectRetryError'
+  }
+}

@@ -13,7 +13,7 @@ import type {
   SignalListener,
   Signals,
 } from '@holocronlab/botruntime-chat'
-import type { ChatClient, EvalLogger } from './types'
+import type { ChatClient, DurableEvalEffects, EvalLogger } from './types'
 import { defaultLogger } from './types'
 import { EvalRunnerError } from './errors'
 
@@ -91,7 +91,8 @@ export class ChatSession {
     private botId: string,
     private _chatWebhookId?: string,
     private _chatBaseUrl?: string,
-    private _chatClient?: ChatClient
+    private _chatClient?: ChatClient,
+    private _durableEffects?: DurableEvalEffects
   ) {}
 
   async connect(resume: { userId?: string; conversationId?: string; effectId?: string } = {}) {
@@ -230,9 +231,20 @@ export class ChatSession {
     await client.createMessage({ conversationId, payload, ...(effectId ? { effectId } : {}) } as never)
   }
 
-  async sendEvent(payload: Record<string, unknown>): Promise<void> {
+  async sendEvent(payload: Record<string, unknown>, effectId?: string): Promise<void> {
     const client = this.assertConnected()
     const conversationId = await this.ensureConversation()
+    if (this._durableEffects) {
+      if (!effectId) throw new Error('Durable event dispatch requires a stable effect identity.')
+      await this._durableEffects.createEvent({
+        type: 'eval:event',
+        userId: this.userId,
+        payload,
+        conversationId,
+        effectId,
+      })
+      return
+    }
     await client.createEvent({ payload, conversationId })
   }
 

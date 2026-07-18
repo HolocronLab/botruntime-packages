@@ -1,13 +1,14 @@
 import type { Client as BpClient } from '@holocronlab/botruntime-client'
 import type {
   EvalDefinition,
+  DurableEvalEffects,
   EvalSetup,
   GraderResult,
   MatchOperator,
   NumericOperator,
   TableAssertion,
 } from './types'
-import { EvalRunnerError } from './errors'
+import { DurableEvalEffectRetryError, EvalRunnerError } from './errors'
 import { matchValue } from './graders/match'
 
 const EVAL_ID_PLACEHOLDER = '{{eval.id}}'
@@ -72,28 +73,58 @@ function validateSeeds(seeds: NonNullable<EvalSetup['tables']>): void {
 
 export async function seedEvalTables(
   client: TableClient,
-  seeds: NonNullable<EvalSetup['tables']> | undefined
+  seeds: NonNullable<EvalSetup['tables']> | undefined,
+  durableEffects?: DurableEvalEffects,
+  executionId?: string,
+  onCreated?: (item: SeededTableRows, index: number) => void,
+  effectIndexOffset = 0
 ): Promise<SeededTableRows[]> {
   if (!seeds?.length) return []
   validateSeeds(seeds)
+  if (durableEffects && !executionId) {
+    throw new EvalRunnerError({
+      code: 'EVAL_TABLE_SETUP_INVALID',
+      message: 'Durable eval table fixtures require a stable execution identity.',
+      expected: true,
+    })
+  }
   const created: SeededTableRows[] = []
   try {
-    for (const seed of seeds) {
-      const response = await client.createTableRows({
-        table: seed.table,
-        rows: seed.rows,
-        waitComputed: true,
-      })
-      created.push({
-        table: seed.table,
-        ids: response.rows.map((row) => row.id),
-      })
+    for (let index = 0; index < seeds.length; index++) {
+      const seed = seeds[index]!
+      const effectIndex = effectIndexOffset + index
+      const response = durableEffects
+        ? await durableEffects.createTableRows({
+            table: seed.table,
+            rows: seed.rows,
+            effectId: `eval:${executionId}:setup:table:${effectIndex}`,
+          })
+        : await client.createTableRows({
+            table: seed.table,
+            rows: seed.rows,
+            waitComputed: true,
+          })
       if (response.errors?.length || response.rows.length !== seed.rows.length) {
+        if (durableEffects) {
+          throw new DurableEvalEffectRetryError('Durable table effect acknowledgement is incomplete.')
+        }
+        created.push({
+          table: seed.table,
+          ids: response.rows.map((row) => row.id),
+        })
+        onCreated?.(created[created.length - 1]!, effectIndex)
         throw new Error('Tables API reported partial eval fixture creation.')
       }
+      const item = {
+        table: seed.table,
+        ids: response.rows.map((row) => row.id),
+      }
+      created.push(item)
+      onCreated?.(item, effectIndex)
     }
     return created
   } catch (cause) {
+    if (cause instanceof DurableEvalEffectRetryError) throw cause
     try {
       await cleanupSeededTableRows(client, created)
     } catch (cleanupCause) {

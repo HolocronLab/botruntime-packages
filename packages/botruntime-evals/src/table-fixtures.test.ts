@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { DurableEvalEffectRetryError } from './errors'
 import {
   cleanupSeededTableRows,
   gradeTableAssertions,
@@ -63,6 +64,56 @@ describe('durable eval table fixtures', () => {
       table: 'DolschikTable',
       ids: [101, 102],
     })
+  })
+
+  it('uses a stable host effect identity for durable table seeds', async () => {
+    const client = { createTableRows: vi.fn() } as any
+    const durableEffects = {
+      createTableRows: vi.fn().mockResolvedValue({ rows: [{ id: 201 }] }),
+    } as any
+
+    await expect(
+      seedEvalTables(
+        client,
+        [{ table: 'DocumentTable', rows: [{ status: 'ready' }] }],
+        durableEffects,
+        'run-120:16'
+      )
+    ).resolves.toEqual([{ table: 'DocumentTable', ids: [201] }])
+
+    expect(durableEffects.createTableRows).toHaveBeenCalledWith({
+      table: 'DocumentTable',
+      rows: [{ status: 'ready' }],
+      effectId: 'eval:run-120:16:setup:table:0',
+    })
+    expect(client.createTableRows).not.toHaveBeenCalled()
+  })
+
+  it('fails before mutation when a durable table seed has no execution identity', async () => {
+    const client = { createTableRows: vi.fn() } as any
+    const durableEffects = { createTableRows: vi.fn() } as any
+
+    await expect(
+      seedEvalTables(client, [{ table: 'DocumentTable', rows: [{ status: 'ready' }] }], durableEffects)
+    ).rejects.toMatchObject({ code: 'EVAL_TABLE_SETUP_INVALID', expected: true })
+    expect(durableEffects.createTableRows).not.toHaveBeenCalled()
+  })
+
+  it('retries an incomplete durable table acknowledgement without deleting an unknown committed batch', async () => {
+    const client = { createTableRows: vi.fn(), deleteTableRows: vi.fn() } as any
+    const durableEffects = {
+      createTableRows: vi.fn().mockResolvedValue({ rows: [{ id: 201 }] }),
+    } as any
+
+    await expect(
+      seedEvalTables(
+        client,
+        [{ table: 'DocumentTable', rows: [{ status: 'first' }, { status: 'second' }] }],
+        durableEffects,
+        'run-120:16'
+      )
+    ).rejects.toBeInstanceOf(DurableEvalEffectRetryError)
+    expect(client.deleteTableRows).not.toHaveBeenCalled()
   })
 
   it('grades Botpress-shaped row_exists assertions without persisting row contents', async () => {

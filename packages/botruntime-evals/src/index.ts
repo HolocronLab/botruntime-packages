@@ -12,6 +12,7 @@ export type {
   ChatClient,
   EvalDefinition,
   EvalControl,
+  DurableEvalEffects,
   EvalFilter,
   EvalLogger,
   EvalProgressEvent,
@@ -46,6 +47,7 @@ export type {
   WorkflowWaitOptions,
 } from './types'
 export { EVAL_MANIFEST_TAGS, EVAL_MANIFEST_SCHEMA_VERSION } from './manifest'
+export { DurableEvalEffectRetryError } from './errors'
 export type { EvalFixtureManifestEntry, EvalManifest } from './manifest'
 export { buildAttachmentPayload, fixtureReportLabel } from './attachments'
 export type { EvalAttachment, ResolvedEvalFixture } from './attachments'
