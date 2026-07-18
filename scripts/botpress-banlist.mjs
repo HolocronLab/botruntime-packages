@@ -20,10 +20,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // provenance comments elsewhere are deliberate and out of this gate's scope.
 export const DEFAULT_TARGET_DIRS = [
   'packages/brt/templates',
+  // Стартеры ADK — то, что brt init --type bot реально копирует пользователю
+  // (AgentProjectGenerator): без них гейт пропускал бы запрещённый импорт в
+  // каждый новый сгенерированный проект.
+  'packages/botruntime-adk/assets-static/templates',
   'packages/botruntime-adk/assets-static/agent0/capabilities/skills',
 ]
 
-const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.md', '.mdx', '.json'])
+const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json'])
 const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 
 // Matches an actual module specifier, not prose: `from '@botpress/x'`,
@@ -31,7 +35,9 @@ const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 // `import('@botpress/x')`. Deliberately does NOT match a bare "@botpress/x"
 // mention (README/CHANGELOG provenance) or a scope-less reference like
 // "botpress/skills" (a plugin-marketplace name, not an npm import).
-const IMPORT_PATTERN = /\b(?:from\s+|require\(\s*|import\(\s*)['"]@botpress\/[^'"]+['"]/
+// \s+ после ключевых слов покрывает и перенос строки (multiline import), а
+// `import '...'` — side-effect форму без from; require допускает пробел до скобки.
+const IMPORT_PATTERN = /\b(?:from\s+|require\s*\(\s*|import\s*\(\s*|import\s+)['"]@botpress\/[^'"]+['"]/
 
 // package.json dependency/devDependency/peerDependency key, e.g.
 // `"@botpress/sdk": "1.0.0"`.
@@ -64,12 +70,15 @@ function listFilesRecursively(startDir) {
 export function findBannedImports(absoluteFilePath, content) {
   const isJson = extname(absoluteFilePath) === '.json'
   const pattern = isJson ? JSON_DEP_PATTERN : IMPORT_PATTERN
+  // По ВСЕМУ контенту, не построчно: multiline-форма (`from` в конце строки,
+  // спецификатор на следующей) иначе проходила бы чистой. Номер строки — по
+  // смещению совпадения.
   const violations = []
-  content.split('\n').forEach((line, index) => {
-    if (pattern.test(line)) {
-      violations.push({ line: index + 1, text: line.trim() })
-    }
-  })
+  const global = new RegExp(pattern.source, 'g')
+  for (const match of content.matchAll(global)) {
+    const line = content.slice(0, match.index).split('\n').length
+    violations.push({ line, text: match[0].replace(/\s+/g, ' ').trim() })
+  }
   return violations
 }
 
