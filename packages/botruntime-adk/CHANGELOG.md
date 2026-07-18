@@ -7,7 +7,11 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.2.9 (current)
+## 2.2.11 (current) — 2026-07-18
+
+- `chat.clearTranscript()` now checkpoints a stable Cloud message cursor together with the cleared LLM transcript. Long-lived channel history can no longer be re-imported after a reset when an integration refreshes conversation tags; generated bot definitions include the backward-compatible cursor field.
+
+## 2.2.9
 
 - fix(runtime): fence tracked state snapshots (#102)
 - fix(evals): preserve nested checkpoint yields (#103)
