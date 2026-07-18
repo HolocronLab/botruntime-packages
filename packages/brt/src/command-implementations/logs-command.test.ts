@@ -131,6 +131,27 @@ describe('brt logs — dev-empty-result hint', () => {
     expect(stdout).not.toMatch(/brt dev.*terminal/i)
   })
 
+  it('serializes relative --since/--until filters as RFC3339 before the request', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-18T21:40:00.000Z'))
+    stubFetch(async () => json({ logs: [] }))
+
+    const result = await logsCommand({ since: '10m', until: '30s' }).handler()
+
+    expect(result.exitCode).toBe(0)
+    const url = new URL(calls[0]!.url)
+    expect(url.searchParams.get('timeStart')).toBe('2026-07-18T21:30:00.000Z')
+    expect(url.searchParams.get('timeEnd')).toBe('2026-07-18T21:39:30.000Z')
+  })
+
+  it('rejects invalid relative time filters before the network', async () => {
+    stubFetch(async () => json({ logs: [] }))
+
+    const result = await logsCommand({ since: 'ten-minutes' }).handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(calls).toHaveLength(0)
+  })
+
   function baseArgv(overrides: Record<string, unknown>): Record<string, unknown> {
     return {
       apiUrl: undefined,

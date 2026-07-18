@@ -20,6 +20,7 @@ import {
 } from './misc/message-handlers'
 import type { Context } from './bp'
 import type { Client, HandlerProps, TelegramMessage, TypingActionProps } from './misc/types'
+import { isTelegramServiceMessage } from './misc/service-messages'
 import { conversationTagId, threadExtra, topicThreadId } from './misc/threading'
 import {
   convertTelegramMessageToBotpressMessage,
@@ -132,6 +133,7 @@ const webhookHandler = async (props: HandlerProps) =>
     ok(data.message, 'Handler received a non-message update, so the event was ignored')
 
     const message = data.message as TelegramMessage
+    ok(!isTelegramServiceMessage(message), 'Handler received a Telegram service message, so the message was ignored')
     const telegramConversationId = message.chat.id
     const telegramUserId = message.from?.id
     const messageId = message.message_id

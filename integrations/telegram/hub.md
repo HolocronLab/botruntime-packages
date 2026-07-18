@@ -41,3 +41,9 @@ Version 1.1.7 delivers images, audio, video, documents, and card images from Bot
 file store without exposing runtime credentials. The integration downloads the canonical file URL
 with the bot's credentials and uploads the bytes to Telegram; public third-party URLs keep using
 Telegram's normal URL delivery.
+
+## Service messages and transport errors
+
+Version 1.1.8 acknowledges Telegram service messages, such as membership changes, without turning
+them into user content or making Telegram retry the webhook. Telegram API network failures remain
+real JavaScript errors, preserving their original cause in the Bun integration host.

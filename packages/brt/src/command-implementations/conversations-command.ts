@@ -1,6 +1,7 @@
 import type { ConversationListParams, TraceListParams } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
+import { isRFC3339Timestamp, parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
 import { parseTracePage, type TraceEntry } from './traces-command'
 
@@ -201,7 +202,7 @@ function resolveListFilters(
   const rawSince = input.since ?? tokens.since
   return {
     limit,
-    ...(rawSince === undefined ? {} : { since: parseSince(rawSince, nowMs) }),
+    ...(rawSince === undefined ? {} : { since: parseTimeFilter(rawSince, 'since', nowMs) }),
   }
 }
 
@@ -234,57 +235,6 @@ function parsePositiveInteger(value: string, label: string): number {
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed)) throw new errors.BotpressCLIError(`${label} is too large`)
   return parsed
-}
-
-const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/
-const DURATION = /^([0-9]+)(ms|s|m|h|d)$/
-const DURATION_MS = {
-  ms: 1,
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-} as const
-
-function parseSince(value: string, nowMs: number): { timeMs: number } {
-  const duration = DURATION.exec(value)
-  if (duration) {
-    const amount = Number(duration[1])
-    const delta = amount * DURATION_MS[duration[2] as keyof typeof DURATION_MS]
-    const timeMs = nowMs - delta
-    if (!Number.isSafeInteger(amount) || !Number.isFinite(timeMs) || timeMs < 0) {
-      throw new errors.BotpressCLIError('since duration is too large')
-    }
-    return { timeMs }
-  }
-  const match = RFC3339.exec(value)
-  if (!match || !validTimestampParts(match) || !Number.isFinite(Date.parse(value))) {
-    throw new errors.BotpressCLIError('since must be RFC3339 or a duration such as 30s, 5m, 1h, or 2d')
-  }
-  return { timeMs: Date.parse(value) }
-}
-
-function validTimestampParts(match: RegExpExecArray): boolean {
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const hour = Number(match[4])
-  const minute = Number(match[5])
-  const second = Number(match[6])
-  const offsetHour = match[7] === undefined ? 0 : Number(match[7])
-  const offsetMinute = match[8] === undefined ? 0 : Number(match[8])
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  return (
-    month >= 1 &&
-    month <= 12 &&
-    day >= 1 &&
-    day <= daysInMonth &&
-    hour <= 23 &&
-    minute <= 59 &&
-    second <= 59 &&
-    offsetHour <= 23 &&
-    offsetMinute <= 59
-  )
 }
 
 function parseConversationPage(value: unknown, pageSize: number): ConversationPage {
@@ -412,9 +362,7 @@ function safeString(value: unknown, field: string, pattern: RegExp): string {
 }
 
 function safeTimestamp(value: unknown, field: string): string {
-  if (typeof value !== 'string') throw new errors.BotpressCLIError(`${field} is malformed`)
-  const match = RFC3339.exec(value)
-  if (!match || !validTimestampParts(match) || !Number.isFinite(Date.parse(value))) {
+  if (typeof value !== 'string' || !isRFC3339Timestamp(value)) {
     throw new errors.BotpressCLIError(`${field} is malformed`)
   }
   return value

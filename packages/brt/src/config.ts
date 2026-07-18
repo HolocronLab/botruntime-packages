@@ -168,12 +168,12 @@ const cloudDevTarget = {
 
 const cloudLogsSince = {
   type: 'string',
-  description: 'Start of the time range to fetch logs from, RFC3339 (default: 1 hour ago)',
+  description: 'Start of the time range, RFC3339 or look-back duration such as 10m or 1h (default: 1 hour ago)',
 } satisfies CommandOption
 
 const cloudLogsUntil = {
   type: 'string',
-  description: 'End of the time range to fetch logs from, RFC3339',
+  description: 'End of the time range, RFC3339 or look-back duration such as 30s or 5m',
 } satisfies CommandOption
 
 const cloudLogsLevel = {
