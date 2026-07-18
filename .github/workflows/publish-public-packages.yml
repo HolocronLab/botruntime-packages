@@ -21,33 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release-sha: ${{ steps.release-ref.outputs.sha }}
-    env:
-      # Dependency order. ADK builds before the CLI that loads it; local file:
-      # links are rewritten to immutable registry versions only after build.
-      PACKAGE_ORDER: >-
-        botruntime-analytics
-        botruntime-chat
-        botruntime-client
-        botruntime-cognitive
-        botruntime-const
-        botruntime-thicktoken
-        botruntime-zui
-        botruntime-zai
-        botruntime-evals
-        botruntime-jex
-        botruntime-llmz
-        botruntime-sdk
-        botruntime-runtime
-        botruntime-tunnel
-        botruntime-verel
-        botruntime-yargs-extra
-        botruntime-adk
-        brt
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
           fetch-depth: 0
+
+      # Single source of truth (DEVLP-162): scripts/package-order.mjs, shared
+      # with ci.yml's fork-package-catalog and fork-package-tests jobs.
+      - name: Resolve packages/* build order
+        id: package-order
+        run: echo "list=$(node scripts/package-order.mjs)" >> "$GITHUB_OUTPUT"
 
       # DEVLP-174: публикация с неконсьюмленными changeset-заметками паковала бы
       # новый source под СТАРЫМ иммутабельным npm-semver и молча съедала записи —
@@ -98,6 +82,7 @@ jobs:
       - name: Build, verify, and publish the complete public catalog
         env:
           PUBLIC_NPM_REGISTRY: "https://registry.npmjs.org"
+          PACKAGE_ORDER: ${{ steps.package-order.outputs.list }}
         shell: bash
         run: |
           set -euo pipefail

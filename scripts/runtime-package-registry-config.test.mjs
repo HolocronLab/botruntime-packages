@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import test from 'node:test'
 
+import { PACKAGE_ORDER } from './package-order.mjs'
+
 const root = new URL('../', import.meta.url)
 const packagesDir = new URL('../packages/', import.meta.url)
 
@@ -172,6 +174,57 @@ test('repository CI runs changed eval and BRT checks before docs contract verifi
   )
 })
 
+test('packages/* build order is a single source of truth (DEVLP-162)', () => {
+  // The list previously lived three times: twice in ci.yml (fork-package-catalog
+  // and fork-package-tests do not share job env) and once in
+  // publish-public-packages.yml. A rename/reorder now only touches
+  // scripts/package-order.mjs; every consumer resolves it via `node
+  // scripts/package-order.mjs` (bash-loop shape) or imports PACKAGE_ORDER
+  // directly (JS consumers like scripts/discover-fork-package-catalog.mjs).
+  const ciWorkflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  const publishWorkflow = readFileSync(
+    new URL('../.github/workflows/publish-public-packages.yml', import.meta.url),
+    'utf8'
+  )
+
+  for (const workflow of [ciWorkflow, publishWorkflow]) {
+    assert.doesNotMatch(
+      workflow,
+      /PACKAGE_ORDER: >-/,
+      'PACKAGE_ORDER must be resolved from scripts/package-order.mjs, not hardcoded inline in the workflow'
+    )
+  }
+
+  assert.match(ciWorkflow, /node scripts\/discover-fork-package-catalog\.mjs/)
+  const packageOrderSteps = [...ciWorkflow.matchAll(/node scripts\/package-order\.mjs/g)]
+  assert.equal(packageOrderSteps.length, 1, 'fork-package-tests must resolve PACKAGE_ORDER from the shared script')
+  assert.match(publishWorkflow, /node scripts\/package-order\.mjs/)
+
+  for (const { manifest } of publicPackages) {
+    const directory = manifest.repository?.directory?.split('/').at(-1)
+    assert.ok(directory, `${manifest.name} must declare its repository directory`)
+    assert.ok(PACKAGE_ORDER.includes(directory), `${manifest.name} is missing from scripts/package-order.mjs`)
+  }
+})
+
+test('every packages/* with a test script is present in scripts/package-order.mjs', () => {
+  // Mirrors the fail-loud check scripts/discover-fork-package-catalog.mjs runs
+  // in CI, as a local `node --test` gate: a newly added test suite must not be
+  // silently left off the PR gate (arch audit 2026-07-17).
+  const testedPackages = readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => {
+      const manifestUrl = new URL(`../packages/${name}/package.json`, import.meta.url)
+      if (!existsSync(manifestUrl)) return false
+      const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'))
+      return Boolean(manifest.scripts && manifest.scripts.test)
+    })
+
+  const missing = testedPackages.filter((name) => !PACKAGE_ORDER.includes(name))
+  assert.deepEqual(missing, [], `packages with a test script missing from PACKAGE_ORDER: ${missing.join(', ')}`)
+})
+
 test('the anonymous-consumer release train publishes every public package through OIDC', () => {
   const workflow = readFileSync(new URL('../.github/workflows/publish-public-packages.yml', import.meta.url), 'utf8')
   assert.match(workflow, /id-token: write/)
@@ -193,11 +246,12 @@ test('the anonymous-consumer release train publishes every public package throug
   assert.match(workflow, /- ["']adk-v\*["']/)
   assert.match(workflow, /- ["']brt-v\*["']/)
 
-  for (const { manifest } of publicPackages) {
-    const directory = manifest.repository?.directory?.split('/').at(-1)
-    assert.ok(directory, `${manifest.name} must declare its repository directory`)
-    assert.match(workflow, new RegExp(`(?:^|\\s)${directory}(?:\\s|$)`), `${manifest.name} is missing from release order`)
-  }
+  // DEVLP-162: PACKAGE_ORDER itself is no longer inlined here — it is resolved
+  // from the single-source scripts/package-order.mjs (see the dedicated test
+  // below) and threaded in through a step output.
+  assert.match(workflow, /node scripts\/package-order\.mjs/)
+  assert.match(workflow, /PACKAGE_ORDER: \$\{\{ steps\.package-order\.outputs\.list \}\}/)
+  assert.doesNotMatch(workflow, /PACKAGE_ORDER: >-/)
 
   const packageLoops = [...workflow.matchAll(/for package in \$PACKAGE_ORDER; do/g)]
   assert.equal(packageLoops.length, 2, 'release train must separate verification from manifest rewriting')

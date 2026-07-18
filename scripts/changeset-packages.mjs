@@ -2,7 +2,7 @@
 // the changeset version/changelog script (changeset-version.mjs). "Public" here
 // means "npm-published" (private !== true) — e.g. botruntime-api is a build-time-only
 // codegen seam (ADR-0005) and never reaches the registry, so it is excluded the same
-// way publish-public-packages.yml's PACKAGE_ORDER excludes it.
+// way scripts/package-order.mjs's PACKAGE_ORDER excludes it.
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 

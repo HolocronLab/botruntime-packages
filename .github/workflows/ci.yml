@@ -309,60 +309,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       packages: ${{ steps.discover.outputs.packages }}
-    env:
-      # Dependency build order for packages/*. MUST stay in sync with PACKAGE_ORDER
-      # in publish-public-packages.yml: cross-package deps use file: links, which
-      # Bun resolves against each sibling's already-built dist/, so packages must
-      # be built in this order before a later package's install can succeed.
-      PACKAGE_ORDER: >-
-        botruntime-analytics
-        botruntime-chat
-        botruntime-client
-        botruntime-cognitive
-        botruntime-const
-        botruntime-thicktoken
-        botruntime-zui
-        botruntime-zai
-        botruntime-evals
-        botruntime-jex
-        botruntime-llmz
-        botruntime-sdk
-        botruntime-runtime
-        botruntime-tunnel
-        botruntime-verel
-        botruntime-yargs-extra
-        botruntime-adk
-        brt
     steps:
       - uses: actions/checkout@v6
 
+      # Build order lives in scripts/package-order.mjs (DEVLP-162, single
+      # source of truth shared with the fork-package-tests matrix below and
+      # publish-public-packages.yml) instead of a copy pasted into this job's env.
       - name: List fork packages with a test script, in dependency order
         id: discover
         shell: bash
         run: |
           set -euo pipefail
-          packages="$(node -e "
-            const fs = require('fs');
-            const order = process.env.PACKAGE_ORDER.trim().split(/\s+/);
-            // Enumerate the real packages/* tree, not the allowlist: a test-bearing
-            // package missing from PACKAGE_ORDER must fail the gate loudly, not be
-            // silently skipped by filtering the stale list.
-            const tested = fs.readdirSync('packages', { withFileTypes: true })
-              .filter((d) => d.isDirectory())
-              .map((d) => d.name)
-              .filter((name) => {
-                const pkgPath = \`packages/\${name}/package.json\`;
-                if (!fs.existsSync(pkgPath)) return false;
-                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-                return Boolean(pkg.scripts && pkg.scripts.test);
-              });
-            const missing = tested.filter((name) => !order.includes(name));
-            if (missing.length > 0) {
-              console.error(\`::error::packages with a test script are missing from PACKAGE_ORDER: \${missing.join(', ')} — add them here and in publish-public-packages.yml\`);
-              process.exit(1);
-            }
-            console.log(JSON.stringify(order.filter((name) => tested.includes(name))));
-          ")"
+          packages="$(node scripts/discover-fork-package-catalog.mjs)"
           echo "Fork packages with a test script: $packages"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
 
@@ -380,31 +338,18 @@ jobs:
         with:
           bun-version: "1.3.14"
 
+      # Single source of truth (DEVLP-162): scripts/package-order.mjs, shared
+      # with fork-package-catalog above and publish-public-packages.yml.
+      - name: Resolve packages/* build order
+        id: package-order
+        run: echo "list=$(node scripts/package-order.mjs)" >> "$GITHUB_OUTPUT"
+
       - name: Install this package's dependency chain, type-check, and test
         env:
           TARGET_PACKAGE: ${{ matrix.package }}
-          # Same order as publish-public-packages.yml (and fork-package-catalog
-          # above). Every package ahead of TARGET_PACKAGE in this list is built
-          # here first so its file: dependents can resolve the sibling's dist/.
-          PACKAGE_ORDER: >-
-            botruntime-analytics
-            botruntime-chat
-            botruntime-client
-            botruntime-cognitive
-            botruntime-const
-            botruntime-thicktoken
-            botruntime-zui
-            botruntime-zai
-            botruntime-evals
-            botruntime-jex
-            botruntime-llmz
-            botruntime-sdk
-            botruntime-runtime
-            botruntime-tunnel
-            botruntime-verel
-            botruntime-yargs-extra
-            botruntime-adk
-            brt
+          # Every package ahead of TARGET_PACKAGE in this list is built here
+          # first so its file: dependents can resolve the sibling's dist/.
+          PACKAGE_ORDER: ${{ steps.package-order.outputs.list }}
           # Space-separated allowlist of packages whose test suite is known-red
           # on main. A listed package's TEST failures are surfaced loudly (a build
           # warning annotation) but do not fail the job; typecheck stays blocking
@@ -467,7 +412,7 @@ jobs:
             fi
             package_dir="packages/$package"
             if [ ! -f "$package_dir/package.json" ]; then
-              echo "::error::$package is listed in PACKAGE_ORDER but $package_dir/package.json does not exist — fix the list (must stay in sync with publish-public-packages.yml)"
+              echo "::error::$package is listed in PACKAGE_ORDER but $package_dir/package.json does not exist — fix scripts/package-order.mjs"
               exit 1
             fi
             echo "::group::Build dependency $package"
