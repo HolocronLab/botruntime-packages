@@ -1,17 +1,16 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { Telegram } from 'telegraf'
 
-const originalPrepareStackTrace = Error.prepareStackTrace
-
-afterEach(() => {
-  Error.prepareStackTrace = originalPrepareStackTrace
-})
-
 describe('Telegram transport error fidelity', () => {
-  it('keeps a network failure as a real Error under the bundle stack rewriter contract', async () => {
-    Error.prepareStackTrace = (error, frames) =>
-      `${Error.prototype.toString.call(error)}\n${frames.map((frame) => `    at ${frame}`).join('\n')}`
+  it('builds Telegraf with the real Error-based node-fetch transport patch', () => {
+    const source = readFileSync(resolve(import.meta.dir, '../node_modules/node-fetch/lib/index.js'), 'utf8')
+    expect(source).toContain('class FetchError extends Error')
+    expect(source).not.toContain('function FetchError(message, type, systemError)')
+  })
 
+  it('keeps a network failure as a real Error with an inspectable stack', async () => {
     let thrown: unknown
     try {
       await new Telegram('123:TEST', { apiRoot: 'http://127.0.0.1:1' }).sendMessage(1, 'probe')
