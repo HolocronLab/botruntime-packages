@@ -64,15 +64,29 @@ function isChangesetPath(path) {
 }
 
 // Parses `git diff --name-status` output into {status, path} entries. Single
-// status letter (A/M/D/...); for a rename line (`R100\told\tnew`, score
-// suffix + two paths) the NEW path is what matters here.
+// status letter (A/M/D/...) for a plain line. A rename line (`R100\told\tnew`,
+// score suffix + two tab-separated paths) yields TWO entries, not one: the
+// OLD path no longer exists there (a deletion), the NEW path exists there for
+// the first time (an addition). Collapsing a rename to only its destination
+// (DEVLP-174 review round 3, defect #1) let a rename from src -> test/ dodge
+// the release-relevance gate (the destination alone reads as ignored-only)
+// and let a rename of a pending .changeset/*.md out of .changeset/ dodge the
+// orphaned-deletion check (the destination alone is no longer a changeset
+// path at all) — both loopholes close once both sides are classified.
 export function parseGitStatus(output) {
   return output
     .split('\n')
     .filter(Boolean)
-    .map((line) => {
+    .flatMap((line) => {
       const columns = line.split('\t')
-      return { status: columns[0][0], path: columns[columns.length - 1] }
+      if (columns.length === 3) {
+        const [, oldPath, newPath] = columns
+        return [
+          { status: 'D', path: oldPath },
+          { status: 'A', path: newPath },
+        ]
+      }
+      return [{ status: columns[0][0], path: columns[columns.length - 1] }]
     })
 }
 
@@ -89,26 +103,78 @@ export function filterDeletedChangesetPaths(statusEntries) {
   return statusEntries.filter((entry) => entry.status === 'D' && isChangesetPath(entry.path)).map((entry) => entry.path)
 }
 
-const RELEASE_ARTIFACT_PATTERN = /^packages\/[^/]+\/(package\.json|CHANGELOG\.md)$/
-
-// True only for a diff that actually bumps both a package.json AND a
-// CHANGELOG.md (changeset-version.mjs always writes both, in the same
-// commit, for every package it touches) — the signature of a real release
-// commit, as opposed to any other diff that happens to delete a changeset.
-export function isReleaseVersionCommit(statusEntries) {
-  const bumps = statusEntries.filter((entry) => entry.status !== 'D' && RELEASE_ARTIFACT_PATTERN.test(entry.path))
-  return bumps.some((entry) => entry.path.endsWith('/package.json')) && bumps.some((entry) => entry.path.endsWith('/CHANGELOG.md'))
+// DEVLP-174 review round 3, defect #2: a MODIFIED (status M) pending
+// changeset never declares a package for THIS PR — defect #1's rule stands,
+// only an ADDED file does, or a pending changeset already covering package X
+// on main could be edited (not added) by an unrelated PR to "cover" it again.
+// But an edit to an existing note still has to stay a valid, non-empty note:
+// this is read separately (see findInvalidModifiedChangesets) purely to
+// validate, never to declare.
+export function filterModifiedChangesetPaths(statusEntries) {
+  return statusEntries.filter((entry) => entry.status === 'M' && isChangesetPath(entry.path)).map((entry) => entry.path)
 }
 
-// DEVLP-174 review round 2, defect #2: a pending changeset can only ever be
-// legitimately removed by changeset-version.mjs, which consumes it AND writes
-// the package.json/CHANGELOG.md bumps in the same commit. A diff that deletes
-// a .changeset/*.md without those bumps loses the release note silently and
-// permanently — that must be a red PR, not a quiet pass.
-export function findOrphanedChangesetDeletions(statusEntries) {
-  const deleted = filterDeletedChangesetPaths(statusEntries)
-  if (deleted.length === 0) return []
-  return isReleaseVersionCommit(statusEntries) ? [] : deleted
+const RELEASE_ARTIFACT_PATTERN = /^packages\/([^/]+)\/(package\.json|CHANGELOG\.md)$/
+
+// Per-package-dir bump state: a dir only counts as "released" once its OWN
+// package.json AND its OWN CHANGELOG.md were both touched (non-delete) in
+// this diff — changeset-version.mjs always writes both, in the same commit,
+// for every package it touches.
+export function computeBumpedPackageDirs(statusEntries) {
+  const bumped = new Map()
+  for (const entry of statusEntries) {
+    if (entry.status === 'D') continue
+    const match = RELEASE_ARTIFACT_PATTERN.exec(entry.path)
+    if (!match) continue
+    const [, dir, file] = match
+    const state = bumped.get(dir) ?? { packageJson: false, changelog: false }
+    if (file === 'package.json') state.packageJson = true
+    else state.changelog = true
+    bumped.set(dir, state)
+  }
+  return bumped
+}
+
+// DEVLP-174 review round 2, defect #2 / round 3, defect #3: a pending
+// changeset can only ever be legitimately removed by changeset-version.mjs,
+// which consumes it AND writes ITS OWN declared package(s)' package.json +
+// CHANGELOG.md bumps in the same commit. Round 2's check accepted ANY
+// manifest + ANY changelog bump anywhere in the diff — a PR could delete
+// package X's changeset while only bumping unrelated package Y, and the
+// global heuristic would wave it through. `deletedChangesetDeclarations`
+// carries, per deleted path, the package names that changeset declared AS IT
+// EXISTED IN BASE (before the deletion) — every one of them must show its own
+// bump, or the deletion is orphaned.
+export function findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }) {
+  if (deletedChangesetDeclarations.length === 0) return []
+  const bumpedDirs = computeBumpedPackageDirs(statusEntries)
+  const dirByName = new Map(publicPackages.map((pkg) => [pkg.name, pkg.dir]))
+
+  return deletedChangesetDeclarations
+    .filter(({ packageNames }) =>
+      !packageNames.every((name) => {
+        const dir = dirByName.get(name)
+        const state = dir && bumpedDirs.get(dir)
+        return Boolean(state?.packageJson && state?.changelog)
+      })
+    )
+    .map(({ path }) => path)
+}
+
+// DEVLP-174 review round 3, defect #2: runs the same STRICT parser as an
+// added changeset, but only to validate — a modified pending note must stay
+// well-formed and non-empty, or a since-broken edit to an existing entry
+// merges silently and only blows up later at release time.
+export function findInvalidModifiedChangesets(modifiedChangesetEntries) {
+  const invalid = []
+  for (const { path, content } of modifiedChangesetEntries) {
+    try {
+      parseChangesetFile(content)
+    } catch (err) {
+      invalid.push({ path, message: err.message })
+    }
+  }
+  return invalid
 }
 
 // DEVLP-174 review round 2, defect #3: a declared package name that matches
@@ -129,6 +195,23 @@ function readAddedChangesetContents(statusEntries) {
   return filterAddedChangesetPaths(statusEntries).map((path) => readFileSync(resolve(root, path), 'utf8'))
 }
 
+function readModifiedChangesetEntries(statusEntries) {
+  return filterModifiedChangesetPaths(statusEntries).map((path) => ({ path, content: readFileSync(resolve(root, path), 'utf8') }))
+}
+
+// Reads each DELETED changeset's content from BASE (via `git show`) — the
+// working tree no longer has it, and it must be read as it existed before
+// the deletion, not whatever (if anything) replaced it — then parses out the
+// package names it declared, for findOrphanedChangesetDeletions to correlate
+// against this diff's own release-artifact bumps.
+function readDeletedChangesetDeclarations(base, statusEntries) {
+  return filterDeletedChangesetPaths(statusEntries).map((path) => {
+    const content = execFileSync('git', ['show', `${base}:${path}`], { cwd: root, encoding: 'utf8' })
+    const { bumps } = parseChangesetFile(content)
+    return { path, packageNames: [...bumps.keys()] }
+  })
+}
+
 function assertBaseCommit(base) {
   try {
     execFileSync('git', ['cat-file', '-e', `${base}^{commit}`], { cwd: root, stdio: 'ignore' })
@@ -145,6 +228,18 @@ async function main() {
   const statusEntries = readGitStatusEntries(base)
   const changedPaths = statusEntries.map((entry) => entry.path)
   const publicPackages = readPublicPackages(root)
+
+  const invalidModified = findInvalidModifiedChangesets(readModifiedChangesetEntries(statusEntries))
+  if (invalidModified.length > 0) {
+    const details = invalidModified.map((entry) => `  - ${entry.path}: ${entry.message}`).join('\n')
+    throw new Error(
+      `modified .changeset entry is invalid:\n${details}\n\n` +
+        'A pending changeset edited in this diff must stay a well-formed, non-empty note — it does not declare ' +
+        'a package for THIS PR (only a newly added changeset does), but it still has to survive parsing when ' +
+        'changeset-version.mjs eventually consumes it.\n'
+    )
+  }
+
   const declaredPackageNames = parseDeclaredPackages(readAddedChangesetContents(statusEntries))
 
   const unknownDeclared = findUnknownDeclaredPackages(declaredPackageNames, publicPackages)
@@ -157,15 +252,16 @@ async function main() {
     )
   }
 
-  const orphanedDeletions = findOrphanedChangesetDeletions(statusEntries)
+  const deletedChangesetDeclarations = readDeletedChangesetDeclarations(base, statusEntries)
+  const orphanedDeletions = findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages })
   if (orphanedDeletions.length > 0) {
     const details = orphanedDeletions.map((path) => `  - ${path}`).join('\n')
     throw new Error(
-      `pending changeset(s) deleted without a matching release commit:\n${details}\n\n` +
-        'A .changeset/*.md entry is only ever consumed by scripts/changeset-version.mjs, which bumps the ' +
-        'package.json version and prepends a CHANGELOG.md section in the SAME commit. This diff deletes the ' +
-        'file without those bumps, which would lose the release note permanently. Restore the file, or include ' +
-        'the release bump in this diff.\n'
+      `pending changeset(s) deleted without a matching release commit for THEIR OWN package(s):\n${details}\n\n` +
+        'A .changeset/*.md entry is only ever consumed by scripts/changeset-version.mjs, which bumps EACH package ' +
+        'it declares (package.json + CHANGELOG.md, in the SAME commit). This diff deletes the file without those ' +
+        'bumps for every package it declared, which would lose the release note permanently. Restore the file, or ' +
+        'include the matching release bump(s) in this diff.\n'
     )
   }
 

@@ -3,13 +3,15 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 import {
+  computeBumpedPackageDirs,
   filterAddedChangesetPaths,
   filterDeletedChangesetPaths,
+  filterModifiedChangesetPaths,
+  findInvalidModifiedChangesets,
   findMissingChangesets,
   findOrphanedChangesetDeletions,
   findUnknownDeclaredPackages,
   isReleaseRelevantPath,
-  isReleaseVersionCommit,
   parseDeclaredPackages,
   parseGitStatus,
 } from './changeset-lint.mjs'
@@ -129,9 +131,30 @@ test('parseGitStatus turns `git diff --name-status` output into {status, path} e
   ])
 })
 
-test('parseGitStatus takes the new path for a rename line (score suffix, three tab-separated columns)', () => {
+// DEVLP-174 review round 3, defect #1: a rename line (`R100\told\tnew`) used
+// to keep only the destination path, silently dropping the source. That let
+// a rename from src -> test/ dodge the gate as "ignored-only" (the new path
+// alone is test-only), and a rename of a pending .changeset/*.md out of
+// .changeset/ dodge the orphan-deletion check (the new path alone is no
+// longer a changeset path at all). Both sides must be classified: the OLD
+// path as a deletion (it no longer exists at this path), the NEW path as an
+// addition (it exists now and didn't before).
+test('parseGitStatus splits a rename line into a deletion of the old path and an addition of the new path', () => {
   const output = 'R100\told/path.md\tnew/path.md\n'
-  assert.deepEqual(parseGitStatus(output), [{ status: 'R', path: 'new/path.md' }])
+  assert.deepEqual(parseGitStatus(output), [
+    { status: 'D', path: 'old/path.md' },
+    { status: 'A', path: 'new/path.md' },
+  ])
+})
+
+test('parseGitStatus handles a mix of plain and rename lines in one diff', () => {
+  const output = 'M\tpackages/brt/src/cli.ts\nR100\t.changeset/foo.md\tdocs/foo.md\nA\t.changeset/bar.md\n'
+  assert.deepEqual(parseGitStatus(output), [
+    { status: 'M', path: 'packages/brt/src/cli.ts' },
+    { status: 'D', path: '.changeset/foo.md' },
+    { status: 'A', path: 'docs/foo.md' },
+    { status: 'A', path: '.changeset/bar.md' },
+  ])
 })
 
 test('parseGitStatus ignores trailing blank lines', () => {
@@ -186,52 +209,128 @@ test('filterDeletedChangesetPaths only returns changeset files with status D', (
   assert.deepEqual(filterDeletedChangesetPaths(statusEntries), ['.changeset/foo-fix.md'])
 })
 
-test('isReleaseVersionCommit is true only when both a package.json and a CHANGELOG.md bump are present', () => {
-  assert.equal(isReleaseVersionCommit([{ status: 'M', path: 'packages/foo/package.json' }]), false)
-  assert.equal(isReleaseVersionCommit([{ status: 'M', path: 'packages/foo/CHANGELOG.md' }]), false)
-  assert.equal(
-    isReleaseVersionCommit([
+test('computeBumpedPackageDirs is true only when both a package.json and a CHANGELOG.md bump are present, per package dir', () => {
+  assert.deepEqual(computeBumpedPackageDirs([{ status: 'M', path: 'packages/foo/package.json' }]), new Map([['foo', { packageJson: true, changelog: false }]]))
+  assert.deepEqual(computeBumpedPackageDirs([{ status: 'M', path: 'packages/foo/CHANGELOG.md' }]), new Map([['foo', { packageJson: false, changelog: true }]]))
+  assert.deepEqual(
+    computeBumpedPackageDirs([
       { status: 'M', path: 'packages/foo/package.json' },
       { status: 'M', path: 'packages/foo/CHANGELOG.md' },
     ]),
-    true
+    new Map([['foo', { packageJson: true, changelog: true }]])
   )
 })
 
-test('isReleaseVersionCommit ignores a DELETED package.json/CHANGELOG.md (that is not a bump)', () => {
-  assert.equal(
-    isReleaseVersionCommit([
+test('computeBumpedPackageDirs ignores a DELETED package.json/CHANGELOG.md (that is not a bump)', () => {
+  assert.deepEqual(
+    computeBumpedPackageDirs([
       { status: 'D', path: 'packages/foo/package.json' },
       { status: 'D', path: 'packages/foo/CHANGELOG.md' },
     ]),
-    false
+    new Map()
   )
 })
 
-test('deleting a pending changeset with no matching release bumps is flagged as an orphaned deletion', () => {
-  const statusEntries = [{ status: 'D', path: '.changeset/foo-fix.md' }]
-  assert.deepEqual(findOrphanedChangesetDeletions(statusEntries), ['.changeset/foo-fix.md'])
+test('computeBumpedPackageDirs keeps each package dir independent', () => {
+  assert.deepEqual(
+    computeBumpedPackageDirs([
+      { status: 'M', path: 'packages/foo/package.json' },
+      { status: 'M', path: 'packages/foo/CHANGELOG.md' },
+      { status: 'M', path: 'packages/bar/package.json' },
+    ]),
+    new Map([
+      ['foo', { packageJson: true, changelog: true }],
+      ['bar', { packageJson: true, changelog: false }],
+    ])
+  )
 })
 
-test('deleting a pending changeset with only a package.json bump but no CHANGELOG.md bump is still flagged', () => {
+// DEVLP-174 review round 3, defect #3: the old check accepted ANY manifest +
+// ANY changelog bump anywhere in the diff as proof a deletion was a real
+// release commit. That let a PR delete package X's pending changeset while
+// only bumping unrelated package Y — X's release note is gone and nothing
+// about X's own release artifacts changed. The check must read what package(s)
+// the deleted changeset declared (from BASE, before the deletion) and require
+// bumps for THOSE specific package dirs.
+const publicPackages = [
+  { name: '@holocronlab/foo', dir: 'foo' },
+  { name: '@holocronlab/bar', dir: 'bar' },
+]
+
+test('deleting a pending changeset with no matching release bumps for its own package is flagged as an orphaned deletion', () => {
+  const statusEntries = [{ status: 'D', path: '.changeset/foo-fix.md' }]
+  const deletedChangesetDeclarations = [{ path: '.changeset/foo-fix.md', packageNames: ['@holocronlab/foo'] }]
+  assert.deepEqual(
+    findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }),
+    ['.changeset/foo-fix.md']
+  )
+})
+
+test('deleting a pending changeset with only a package.json bump but no CHANGELOG.md bump for its own package is still flagged', () => {
   const statusEntries = [
     { status: 'D', path: '.changeset/foo-fix.md' },
     { status: 'M', path: 'packages/foo/package.json' },
   ]
-  assert.deepEqual(findOrphanedChangesetDeletions(statusEntries), ['.changeset/foo-fix.md'])
+  const deletedChangesetDeclarations = [{ path: '.changeset/foo-fix.md', packageNames: ['@holocronlab/foo'] }]
+  assert.deepEqual(
+    findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }),
+    ['.changeset/foo-fix.md']
+  )
 })
 
-test('deleting a pending changeset alongside its package.json + CHANGELOG.md bump (a real changeset-version release commit) is legitimate', () => {
+test('deleting a pending changeset alongside its OWN package.json + CHANGELOG.md bump (a real changeset-version release commit) is legitimate', () => {
   const statusEntries = [
     { status: 'D', path: '.changeset/foo-fix.md' },
     { status: 'M', path: 'packages/foo/package.json' },
     { status: 'M', path: 'packages/foo/CHANGELOG.md' },
   ]
-  assert.deepEqual(findOrphanedChangesetDeletions(statusEntries), [])
+  const deletedChangesetDeclarations = [{ path: '.changeset/foo-fix.md', packageNames: ['@holocronlab/foo'] }]
+  assert.deepEqual(
+    findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }),
+    []
+  )
+})
+
+// The regression this defect fixes: bumping an UNRELATED package's release
+// artifacts must not launder the deletion of a different package's changeset.
+test('regression: bumping an unrelated package does NOT cover deleting a different package\'s changeset', () => {
+  const statusEntries = [
+    { status: 'D', path: '.changeset/foo-fix.md' },
+    { status: 'M', path: 'packages/bar/package.json' },
+    { status: 'M', path: 'packages/bar/CHANGELOG.md' },
+  ]
+  const deletedChangesetDeclarations = [{ path: '.changeset/foo-fix.md', packageNames: ['@holocronlab/foo'] }]
+  assert.deepEqual(
+    findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }),
+    ['.changeset/foo-fix.md']
+  )
+})
+
+test('a changeset declaring multiple packages requires bumps for EACH of them', () => {
+  const statusEntries = [
+    { status: 'D', path: '.changeset/multi.md' },
+    { status: 'M', path: 'packages/foo/package.json' },
+    { status: 'M', path: 'packages/foo/CHANGELOG.md' },
+    // bar is missing its bumps
+  ]
+  const deletedChangesetDeclarations = [
+    { path: '.changeset/multi.md', packageNames: ['@holocronlab/foo', '@holocronlab/bar'] },
+  ]
+  assert.deepEqual(
+    findOrphanedChangesetDeletions({ statusEntries, deletedChangesetDeclarations, publicPackages }),
+    ['.changeset/multi.md']
+  )
 })
 
 test('no deletions at all means nothing to flag', () => {
-  assert.deepEqual(findOrphanedChangesetDeletions([{ status: 'A', path: '.changeset/x.md' }]), [])
+  assert.deepEqual(
+    findOrphanedChangesetDeletions({
+      statusEntries: [{ status: 'A', path: '.changeset/x.md' }],
+      deletedChangesetDeclarations: [],
+      publicPackages,
+    }),
+    []
+  )
 })
 
 // DEVLP-174 review round 2, defect #3: a declared package name that does not
@@ -251,6 +350,56 @@ test('findUnknownDeclaredPackages passes when every declared name matches a publ
   const declared = new Set(['@holocronlab/brt'])
   const publicPackages = [{ name: '@holocronlab/brt', dir: 'brt' }]
   assert.deepEqual(findUnknownDeclaredPackages(declared, publicPackages), [])
+})
+
+// DEVLP-174 review round 3, defect #2: a modified (status M) pending
+// .changeset/*.md never declares a package for THIS PR (only an added file
+// does — defect #1's rationale), but it must still be run through the
+// strict parser: a malformed edit to an existing note must fail the gate now,
+// not silently pass and only blow up later at release time.
+test('filterModifiedChangesetPaths only returns changeset files with status M', () => {
+  const statusEntries = [
+    { status: 'M', path: 'packages/foo/src/index.ts' },
+    { status: 'M', path: '.changeset/existing-fix.md' },
+    { status: 'M', path: '.changeset/README.md' },
+    { status: 'A', path: '.changeset/new-fix.md' },
+  ]
+  assert.deepEqual(filterModifiedChangesetPaths(statusEntries), ['.changeset/existing-fix.md'])
+})
+
+test('findInvalidModifiedChangesets passes a well-formed modified changeset through', () => {
+  const invalid = findInvalidModifiedChangesets([
+    { path: '.changeset/existing-fix.md', content: '---\n"@holocronlab/foo": patch\n---\n\nFix a thing.\n' },
+  ])
+  assert.deepEqual(invalid, [])
+})
+
+test('findInvalidModifiedChangesets flags a modified changeset with malformed frontmatter', () => {
+  const invalid = findInvalidModifiedChangesets([
+    { path: '.changeset/existing-fix.md', content: 'no frontmatter here' },
+  ])
+  assert.equal(invalid.length, 1)
+  assert.equal(invalid[0].path, '.changeset/existing-fix.md')
+  assert.match(invalid[0].message, /missing --- frontmatter/)
+})
+
+test('findInvalidModifiedChangesets flags a modified changeset with an emptied-out body', () => {
+  const invalid = findInvalidModifiedChangesets([
+    { path: '.changeset/existing-fix.md', content: '---\n"@holocronlab/foo": patch\n---\n' },
+  ])
+  assert.equal(invalid.length, 1)
+  assert.match(invalid[0].message, /body must not be empty/)
+})
+
+// A modified changeset's packages must NOT count as "declared" for this PR
+// (defect #1's rule: only status-A files declare) — that's exercised via
+// parseDeclaredPackages/filterAddedChangesetPaths already; this just confirms
+// findInvalidModifiedChangesets itself has no declaration side effect.
+test('findInvalidModifiedChangesets never returns declared package names, only validity failures', () => {
+  const invalid = findInvalidModifiedChangesets([
+    { path: '.changeset/existing-fix.md', content: '---\n"@holocronlab/foo": patch\n---\n\nFix a thing.\n' },
+  ])
+  assert.deepEqual(invalid, [])
 })
 
 test('CLI fails closed when the requested base commit is unavailable', () => {
