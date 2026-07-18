@@ -629,6 +629,45 @@ describe('eval observation capability preflight', () => {
     expect(suiteSource.disconnect).toHaveBeenCalled()
   })
 
+  it('preserves safe sink operation and status through the durable checkpoint boundary', async () => {
+    const sinkError = Object.assign(new Error('safe store failure'), {
+      operation: 'POST /v1/evals/runs/126/entries/1252/results',
+      status: 503,
+      kind: 'upstream',
+      ambiguous: true,
+    })
+    const { chatClient } = chatHarness()
+    let caught: unknown
+    try {
+      await runEval(
+        basicEval,
+        { client: {} as BpClient, botId: 'runtime-bot' },
+        {
+          spanSource: spanSource(),
+          chatClient,
+          chatWebhookId: 'webhook',
+          checkpointEvalOperation: async ({ execute }) => execute(),
+          onProgress: async (event) => {
+            if (event.type === 'turn_complete') throw sinkError
+          },
+        }
+      )
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      name: 'EvalProgressSinkError',
+      sinkCause: sinkError,
+      cause: sinkError,
+      operation: sinkError.operation,
+      status: 503,
+      kind: 'upstream',
+      ambiguous: true,
+    })
+    expect((caught as Error).message).toContain(`${sinkError.operation} (HTTP 503)`)
+  })
+
   it('marks a mid-turn aborted eval explicitly, including when it is the last selected eval', async () => {
     const directController = new AbortController()
     const directSource = spanSource({
@@ -727,7 +766,7 @@ describe('eval observation capability preflight', () => {
     expect(authenticatedClient.createMessage).not.toHaveBeenCalled()
   })
 
-  it('lets a durable host checkpoint each complete eval including its progress side effects', async () => {
+  it('emits eval completion only after the durable report checkpoint has returned', async () => {
     vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
     const source = spanSource()
     const progress: string[] = []
@@ -765,7 +804,7 @@ describe('eval observation capability preflight', () => {
 
     expect(checkpointEval).toHaveBeenCalledOnce()
     expect(report).toMatchObject({ passed: 1, failed: 0, total: 1 })
-    expect(progress).toEqual(['suite_start', 'suite_complete'])
+    expect(progress).toEqual(['suite_start', 'eval_start', 'eval_complete', 'suite_complete'])
   })
 
   it('resumes a multi-turn eval from the first unfinished durable turn', async () => {

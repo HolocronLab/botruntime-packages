@@ -37,6 +37,21 @@ it('preserves the typed eval-control failure kind for hosted history', () => {
   ).toBe('auth')
 })
 
+it('classifies a safely rehydrated hosted sink error without requiring prototype identity', () => {
+  expect(
+    classifyVortexEvalError(
+      Object.assign(new Error('persisted hosted sink failure'), {
+        name: 'EvalProgressSinkError',
+        operation: 'POST /v1/evals/runs/126/entries/1252/results',
+        status: 503,
+        kind: 'upstream',
+        ambiguous: true,
+      })
+    )
+  ).toBe('upstream')
+  expect(classifyVortexEvalError(Object.assign(new Error('application error'), { kind: 'auth' }))).toBe('internal')
+})
+
 function store(development = false, evalManifestId = 'file_1'): VortexEvalStore {
   return new VortexEvalStore({
     url: 'https://vortex.example/',
@@ -217,6 +232,36 @@ describe('VortexEvalStore strict hosted contract', () => {
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
     expect(headers.get('Authorization')).toBe('Bearer runtime-token')
     expect(headers.get('x-bot-id')).toBe('dev_runtime:7')
+  })
+
+  it('preserves a safe operation, status, and ambiguity classification for sink diagnostics', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(json({ error: 'private upstream body' }, 503)))
+
+    let caught: unknown
+    try {
+      await store().finalizeEntry('10', '20', { passed: true, durationMs: 12 })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      name: 'VortexEvalStoreError',
+      kind: 'upstream',
+      status: 503,
+      operation: 'PATCH /v1/evals/runs/10/entries/20',
+      ambiguous: true,
+    })
+    expect(String(caught)).not.toContain('private upstream body')
+  })
+
+  it('keeps a strict conflict definitive instead of treating it as a successful replay', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(json({ error: 'different first write' }, 409)))
+
+    await expect(store().finalizeEntry('10', '20', { passed: false, durationMs: 13 })).rejects.toMatchObject({
+      status: 409,
+      operation: 'PATCH /v1/evals/runs/10/entries/20',
+      ambiguous: false,
+    })
   })
 
   it.each([

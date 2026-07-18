@@ -63,9 +63,32 @@ const DEFAULT_DEV_SERVER_URL = 'http://localhost:3001'
 const WORKFLOW_TRIGGER_TIMEOUT_MS = 5 * 60 * 1000
 
 class EvalProgressSinkError extends Error {
+  readonly operation?: string
+  readonly status?: number
+  readonly kind?: string
+  readonly ambiguous?: boolean
+
   constructor(readonly sinkCause: unknown) {
-    super('Eval progress sink failed')
+    const details =
+      sinkCause !== null && typeof sinkCause === 'object'
+        ? (sinkCause as {
+            operation?: unknown
+            status?: unknown
+            kind?: unknown
+            ambiguous?: unknown
+          })
+        : undefined
+    const operation = typeof details?.operation === 'string' ? details.operation : undefined
+    const status = typeof details?.status === 'number' ? details.status : undefined
+    super(
+      `Eval progress sink failed${operation ? ` during ${operation}` : ''}${status !== undefined ? ` (HTTP ${status})` : ''}`,
+      { cause: sinkCause }
+    )
     this.name = 'EvalProgressSinkError'
+    if (operation !== undefined) this.operation = operation
+    if (status !== undefined) this.status = status
+    if (typeof details?.kind === 'string') this.kind = details.kind
+    if (typeof details?.ambiguous === 'boolean') this.ambiguous = details.ambiguous
   }
 }
 
@@ -1279,15 +1302,15 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
     if (config.signal?.aborted) break
 
     const evalDef = evals[i]!
-    const execute = async (): Promise<EvalReport> => {
-      await config.onProgress?.({
-        type: 'eval_start',
-        evalName: evalDef.name,
-        index: i,
-        totalTurns: evalDef.conversation.length,
-      })
+    await config.onProgress?.({
+      type: 'eval_start',
+      evalName: evalDef.name,
+      index: i,
+      totalTurns: evalDef.conversation.length,
+    })
 
-      const report = await runEval(evalDef, connection, {
+    const execute = async (): Promise<EvalReport> =>
+      runEval(evalDef, connection, {
         devServerUrl,
         devServerHeaders,
         evalIndex: i,
@@ -1313,18 +1336,16 @@ export async function runEvalSuite(config: EvalRunnerConfig, filter?: EvalFilter
         sourcePreflighted: true,
         executionId: `${runId}:${i}`,
       })
-      await config.onProgress?.({
-        type: 'eval_complete',
-        evalName: evalDef.name,
-        index: i,
-        report,
-      })
-      return report
-    }
 
     const report = config.checkpointEval
       ? await config.checkpointEval({ definition: evalDef, index: i, execute })
       : await execute()
+    await config.onProgress?.({
+      type: 'eval_complete',
+      evalName: evalDef.name,
+      index: i,
+      report,
+    })
     reports.push(report)
   }
 

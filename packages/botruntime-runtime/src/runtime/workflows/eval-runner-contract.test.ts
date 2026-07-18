@@ -108,6 +108,15 @@ describe('runtime eval workflow trace-reader contract', () => {
     expect(source).toContain("phase === 'cleanup'")
   })
 
+  it('persists completion only after the immutable eval report checkpoint', () => {
+    const reportCheckpoint = source.indexOf('const report = await step(`run-eval-')
+    const rememberReport = source.indexOf('hostedLifecycle.rememberCompletedReport(report)')
+
+    expect(reportCheckpoint).toBeGreaterThan(-1)
+    expect(rememberReport).toBeGreaterThan(reportCheckpoint)
+    expect(source).toContain('onProgress: (event) => hostedLifecycle.onProgress(event, step)')
+  })
+
   it('rejects unsupported durable suites before creating the hosted run', () => {
     const durablePreflight = source.indexOf('validateDurableEvalDefinitions(filteredDefinitions, true, durableEffects)')
     const createRun = source.indexOf("step('create-run'")

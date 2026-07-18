@@ -19,6 +19,17 @@ Hosted runners also provide a durable effect transport for table seeds,
 isolated controls, and native event turns. Every mutation carries a stable
 identity: replay returns the original committed result, while the same identity
 with a different payload fails loudly before another side effect is applied.
+The immutable eval report is checkpointed before hosted outcome and verdict
+writes. Those writes use independent durable checkpoints, so a lost response
+replays the same result coordinates and verdict; an already acknowledged write
+is not sent again. Store errors expose only safe `operation`, `status`, `kind`,
+and `ambiguous` diagnostics and never copy the response body. Network failures,
+HTTP `408`, `425`, `429`, and 5xx responses are ambiguous and may retry the immutable write;
+a `409` is definitive (`ambiguous: false`) and still fails loudly because the
+same identity was previously committed with different content.
+The workflow checkpoint persists this allowlisted envelope and one safe cause
+level across generations. A rehydrated `EvalProgressSinkError` also restores
+its `sinkCause`, preserving ownership diagnostics without persisting raw bodies.
 
 ```ts
 const order = new Eval({
