@@ -60,6 +60,7 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
   private _loaded: boolean = false
 
   private _saving: boolean = false
+  private _savePromise: Promise<void> | null = null
   private _saveAgain: boolean = false
   private _saveAgainCount: number = 0
 
@@ -314,165 +315,187 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
     )
   }
 
-  public async save() {
+  public save(): Promise<void> {
     if (this._saving) {
       this._saveAgain = true
-      return
+      return this._savePromise!
     }
 
-    const executionFinished = context.get('executionFinished', { optional: true })
+    this._assertCanSave()
+    this._saving = true
+    const savePromise = Promise.resolve().then(() => this._drainSaves())
+    this._savePromise = savePromise
+    return savePromise
+  }
+
+  private async _drainSaves(): Promise<void> {
+    try {
+      do {
+        this._saveAgain = false
+        this._assertCanSave()
+        await this._saveSnapshot()
+      } while (this._saveAgain && this._saveAgainCount++ <= 5)
+    } finally {
+      this._saving = false
+      this._savePromise = null
+      this._saveAgain = false
+      this._saveAgainCount = 0
+    }
+  }
+
+  private _assertCanSave(): void {
+    const executionFinished = context.get('executionFinished', {
+      optional: true,
+    })
 
     if (executionFinished) {
       throw new Error(
         `Cannot save TrackedState "${this.type}/${this.id}/${this.name || 'state'}" after execution has finished.`
       )
     }
+  }
 
-    try {
-      const conversationId = getActiveConversationId()
-      await span(
-        'state.save',
-        {
-          type: this.type,
-          name: this.name,
-          ...(conversationId ? { conversationId } : {}),
-        },
-        async (s) => {
-          // Never persist an `undefined`/`null` state value. A workflow instance
-          // whose value is undefined (e.g. a reference loaded but not yet
-          // hydrated) would otherwise serialize to `undefined`, and the snapshot
-          // line below (`JSON.parse(JSON.stringify(valueToSave))`) would throw
-          // `"undefined" is not valid JSON` — failing the save. Worse, on the
-          // next `workflow_callback` the instance fails to load and the runtime
-          // silently degrades the event to a plain `event`, so completion
-          // handlers never fire. Coerce to the schema default (mirroring the
-          // load path's `needsDefaults` handling) so the record is always valid.
-          if (this.value == null) {
-            this.value = this._schemaDefault()
+  private async _saveSnapshot(): Promise<void> {
+    const conversationId = getActiveConversationId()
+    await span(
+      'state.save',
+      {
+        type: this.type,
+        name: this.name,
+        ...(conversationId ? { conversationId } : {}),
+      },
+      async (s) => {
+        // Never persist an `undefined`/`null` state value. A workflow instance
+        // whose value is undefined (e.g. a reference loaded but not yet
+        // hydrated) would otherwise serialize to `undefined`, and the snapshot
+        // line below (`JSON.parse(JSON.stringify(valueToSave))`) would throw
+        // `"undefined" is not valid JSON` — failing the save. Worse, on the
+        // next `workflow_callback` the instance fails to load and the runtime
+        // silently degrades the event to a plain `event`, so completion
+        // handlers never fire. Coerce to the schema default (mirroring the
+        // load path's `needsDefaults` handling) so the record is always valid.
+        if (this.value == null) {
+          this.value = this._schemaDefault()
+        }
+
+        // Convert any state-referenceable objects to refs for serialization
+        const serializedValue = serializeStateReferences(this.value)
+        let serializedJSON: string | undefined
+
+        // Check if the object can be serialized (no circular references)
+        try {
+          serializedJSON = JSON.stringify(serializedValue)
+        } catch {
+          throw new Error(
+            `State contains circular references and cannot be saved. ` +
+              `Objects with circular references are not supported in state storage. ` +
+              `Consider restructuring your data to avoid circular references.`
+          )
+        }
+        if (serializedJSON === undefined) {
+          throw new Error('State cannot be serialized to JSON and cannot be saved.')
+        }
+
+        const valueToSave = JSON.parse(serializedJSON)
+        const savedHash = this.calculateHash(valueToSave)
+        const changedKeys = this._computeChangedKeys(valueToSave)
+
+        const stateSize = sizeof(valueToSave)
+        s.setAttribute('state_size_bytes', stateSize)
+
+        // Check absolute maximum size
+        if (stateSize > MAX_SWAP_FILE_SIZE) {
+          throw new Error(
+            `State size (${prettyBytes(stateSize)}) exceeds maximum allowed size of ${prettyBytes(MAX_SWAP_FILE_SIZE)}. ` +
+              `Consider using Tables API for long-term storage of large data.`
+          )
+        }
+
+        const tooBig = isStateTooBig(valueToSave)
+
+        let payload: TrackedStateValue
+
+        if (!tooBig) {
+          payload = {
+            value: valueToSave,
+            location: { type: 'state' },
           }
-
-          // Convert any state-referenceable objects to refs for serialization
-          const valueToSave = serializeStateReferences(this.value)
-
-          // Check if the object can be serialized (no circular references)
+        } else {
           try {
-            JSON.stringify(valueToSave)
-          } catch {
-            throw new Error(
-              `State contains circular references and cannot be saved. ` +
-                `Objects with circular references are not supported in state storage. ` +
-                `Consider restructuring your data to avoid circular references.`
+            const key = `swap/${this.type}/${this.id}/state.json`
+            const { file } = await this.client.uploadFile({
+              key,
+              index: false,
+              contentType: 'application/json',
+              content: serializedJSON,
+              accessPolicies: [],
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              tags: {
+                system: 'true',
+                purpose: 'swap',
+              },
+            })
+
+            console.warn(
+              `State for ${this.type}/${this.id} is too big (${tooBig.human}) for State API (max ${MaxStateSize.human}). ` +
+                `Swapping state to file ${file.id}. Swap states are valid for 30 days.`
             )
-          }
 
-          const changedKeys = this._computeChangedKeys(valueToSave)
+            s.setAttribute('swapped_to_file', tooBig ? true : false)
 
-          const stateSize = sizeof(valueToSave)
-          s.setAttribute('state_size_bytes', stateSize)
+            payload = {
+              value: undefined,
+              location: { type: 'file', key: file.id },
+            }
+          } catch (err) {
+            s.setAttribute('swapped_to_file', false)
+            s.addEvent('swap_failed', {
+              error: err instanceof Error ? err.message : String(err),
+              size_bytes: stateSize,
+            })
 
-          // Check absolute maximum size
-          if (stateSize > MAX_SWAP_FILE_SIZE) {
-            throw new Error(
-              `State size (${prettyBytes(stateSize)}) exceeds maximum allowed size of ${prettyBytes(MAX_SWAP_FILE_SIZE)}. ` +
-                `Consider using Tables API for long-term storage of large data.`
-            )
-          }
-
-          const tooBig = isStateTooBig(valueToSave)
-
-          let payload: TrackedStateValue
-
-          if (!tooBig) {
+            console.error(`Failed to swap state: ${err instanceof Error ? err.message : String(err)}`)
+            // Fallback to saving directly (might fail with size limit)
             payload = {
               value: valueToSave,
               location: { type: 'state' },
             }
-          } else {
-            try {
-              const key = `swap/${this.type}/${this.id}/state.json`
-              const { file } = await this.client.uploadFile({
-                key,
-                index: false,
-                contentType: 'application/json',
-                content: JSON.stringify(valueToSave),
-                accessPolicies: [],
-                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                tags: {
-                  system: 'true',
-                  purpose: 'swap',
-                },
-              })
-
-              console.warn(
-                `State for ${this.type}/${this.id} is too big (${tooBig.human}) for State API (max ${MaxStateSize.human}). ` +
-                  `Swapping state to file ${file.id}. Swap states are valid for 30 days.`
-              )
-
-              s.setAttribute('swapped_to_file', tooBig ? true : false)
-
-              payload = {
-                value: undefined,
-                location: { type: 'file', key: file.id },
-              }
-            } catch (err) {
-              s.setAttribute('swapped_to_file', false)
-              s.addEvent('swap_failed', {
-                error: err instanceof Error ? err.message : String(err),
-                size_bytes: stateSize,
-              })
-
-              console.error(`Failed to swap state: ${err instanceof Error ? err.message : String(err)}`)
-              // Fallback to saving directly (might fail with size limit)
-              payload = {
-                value: valueToSave,
-                location: { type: 'state' },
-              }
-            }
           }
-
-          await this.client.setState({
-            type: this.type,
-            name: this.name,
-            id: this.id,
-            payload,
-          })
-
-          // Set span attributes after successful save (skip value for swapped states to avoid bloating spans)
-          const savedInline = payload.location.type === 'state'
-          if (savedInline) {
-            s.setAttribute('state.value', valueToSave)
-            if (this._lastSavedValue !== undefined) {
-              s.setAttribute('state.previous_value', this._lastSavedValue)
-            }
-          }
-          if (changedKeys.length > 0) {
-            s.setAttribute('state.changed_keys', changedKeys)
-          }
-
-          // Update hash and snapshot after successful save
-          this._lastSavedHash = this.calculateHash(this.value)
-          if (savedInline) {
-            // Defensive: `JSON.stringify(undefined)` returns the JS value
-            // `undefined`, and `JSON.parse(undefined)` coerces to
-            // `JSON.parse("undefined")` which throws. The `this.value == null`
-            // coercion above should make this unreachable, but guard the
-            // snapshot directly so a save can never crash on it.
-            this._lastSavedValue = valueToSave === undefined ? undefined : JSON.parse(JSON.stringify(valueToSave))
-          } else {
-            this._lastSavedValue = undefined
-          }
-          this._isDirty = false
         }
-      )
-    } finally {
-      this._saving = false
-      if (this._saveAgain && this._saveAgainCount++ <= 5) {
-        this._saveAgain = false
-        await this.save()
-      } else {
-        this._saveAgainCount = 0
+
+        await this.client.setState({
+          type: this.type,
+          name: this.name,
+          id: this.id,
+          payload,
+        })
+
+        // Set span attributes after successful save (skip value for swapped states to avoid bloating spans)
+        const savedInline = payload.location.type === 'state'
+        if (savedInline) {
+          s.setAttribute('state.value', valueToSave)
+          if (this._lastSavedValue !== undefined) {
+            s.setAttribute('state.previous_value', this._lastSavedValue)
+          }
+        }
+        if (changedKeys.length > 0) {
+          s.setAttribute('state.changed_keys', changedKeys)
+        }
+
+        // Update hash and snapshot after successful save
+        this._lastSavedHash = savedHash
+        if (savedInline) {
+          this._lastSavedValue = valueToSave
+        } else {
+          this._lastSavedValue = undefined
+        }
+        try {
+          this._isDirty = this.calculateHash(this.value) !== savedHash
+        } catch {
+          this._isDirty = true
+        }
       }
-    }
+    )
   }
 
   /**
