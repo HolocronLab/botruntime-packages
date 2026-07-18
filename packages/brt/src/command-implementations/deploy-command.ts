@@ -8,6 +8,7 @@ import * as apiUtils from '../api'
 import { CloudapiClient } from '../api/cloudapi-client'
 import * as agentLink from '../adk-agent-link'
 import * as adkBundle from '../adk-bundle'
+import * as adkTypecheck from '../adk-typecheck'
 import * as botsStore from '../bots-store'
 import { cloudInfo, cloudWarn } from '../cloud-io'
 import * as cloudProfileResolve from '../cloud-profile-resolve'
@@ -750,6 +751,34 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   // native BuildCommand (codegen + esbuild — the SAME pipeline as a Botpress-
   // shaped bot), and (c) normalizes the produced bundle to .brt/dist/index.cjs.
   // Nothing here spawns an external adk/bp binary.
+  // DEVLP-173: esbuild's own strip-only transpile (via BuildCommand) never
+  // runs the TypeScript checker, so a bot with a type error in a tool's props
+  // deployed clean and only failed at runtime. Called from _buildAdkBundle
+  // AFTER generateAgentBot (so it sees the freshly generated dir/.adk/*-
+  // types.d.ts) but BEFORE BuildCommand's esbuild bundling. --noTypecheck is a
+  // deliberate, logged escape hatch; a missing tsconfig.json is a logged
+  // warning, never a silent skip.
+  private _typecheckAdkProject(dir: string): void {
+    const outcome = adkTypecheck.runAdkTypecheck(dir, { skip: Boolean(this.argv.noTypecheck) })
+    switch (outcome.status) {
+      case 'skipped-explicit':
+        cloudWarn(
+          '--noTypecheck: skipping the pre-deploy TypeScript check. A bot with a type error can now deploy and fail at runtime instead.'
+        )
+        return
+      case 'skipped-no-tsconfig':
+        cloudWarn(`typecheck skipped: no ${adkTypecheck.TSCONFIG_FILE} found in ${dir}`)
+        return
+      case 'ok':
+        cloudInfo('typecheck passed')
+        return
+      case 'failed':
+        throw new errors.BotpressCLIError(
+          `TypeScript typecheck failed (${outcome.errorCount} error${outcome.errorCount === 1 ? '' : 's'}):\n${outcome.formatted}`
+        )
+    }
+  }
+
   private async _buildAdkBundle(
     dir: string,
     configTargetBotId: string,
@@ -789,6 +818,18 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       adkCommand: 'adk-build',
       configTarget: { environment: 'prod', botId: configTargetBotId, credentials },
     })
+
+    // Typecheck AFTER generateAgentBot, not before: generateAgentBot is what
+    // (re)writes dir/.adk/*-types.d.ts (action/component/table/... — see
+    // botruntime-adk's generateLocalTypes and friends), the narrow types a
+    // tool/action call is actually checked against via this project's own
+    // tsconfig.json `paths` override. Typechecking any earlier would see only
+    // the runtime package's permissive `any` fallback (or a stale prior
+    // generation) and silently miss the exact tool-props error class this
+    // gate exists to catch. Still strictly before BuildCommand's esbuild
+    // bundling below, so a type error still blocks before any bytes are
+    // produced or uploaded.
+    this._typecheckAdkProject(dir)
 
     // Point a fresh BuildCommand at the generated bot dir. A fresh
     // ProjectDefinitionContext (its own esbuild context) is used and disposed,

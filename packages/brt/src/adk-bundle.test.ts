@@ -82,6 +82,7 @@ describe('isAgentSourceChange', () => {
     'package-lock.json',
     'pnpm-lock.yaml',
     'yarn.lock',
+    'tsconfig.json',
     path.join('src', 'agent.ts'),
     path.join('src', 'knowledge', 'manual.md'),
     path.join('src', 'knowledge', 'terms.pdf'),

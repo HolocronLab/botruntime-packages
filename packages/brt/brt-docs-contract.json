@@ -285,6 +285,7 @@
         "minify",
         "name",
         "noBuild",
+        "noTypecheck",
         "profile",
         "public",
         "secrets",
@@ -893,6 +894,7 @@
         "adk",
         "allowDestructiveTableChanges",
         "noBuild",
+        "noTypecheck",
         "watch"
       ],
       "dev": [

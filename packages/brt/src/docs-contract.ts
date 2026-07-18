@@ -57,7 +57,7 @@ const documentation: BrtDocsContract['documentation'] = {
   ],
   criticalOptions: {
     chat: ['chatApiUrl', 'protocol'],
-    deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'watch'],
+    deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'noTypecheck', 'watch'],
     dev: ['check', 'json', 'port', 'watch'],
     'integrations install': ['alias', 'configFile', 'configStdin', 'dev'],
     'integrations publish': ['apiUrl', 'dryRun', 'noBuild'],
