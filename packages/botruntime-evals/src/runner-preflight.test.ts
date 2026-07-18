@@ -870,6 +870,77 @@ describe('eval observation capability preflight', () => {
     expect(chatClient.connect).toHaveBeenNthCalledWith(2, expect.objectContaining({ userId: 'user-1' }))
   })
 
+  it('keeps a nested checkpoint yield out of the enclosing durable step failure cache', async () => {
+    vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const yieldSignal = { durableYield: true }
+    const cache = new Map<
+      string,
+      { ok: true; value: unknown } | { ok: false; error: Error }
+    >()
+    let yieldDispatch = true
+
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      effectIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}:${effectIndex ?? ''}`
+      const cached = cache.get(key)
+      if (cached) {
+        if (!cached.ok) throw cached.error
+        return cached.value as never
+      }
+
+      try {
+        if (phase === 'dispatch' && yieldDispatch) {
+          yieldDispatch = false
+          throw yieldSignal
+        }
+        const value = await execute()
+        cache.set(key, { ok: true, value })
+        return value
+      } catch (cause) {
+        // Mirror the workflow host: control signals are resumable, while an
+        // ordinary nested error becomes a cached failure of the enclosing step.
+        if (cause === yieldSignal) throw cause
+        const restored = new Error('cached enclosing checkpoint failure')
+        restored.name = cause instanceof Error ? cause.name : 'Error'
+        cache.set(key, { ok: false, error: restored })
+        throw cause
+      }
+    }
+    const definition: EvalDefinition = {
+      name: 'nested-checkpoint-yield',
+      conversation: [{ user: 'send once' }],
+    }
+    const options = {
+      executionId: 'run:nested-yield',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      isCheckpointYield: (cause: unknown) => cause === yieldSignal,
+    }
+
+    await expect(
+      runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+    ).rejects.toBe(yieldSignal)
+    expect(cache.has('turn:0:')).toBe(false)
+
+    const report = await runEval(
+      definition,
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      options
+    )
+
+    expect(report.pass).toBe(true)
+    expect(authenticatedClient.createMessage).toHaveBeenCalledOnce()
+  })
+
   it('reuses the original intent boundary when an idempotent effect loses its acknowledgement', async () => {
     const source = spanSource()
     const { authenticatedClient, chatClient } = chatHarness()

@@ -287,7 +287,11 @@ export interface EvalRunnerConfig {
     effectIndex?: number
     execute: () => Promise<T>
   }) => Promise<T>
-  /** Host classifier that distinguishes a durable workflow yield from an exhausted checkpoint failure. */
+  /**
+   * Host classifier that distinguishes a durable workflow yield from an exhausted checkpoint failure.
+   * The runner applies it at every nested checkpoint boundary so a resumable control signal cannot be
+   * serialized or cached as the failure of an enclosing operation.
+   */
   isCheckpointYield?: (cause: unknown) => boolean
 }
 
