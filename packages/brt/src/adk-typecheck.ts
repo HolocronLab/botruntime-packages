@@ -100,7 +100,11 @@ function runTypecheck(ts: typeof TSNamespace, dir: string): { formatted: string;
     return { formatted: format([readError]), errorCount: 1 }
   }
 
-  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dir)
+  // tsconfigPath как configFileName обязателен: без него options.configFilePath
+  // пуст и discovery дефолтных node_modules/@types якорится к cwd ЗАПУСКА CLI, а
+  // не к каталогу проекта (--workDir) — валидный проект с ambient-типами падал
+  // бы TS2304, а чужие типы из cwd могли бы маскировать ошибки.
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dir, undefined, tsconfigPath)
   if (parsed.errors.length > 0) {
     return { formatted: format(parsed.errors), errorCount: parsed.errors.length }
   }

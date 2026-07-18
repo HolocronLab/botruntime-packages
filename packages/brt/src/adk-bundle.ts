@@ -148,10 +148,12 @@ export function isAgentSourceChange(
       rel === 'pnpm-lock.yaml' ||
       rel === 'yarn.lock' ||
       // DEVLP-173: brt deploy --adk --watch gates every redeploy on
-      // adk-typecheck.ts's tsc run against THIS file; a tsconfig-only edit
-      // (fixing a failed typecheck, or changing compiler options) must retrigger
-      // the watch loop on its own, not require an unrelated src/ touch too.
-      rel === 'tsconfig.json'
+      // adk-typecheck.ts's tsc run. The generated tsconfig includes EVERY root
+      // *.ts (not only agent.config.ts), so an edit fixing a failed typecheck in
+      // any of them — and a tsconfig-only edit (compiler options) — must
+      // retrigger the loop on its own, not require an unrelated src/ touch too.
+      rel === 'tsconfig.json' ||
+      rel.endsWith('.ts')
     )
   }
 
