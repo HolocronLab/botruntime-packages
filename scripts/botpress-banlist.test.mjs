@@ -99,3 +99,9 @@ test('комментарий внутри импорта и npm-алиас в м
   assert.equal(findBannedImports('a.ts', "import(/* webpackIgnore: true */ '@botpress/runtime')").length, 1)
   assert.equal(findBannedImports('a.json', '{"runtime": "npm:@botpress/runtime@1.0.0"}').length, 1)
 })
+
+test('проза с from не краснит, а line-comment в разрыве импорта ловится', () => {
+  assert.equal(findBannedImports('a.md', "Migrate from '@botpress/runtime' to the fork").length, 0)
+  assert.equal(findBannedImports('a.ts', "export { y } from '@botpress/sdk'").length, 1)
+  assert.equal(findBannedImports('a.ts', "const m = await import( // lazy\n  '@botpress/runtime')").length, 1)
+})

@@ -40,11 +40,18 @@ const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 // "botpress/skills" (a plugin-marketplace name, not an npm import).
 // \s+ после ключевых слов покрывает и перенос строки (multiline import), а
 // `import '...'` — side-effect форму без from; require допускает пробел до скобки.
-// (?:\s|\/\*[^]*?\*\/)* — между ключевым словом и спецификатором допустимы и
-// пробелы, и блок-комментарии (import(/* webpackIgnore */ '@botpress/x')).
-const GAP = String.raw`(?:\s|\/\*[^]*?\*\/)*`
+// GAP — между ключевым словом и спецификатором допустимы пробелы, блок- И
+// строчные комментарии (import( // lazy\n '@botpress/x')).
+const GAP = String.raw`(?:\s|\/\*[^]*?\*\/|\/\/[^\n]*\n)*`
+const SPEC = String.raw`['"\x60]@botpress\/[^'"\x60]+['"\x60]`
+// `from` матчится ТОЛЬКО в контексте import/export-декларации (ограниченное
+// окно до 200 симв.): проза вида «Migrate from '@botpress/runtime'» в
+// сканируемых скиллах/README — не импорт и не должна краснить CI.
 const IMPORT_PATTERN = new RegExp(
-  String.raw`\b(?:from${GAP}|require${GAP}\(${GAP}|import${GAP}\(${GAP}|import${GAP})` + String.raw`['"\x60]@botpress\/[^'"\x60]+['"\x60]`
+  String.raw`\b(?:import|export)\b[^;]{0,200}?\bfrom${GAP}${SPEC}` +
+  String.raw`|\brequire${GAP}\(${GAP}${SPEC}` +
+  String.raw`|\bimport${GAP}\(${GAP}${SPEC}` +
+  String.raw`|\bimport${GAP}${SPEC}`
 )
 
 // package.json dependency/devDependency/peerDependency key, e.g.
