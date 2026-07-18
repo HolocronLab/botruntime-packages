@@ -6,13 +6,7 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.14 (current) — 2026-07-18
-
-- `brt --help` now ends with a link to this package's CHANGELOG.md, so "what changed?" has an answer
-without leaving the terminal. `brt --version` stays a bare, machine-readable semver string (`CLI_VERSION`,
-also used for the ADK compatibility check) — the link never appears in its output.
-
-## 0.7.12
+## 0.7.12 (current)
 
 - brt deploy --adk: блокирующая проверка типов до сборки (DEVLP-173) (#108)
 - fix(brt): allow multiple integration installs (#107)
