@@ -961,8 +961,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       // Persist the per-bot key BEFORE the link, atomically, so a crash leaves
       // a recoverable bot rather than an orphan with a lost key. The key is NOT
       // used to deploy (deploy is under the workspace PAT, below) — it is kept
-      // only for operations that still need a per-bot principal
-      // (`brt integrations install/register`, webhookSecret).
+      // only for operations that still need a per-bot principal.
       cloudInfo(`provision new bot on ${apiUrl} ...`)
       const machineClient = new CloudapiClient(apiUrl, profile.token)
       const prov = validateProvisionResponse(
@@ -998,7 +997,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
       // No per-bot key is read here: an already-linked bot deploys under the
       // workspace PAT. bots.json remains the store for the per-bot principal
-      // that `brt integrations install/register` still needs.
+      // that legacy bot-scoped commands may still need.
     }
 
     const { migrateFromConfig } = await adkBundle.loadAdkMigrationTools()
