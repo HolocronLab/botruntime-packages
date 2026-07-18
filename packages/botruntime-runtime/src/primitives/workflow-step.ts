@@ -14,9 +14,11 @@ import { updateWorkflow } from './workflow-utils'
 import { serializeDates, deserializeDates } from './date-serialization'
 import { Errors } from '../errors'
 import {
+  captureWorkflowStepErrorDiagnostics,
   createStepSignal,
   createWorkflowExecutionState,
   isStepSignal,
+  restoreWorkflowStepError,
   type WorkflowStepContext,
 } from './workflow-shared'
 
@@ -355,7 +357,7 @@ async function _step<T>(
             .filter(Boolean)
             .join(', ')
 
-          const err = new Error(`${message} [${errContext}]`)
+          const err = restoreWorkflowStepError(`${message} [${errContext}]`, stepError)
 
           // Restore original stack trace if it's a valid, non-empty string
           const stack = stepError?.stack
@@ -411,7 +413,8 @@ async function _step<T>(
           }
 
           if (steps[name]!.attempts >= maxAttempts - 1) {
-            // Store full error details in step state for debugging
+            // Store the safe message/stack plus allowlisted structured
+            // diagnostics so a fresh generation can classify the same failure.
             // Use Errors.toErrorString for the message (handles Axios, AggregateError, non-Error throwables, etc.)
             // Extract stack from any object that has one, not just Error instances
             const errorMessage = Errors.toErrorString(e)
@@ -420,6 +423,7 @@ async function _step<T>(
                 ? ((e as Record<string, unknown>).stack as string)
                 : undefined
             steps[name]!.error = {
+              ...captureWorkflowStepErrorDiagnostics(e),
               message: errorMessage,
               ...(rawStack !== undefined && { stack: rawStack }),
               failedAt: new Date().toISOString(),

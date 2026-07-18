@@ -91,14 +91,18 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       evalName: 'alpha',
       index: 0,
       report: alphaReport,
-    })
+    }, recordingStep(steps))
     const cause = new Error('execution failed')
 
     await expect(lifecycle.terminalizeFailure(cause, recordingStep(steps))).rejects.toBe(cause)
 
-    expect(steps).toEqual(['reconcile-failed-run', 'fail-run'])
-    expect(store.addRunResults).toHaveBeenCalledOnce()
-    expect(store.addRunResults).toHaveBeenCalledWith('10', alphaReport)
+    expect(steps).toEqual([
+      'persist-outcome-0',
+      'finalize-entry-0',
+      'reconcile-failed-run',
+      'fail-run',
+    ])
+    expect(store.addRunResults).not.toHaveBeenCalled()
     expect(store.finalizeEntry.mock.calls).toEqual([
       ['10', 'entry-alpha', { passed: true, durationMs: 12 }],
       ['10', 'entry-beta', { passed: false, durationMs: 0, errorKind: 'internal' }],
@@ -142,6 +146,73 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
       evalName: 'beta',
       evalType: 'regression',
       tags: ['nightly'],
+    })
+  })
+
+  it('retries an ambiguous finalize with the immutable report and caches its successful sink checkpoint', async () => {
+    const store = mockStore()
+    const committedVerdicts: unknown[] = []
+    store.finalizeEntry.mockImplementation(async (_runId, _entryId, verdict) => {
+      committedVerdicts.push(verdict)
+      if (committedVerdicts.length === 1) throw new Error('response lost after commit')
+    })
+    const lifecycle = new HostedEvalLifecycle(store, '10', [alpha])
+    await lifecycle.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 })
+    lifecycle.rememberCompletedReport(alphaReport)
+    const cache = new Map<string, unknown>()
+    const retryingStep: HostedEvalStep = async (name, action) => {
+      if (cache.has(name)) return cache.get(name) as never
+      let value: unknown
+      try {
+        value = await action()
+      } catch {
+        value = await action()
+      }
+      cache.set(name, value)
+      return value as never
+    }
+    const event: EvalProgressEvent = {
+      type: 'eval_complete',
+      evalName: 'alpha',
+      index: 0,
+      report: alphaReport,
+    }
+
+    await lifecycle.onProgress(event, retryingStep)
+    await lifecycle.onProgress(event, retryingStep)
+
+    expect(committedVerdicts).toEqual([
+      { passed: true, durationMs: 12 },
+      { passed: true, durationMs: 12 },
+    ])
+    expect(store.appendOutcomeResults).toHaveBeenCalledOnce()
+  })
+
+  it('rehydrates the entry identity when a fresh lifecycle receives a cached start step', async () => {
+    const firstStore = mockStore()
+    const cached = new Map<string, unknown>()
+    const cachedStep: HostedEvalStep = async (name, action) => {
+      if (cached.has(name)) return cached.get(name) as never
+      const value = await action()
+      cached.set(name, value)
+      return value
+    }
+    const first = new HostedEvalLifecycle(firstStore, '10', [alpha])
+    await first.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 }, cachedStep)
+
+    const replayStore = mockStore()
+    const replay = new HostedEvalLifecycle(replayStore, '10', [alpha])
+    replay.rememberCompletedReport(alphaReport)
+    await replay.onProgress({ type: 'eval_start', evalName: 'alpha', index: 0, totalTurns: 1 }, cachedStep)
+    await replay.onProgress(
+      { type: 'eval_complete', evalName: 'alpha', index: 0, report: alphaReport },
+      cachedStep
+    )
+
+    expect(replayStore.startEntry).not.toHaveBeenCalled()
+    expect(replayStore.finalizeEntry).toHaveBeenCalledWith('10', 'entry-alpha', {
+      passed: true,
+      durationMs: 12,
     })
   })
 
@@ -255,6 +326,22 @@ describe('HostedEvalLifecycle failure-safe orchestration', () => {
 
     expect(caught).toBeInstanceOf(AggregateError)
     expect((caught as AggregateError).errors).toEqual([cause, terminalError])
+  })
+
+  it('keeps a rehydrated hosted sink failure classified by its safe persisted kind', async () => {
+    const store = mockStore()
+    const lifecycle = new HostedEvalLifecycle(store, '10', [alpha])
+    const cause = Object.assign(new Error('cached sink failure'), {
+      name: 'EvalProgressSinkError',
+      operation: 'PATCH /v1/evals/runs/10/entries/20',
+      status: 503,
+      kind: 'upstream',
+      ambiguous: true,
+    })
+
+    await expect(lifecycle.terminalizeFailure(cause, recordingStep([]))).rejects.toBe(cause)
+
+    expect(store.markRunComplete).toHaveBeenCalledWith('10', { errorKind: 'upstream' })
   })
 
   it('propagates a workflow yield during failure reconciliation without terminalizing the workflow', async () => {

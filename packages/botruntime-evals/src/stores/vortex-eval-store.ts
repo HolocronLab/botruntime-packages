@@ -127,12 +127,21 @@ export type VortexEvalErrorKind = (typeof VORTEX_EVAL_ERROR_KINDS)[number]
 export class VortexEvalStoreError extends Error {
   readonly kind: VortexEvalErrorKind
   readonly status?: number
+  readonly operation?: string
+  readonly ambiguous: boolean
 
-  constructor(message: string, kind: VortexEvalErrorKind, status?: number) {
+  constructor(
+    message: string,
+    kind: VortexEvalErrorKind,
+    status?: number,
+    details: { operation?: string; ambiguous?: boolean } = {}
+  ) {
     super(message)
     this.name = 'VortexEvalStoreError'
     this.kind = kind
     if (status !== undefined) this.status = status
+    if (details.operation !== undefined) this.operation = details.operation
+    this.ambiguous = details.ambiguous ?? false
   }
 }
 
@@ -669,6 +678,17 @@ function errorCodeOf(value: unknown): string | undefined {
 
 export function classifyVortexEvalError(error: unknown): VortexEvalErrorKind {
   if (error instanceof VortexEvalStoreError) return error.kind
+  if (error !== null && typeof error === 'object') {
+    const persistedName = (error as { name?: unknown }).name
+    const persistedKind = (error as { kind?: unknown }).kind
+    if (
+      (persistedName === 'VortexEvalStoreError' || persistedName === 'EvalProgressSinkError') &&
+      typeof persistedKind === 'string' &&
+      ERROR_KIND_SET.has(persistedKind)
+    ) {
+      return persistedKind as VortexEvalErrorKind
+    }
+  }
   const code = errorCodeOf(error)
   if (code && CONFIGURATION_ERROR_CODES.has(code)) return 'configuration'
   if (code && TRACE_READER_ERROR_CODES.has(code)) return 'trace_reader'
@@ -1300,13 +1320,26 @@ export class VortexEvalStore implements EvalStore {
     try {
       response = await globalThis.fetch(target, { ...init, headers })
     } catch {
-      throw new VortexEvalStoreError(`Vortex eval store ${operation} failed before receiving a response`, 'upstream')
+      throw new VortexEvalStoreError(
+        `Vortex eval store ${operation} failed before receiving a response`,
+        'upstream',
+        undefined,
+        { operation, ambiguous: true }
+      )
     }
     if (!response.ok) {
       throw new VortexEvalStoreError(
         `Vortex eval store ${operation} failed (HTTP ${response.status})`,
         httpErrorKind(response.status),
-        response.status
+        response.status,
+        {
+          operation,
+          ambiguous:
+            response.status === 408 ||
+            response.status === 425 ||
+            response.status === 429 ||
+            response.status >= 500,
+        }
       )
     }
     return response

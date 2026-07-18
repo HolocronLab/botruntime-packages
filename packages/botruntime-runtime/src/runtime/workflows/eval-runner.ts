@@ -207,7 +207,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       // progress. Failures are never swallowed: the final reconciliation can
       // replay identical writes, while the outer lifecycle safely terminalizes
       // an execution that cannot be reconciled.
-      onProgress: (event) => hostedLifecycle.onProgress(event),
+      onProgress: (event) => hostedLifecycle.onProgress(event, step),
       checkpointEval: async ({ definition, index, execute }) => {
         assertHostedEvalStartBudget(context.get('runtime').getRemainingExecutionTimeInMs())
         const report = await step(`run-eval-${index}-${definition.name}`, execute)

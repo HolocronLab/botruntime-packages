@@ -261,8 +261,10 @@ export interface EvalRunnerConfig {
   /** Host transport for mutations that must survive replay after a lost acknowledgement. */
   durableEffects?: DurableEvalEffects
   /**
-   * Durable hosts can checkpoint one whole eval, including its progress writes.
-   * Replaying a checkpoint returns the cached report without repeating chat or persistence side effects.
+   * Durable hosts checkpoint the immutable report produced by one eval. The
+   * `eval_complete` progress event is emitted only after this checkpoint
+   * returns, so hosted sinks can persist outcome and verdict in separate
+   * idempotent activities without recomputing the report.
    */
   checkpointEval?: (input: {
     definition: _EvalDefinition
