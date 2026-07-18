@@ -10,6 +10,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { readPublicPackages } from './changeset-packages.mjs'
+import { parseChangesetFile } from './changeset-parse.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -18,7 +19,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // those never demands a changeset. Any other src change under a published
 // package's directory does — including "just a refactor", per CLAUDE.md TDD/
 // review discipline: a silent behavior-neutral change is still worth one line.
-const IGNORED_PATH_PATTERN = /(\.test\.|\.spec\.|\/__tests__\/|\/(dist|node_modules)\/|\/CHANGELOG\.md$|\/README\.md$)/
+// package.json is ignored too: changeset-version.mjs itself bumps it as a release
+// artifact (and deletes the consumed .changeset entries in the same commit), so
+// the committed result would otherwise look like "src changed, no changeset" to
+// this gate. A content-bearing dependency edit always ships alongside a src
+// change that already trips the gate, so this can't mask a real missing entry.
+const IGNORED_PATH_PATTERN = /(\.test\.|\.spec\.|\/__tests__\/|\/(dist|node_modules)\/|\/CHANGELOG\.md$|\/README\.md$|\/package\.json$)/
 
 export function isReleaseRelevantPath(path, packageDir) {
   const prefix = `packages/${packageDir}/`
@@ -34,16 +40,15 @@ export function findMissingChangesets({ changedPaths, publicPackages, declaredPa
     .sort()
 }
 
-const FRONTMATTER_BLOCK = /^---\n([\s\S]*?)\n---/
-const FRONTMATTER_LINE = /^"([^"]+)":\s*(?:patch|minor|major)\s*$/gm
-
+// Runs the same STRICT parser changeset-version.mjs uses to cut a release
+// (changeset-parse.mjs). A malformed pending changeset must fail this gate now,
+// not silently pass lint and only blow up later when someone runs the release
+// script — that's a red PR today instead of a stuck release tomorrow.
 export function parseDeclaredPackages(changesetContents) {
   const declared = new Set()
   for (const content of changesetContents) {
-    const frontmatter = FRONTMATTER_BLOCK.exec(content)?.[1] ?? ''
-    for (const match of frontmatter.matchAll(FRONTMATTER_LINE)) {
-      declared.add(match[1])
-    }
+    const { bumps } = parseChangesetFile(content)
+    for (const name of bumps.keys()) declared.add(name)
   }
   return declared
 }
