@@ -277,7 +277,7 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     const apiUrl = this.resolveApiUrl(profile, link)
     if (!profile.workspaceId) {
       throw new errors.BotpressCLIError(
-        `profile "${profileName}" has no workspaceId — re-run \`brt login\` before managing bot configuration`
+        `profile "${profileName}" has no workspaceId — re-run \`brt login\` before managing the production bot`
       )
     }
     return {
