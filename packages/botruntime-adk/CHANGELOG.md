@@ -1,0 +1,14 @@
+# @holocronlab/botruntime-adk
+
+Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- packages/botruntime-adk`.
+
+Fork of the `@botpress/adk` dependency closure (see `feat(botruntime): fork @botpress/adk closure ->
+botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, not a second CLI —
+see README.md for the split between `brt` (the executable) and this package (project loading,
+code-gen, dependency reconciliation, runtime helpers).
+
+## 2.2.9 (current)
+
+- fix(runtime): fence tracked state snapshots (#102)
+- fix(evals): preserve nested checkpoint yields (#103)
+- fix(brt): manage production integrations with workspace PAT (#104)

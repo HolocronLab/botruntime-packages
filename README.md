@@ -84,6 +84,19 @@ or command path until the CLI/contract removal reaches this repository's
 documents the three-step bootstrap needed when enabling the gate for the first
 time; after that bootstrap, cross-repo drift fails closed in both directions.
 
+## Версионирование и changelog
+
+Каждый публикуемый пакет (`packages/*` с `private: false`) хранит собственный
+`CHANGELOG.md`. При правке, которая меняет `src` такого пакета, добавь файл в
+`.changeset/` (формат и пример — `.changeset/README.md`): он описывает пакет,
+уровень bump (`patch`/`minor`/`major`) и суть изменения для потребителя. CI-гейт
+`changeset-gate` в `.github/workflows/ci.yml` падает, если правка затрагивает
+`src` публикуемого пакета без такого файла. Перед релизом `node
+scripts/changeset-version.mjs` собирает накопленные changeset-файлы, бампит
+версии и дописывает `CHANGELOG.md`; сама публикация в npm остаётся ручной
+(`npm publish` / тег-триггер `publish-public-packages.yml`) — версия-скрипт её
+не запускает.
+
 ## License
 
 MIT. Portions derived from Botpress (`@botpress/*`, `@bpinternal/*`), also MIT — each forked package
