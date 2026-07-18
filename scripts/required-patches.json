@@ -1,0 +1,9 @@
+{
+  "_comment": "Независимый baseline обязательных патчей (DEVLP-159): удаление всей декларации patchedDependencies — точная форма llmz-инцидента (source-map-js, немой прод-бот) — без этого файла проходило бы гейт как «чисто». Убрать патч можно только осознанной правкой ОБОИХ мест.",
+  "packages/botruntime-llmz": [
+    "source-map-js@1.2.1"
+  ],
+  "integrations/telegram": [
+    "node-fetch@2.7.0"
+  ]
+}

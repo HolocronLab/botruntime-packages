@@ -57,6 +57,38 @@ runtime-host pulls them by ref. Agent projects use `brt dev` for the tunnel loop
 `brt deploy --adk` for production — standalone `brt build` is not their entry
 point.
 
+## Бамп апстрима форка
+
+Каждый пакет под `packages/*`/`integrations/*`, помеченный в этом README как форк/vendor
+Botpress- или `@bpinternal`-пакета, — это скопированный исходник или dist, а не живая
+npm-зависимость: апстрим не подтянется сам ни через `bun update`, ни через Renovate/Dependabot
+(нечего бампить — нет ranges на реальные `@botpress/*`/`@bpinternal/*` в package.json, см.
+`scripts/botpress-banlist.mjs`). `.github/workflows/upstream-watch.yml` еженедельно сверяет
+`scripts/upstream-pins.json` с `npm view <пакет> version` и открывает/обновляет issue
+`DEVLP-159` с готовой таблицей дрейфа — но фактический ресинк всегда ручной. Чек-лист:
+
+1. **Обновить пин.** Прочитать diff апстрима между текущим `pinned` и целевой версией (issue
+   от upstream-watch даёт обе). Перенести реальные изменения в форк (не просто поднять номер
+   версии в `upstream-pins.json` — это только запись о факте, а не о работе).
+2. **Явно пройтись по `patchedDependencies`.** Если у пакета есть `patches/*.patch`
+   (`packages/botruntime-llmz`, `integrations/telegram` — на сегодня единственные два; ищи по
+   `patchedDependencies` в package.json, это единственный патч-механизм в репозитории, root
+   pnpm-workspace тут нет), проверь **каждый** патч: остаётся ли он актуальным после ресинка,
+   нужно ли переприменить вручную. Прецедент, ради которого это правило существует: при форке
+   `botruntime-llmz` патч на `source-map-js@1.2.1` потерялся молча, и прод-бот замолкал на
+   каждой кодогенерации, пока это не поймали (52afff9). `node scripts/check-patched-dependencies.mjs`
+   гейтит это машинно: файл патча существует, package.json и bun.lock согласованы, пин реально
+   резолвится в lockfile, а обязательные патчи из baseline `scripts/required-patches.json` не
+   могут исчезнуть даже вместе со всей декларацией `patchedDependencies` (снятие патча — это
+   осознанная правка обоих мест). Гейт не проверяет только, что патч всё ещё *нужен* или
+   *корректен* семантически.
+3. **`bash scripts/check-drift.sh`** — если бампится `botruntime-api`/`botruntime-client`
+   (ADR-0005), это обязательный шаг: регенерирует и падает на любом расхождении с закоммиченным.
+4. **Тесты пакета** (`bun test` / `bun run check:type` в его директории) — форк должен
+   типчекаться и проходить свой набор самостоятельно, апстрим-тесты не переносятся автоматически.
+5. **Changeset.** Правка `src` публикуемого пакета без файла в `.changeset/` не пройдёт
+   `changeset-gate` (см. «Версионирование и changelog» выше).
+
 ## Documentation contract
 
 Every public `brt` command, flag, target/auth semantic, or remediation change

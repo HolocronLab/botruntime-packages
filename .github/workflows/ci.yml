@@ -114,6 +114,25 @@ jobs:
           node --test scripts/botpress-banlist.test.mjs
           node scripts/botpress-banlist.mjs
 
+  # DEVLP-159: patchedDependencies (bun's pnpm-compatible patch mechanism) is silent by
+  # construction — if the pinned "name@version" key stops matching what's actually resolved,
+  # the patch just doesn't apply, no error. That is exactly how botruntime-llmz's source-map-js
+  # patch went missing after the fork and only surfaced as a prod outage (52afff9). Static and
+  # fast, so it runs on every push/PR, not just the weekly upstream-watch cron.
+  patched-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check every patchedDependencies entry has its patch file and matches bun.lock
+        run: |
+          node --test scripts/check-patched-dependencies.test.mjs
+          node scripts/check-patched-dependencies.mjs
+
   codegen-extensions:
     runs-on: ubuntu-latest
     steps:
