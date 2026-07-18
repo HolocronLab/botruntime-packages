@@ -6,7 +6,17 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.14 (current) — 2026-07-18
+## 0.7.15 (current) — 2026-07-18
+
+- Removed `templates/empty-bot` and its dead `bot` entry in `ProjectTemplates`: `brt init` for a bot
+project has always generated an ADK project in-process (`AgentProjectGenerator`, template `blank`/
+`hello-world`) and never read this table, so the template was unreachable scaffold-copy code left
+over from the pre-ADK-collapse Botpress-native bot architecture (`BotDefinition` + `.botpress/`).
+Also added a CI gate (`scripts/botpress-banlist.mjs`) that fails the build if a real `@botpress/*`
+import ever lands in `packages/brt/templates/` or the vendored ADK skill docs again.
+- Parse relative `logs --since/--until` durations into RFC3339 using the same validated time-filter contract as traces and conversations.
+
+## 0.7.14 — 2026-07-18
 
 - `brt --help` now ends with a link to this package's CHANGELOG.md, so "what changed?" has an answer
 without leaving the terminal. `brt --version` stays a bare, machine-readable semver string (`CLI_VERSION`,
