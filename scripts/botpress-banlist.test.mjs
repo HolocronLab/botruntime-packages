@@ -111,3 +111,10 @@ test('проза с from не краснит, а line-comment в разрыве 
   assert.equal(findBannedImports('a.ts', "export { y } from '@botpress/sdk'").length, 1)
   assert.equal(findBannedImports('a.ts', "const m = await import( // lazy\n  '@botpress/runtime')").length, 1)
 })
+
+test('inline-код в md, dep-литерал в коде и четырёх-бэктичный fence ловятся', () => {
+  assert.equal(findBannedImports('a.md', "Use `import { z } from '@botpress/runtime'` here").length, 1)
+  assert.equal(findBannedImports('g.ts', "const deps = { '@botpress/sdk': version }").length, 1)
+  const nested = '````md\nexample:\n```ts\nimport { z } from \'@botpress/x\'\n```\n````'
+  assert.equal(findBannedImports('a.md', nested).length, 1)
+})

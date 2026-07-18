@@ -45,6 +45,11 @@ const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 // просты и не пере-статментны: кавычки и ; исключены из «окна», матч не может
 // перепрыгнуть чужой спецификатор или соседний statement.
 const SPEC = String.raw`['"\x60]@botpress\/[^'"\x60]+['"\x60]`
+
+// Литерал dependency-ключа в КОДЕ генератора ('@botpress/sdk': '1.0.0' внутри
+// createPackageJson): попадает в package.json каждого нового проекта, минуя
+// import-синтаксис.
+const CODE_DEP_LITERAL = new RegExp(String.raw`${SPEC}\s*:`)
 const IMPORT_PATTERN = new RegExp(
   String.raw`\b(?:import|export)\b[\s\w$\{\},*]*?\bfrom\s*${SPEC}` +
   String.raw`|\b(?:require|import)\s*\(\s*${SPEC}` +
@@ -66,13 +71,29 @@ export function stripComments(code) {
 // сохраняются заменой не-кодовых строк пустыми.
 export function extractFencedCode(markdown) {
   const lines = markdown.split('\n')
-  let inFence = false
+  let fence = null // { char, len } открывшего fence — закрывает только совпадающий
   const out = lines.map((line) => {
-    if (/^\s*(?:\x60{3,}|~{3,})/.test(line)) {
-      inFence = !inFence
-      return ''
+    const m = /^\s*(\x60{3,}|~{3,})/.exec(line)
+    if (m) {
+      const char = m[1][0]
+      const len = m[1].length
+      if (!fence) {
+        fence = { char, len }
+        return ''
+      }
+      // Четырёх-бэктичный внешний fence с трёх-бэктичным примером внутри:
+      // закрытием считается только маркер ТОГО ЖЕ символа и не короче открывшего.
+      if (char === fence.char && len >= fence.len) {
+        fence = null
+        return ''
+      }
+      return line
     }
-    return inFence ? line : ''
+    if (fence) return line
+    // Вне fence: инлайновые код-спаны (\x60...\x60) — тоже обучающая поверхность
+    // («Use \x60import ... from '@botpress/x'\x60»); сохраняем только их.
+    const spans = [...line.matchAll(/\x60([^\x60]+)\x60/g)].map((s) => s[1]).join(' ; ')
+    return spans
   })
   return out.join('\n')
 }
@@ -120,10 +141,15 @@ export function findBannedImports(absoluteFilePath, content) {
   // спецификатор на следующей) иначе проходила бы чистой. Номер строки — по
   // смещению совпадения.
   const violations = []
-  const global = new RegExp(pattern.source, 'g')
-  for (const match of content.matchAll(global)) {
-    const line = content.slice(0, match.index).split('\n').length
-    violations.push({ line, text: match[0].replace(/\s+/g, ' ').trim() })
+  const collect = (regex) => {
+    for (const match of content.matchAll(new RegExp(regex.source, 'g'))) {
+      const line = content.slice(0, match.index).split('\n').length
+      violations.push({ line, text: match[0].replace(/\s+/g, ' ').trim() })
+    }
+  }
+  collect(pattern)
+  if (!isJson && ext !== '.md' && ext !== '.mdx') {
+    collect(CODE_DEP_LITERAL)
   }
   return violations
 }
