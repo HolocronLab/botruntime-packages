@@ -43,10 +43,11 @@ export function isReleaseRelevantPath(path, pkg) {
   const hasSrc = typeof pkg === 'string' ? true : pkg.hasSrc !== false
   const prefix = `packages/${dir}/`
   if (!path.startsWith(prefix)) return false
-  // Только КОРНЕВОЙ манифест пакета — релизный артефакт version-скрипта.
-  // Вложенные package.json (напр. brt/templates/*/package.json — SDK-пины
-  // генерируемых проектов) публикуются вместе с пакетом и требуют changeset.
-  if (path === `${prefix}package.json`) return false
+  // Корневой манифест исключается НЕ здесь безусловно, а в main() — и только
+  // когда его дифф против base сводится к полю version (релизный артефакт
+  // version-скрипта). Правка exports/bin/files/deps — consumer-facing и требует
+  // changeset. Вложенные package.json (brt/templates/* — SDK-пины генерируемых
+  // проектов) всегда релевантны.
   if (hasSrc && DIST_PATH_PATTERN.test(path)) return false
   return !IGNORED_PATH_PATTERN.test(path)
 }
@@ -224,6 +225,39 @@ function computeExpectedVersionByDir(base, deletedChangesetDeclarations, publicP
   return out
 }
 
+// isVersionOnlyManifestChange: корневой манифест «чисто релизный», если base и
+// HEAD совпадают после выкидывания version. Любое другое поле (exports/bin/
+// files/deps) — consumer-facing изменение, требующее changeset.
+export function isVersionOnlyManifestChange(baseContent, headContent) {
+  let baseJson
+  let headJson
+  try {
+    baseJson = JSON.parse(baseContent)
+    headJson = JSON.parse(headContent)
+  } catch {
+    return false
+  }
+  delete baseJson.version
+  delete headJson.version
+  return JSON.stringify(baseJson) === JSON.stringify(headJson)
+}
+
+function readManifestPair(base, path) {
+  let baseContent = null
+  try {
+    baseContent = execFileSync('git', ['show', `${base}:${path}`], { cwd: root, encoding: 'utf8' })
+  } catch {
+    return null
+  }
+  let headContent = null
+  try {
+    headContent = readFileSync(resolve(root, path), 'utf8')
+  } catch {
+    return null
+  }
+  return { baseContent, headContent }
+}
+
 // Версии из base против HEAD для каталогов, чьи манифесты тронуты диффом.
 function readVersionChangedByDir(base, statusEntries) {
   const changed = new Map()
@@ -334,7 +368,10 @@ function assertBaseCommit(base) {
 // свежим source под СТАРЫМ semver (npm-версия иммутабельна) молча съедала бы
 // pending-заметки; релиз обязан начинаться с прогона changeset-version.mjs.
 function requireEmptyChangesets() {
-  const pending = readdirSync(resolve(root, '.changeset'))
+  // recursive: вложенный .changeset/dir/foo.md не должен прятаться от релизной
+  // проверки (гейт его отклоняет, но релиз мог стартовать со старой базы).
+  const pending = readdirSync(resolve(root, '.changeset'), { recursive: true })
+    .map(String)
     .filter((name) => name.endsWith('.md') && name.toLowerCase() !== 'readme.md')
   if (pending.length > 0) {
     throw new Error(
@@ -343,6 +380,16 @@ function requireEmptyChangesets() {
     )
   }
   console.log('changeset gate: no pending changesets — publish may proceed')
+}
+
+// Вложенные пути в .changeset не поддерживаются НИГДЕ (version-скрипт и
+// require-empty читают плоско): принять их в гейте значило бы молча потерять
+// заметку при релизе.
+export function findNestedChangesetPaths(statusEntries) {
+  return statusEntries
+    .filter((entry) => /^\.changeset\/.+\//.test(entry.path))
+    .map((entry) => entry.path)
+    .sort()
 }
 
 async function main() {
@@ -355,7 +402,20 @@ async function main() {
 
   assertBaseCommit(base)
   const statusEntries = readGitStatusEntries(base)
-  const changedPaths = statusEntries.map((entry) => entry.path)
+  const nestedChangesets = findNestedChangesetPaths(statusEntries)
+  if (nestedChangesets.length > 0) {
+    throw new Error(`nested .changeset paths are unsupported: ${nestedChangesets.join(', ')}\nplace changesets flat in .changeset/<name>.md`)
+  }
+  const changedPathsRaw = statusEntries.map((entry) => entry.path)
+  const rootManifestPattern = /^packages\/[^/]+\/package\.json$/
+  const releaseOnlyManifests = new Set(
+    changedPathsRaw.filter((path) => {
+      if (!rootManifestPattern.test(path)) return false
+      const pair = readManifestPair(base, path)
+      return pair !== null && isVersionOnlyManifestChange(pair.baseContent, pair.headContent)
+    })
+  )
+  const changedPaths = changedPathsRaw.filter((path) => !releaseOnlyManifests.has(path))
   const publicPackages = readPublicPackages(root)
 
   const invalidModified = findInvalidModifiedChangesets(readModifiedChangesetEntries(statusEntries), publicPackages)

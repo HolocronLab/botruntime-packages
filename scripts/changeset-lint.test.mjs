@@ -14,6 +14,7 @@ import {
   isReleaseRelevantPath,
   parseDeclaredPackages,
   parseGitStatus,
+  isVersionOnlyManifestChange,
 } from './changeset-lint.mjs'
 
 test('a source change under a published package is release-relevant', () => {
@@ -32,17 +33,15 @@ test('a path under a different package never matches', () => {
   assert.equal(isReleaseRelevantPath('packages/botruntime-adk/src/index.ts', 'brt'), false)
 })
 
-test('package.json is never release-relevant (it is the release script\'s own output)', () => {
-  assert.equal(isReleaseRelevantPath('packages/brt/package.json', 'brt'), false)
+test('корневой манифест release-relevant на уровне пути (version-only фильтруется в main)', () => {
+  assert.equal(isReleaseRelevantPath('packages/brt/package.json', 'brt'), true)
 })
 
-test('a release commit that only bumps package.json (changeset-version.mjs output) does not trip the gate', () => {
-  const missing = findMissingChangesets({
-    changedPaths: ['packages/brt/package.json'],
-    publicPackages: [{ name: '@holocronlab/brt', dir: 'brt' }],
-    declaredPackageNames: new Set(),
-  })
-  assert.deepEqual(missing, [])
+test('isVersionOnlyManifestChange: чистый бамп версии — true, правка exports — false', () => {
+  const base = JSON.stringify({ name: 'x', version: '1.0.0', exports: './a.js' })
+  assert.equal(isVersionOnlyManifestChange(base, JSON.stringify({ name: 'x', version: '1.0.1', exports: './a.js' })), true)
+  assert.equal(isVersionOnlyManifestChange(base, JSON.stringify({ name: 'x', version: '1.0.1', exports: './b.js' })), false)
+  assert.equal(isVersionOnlyManifestChange('not-json', base), false)
 })
 
 test('flags a touched package with no changeset entry', () => {
@@ -448,9 +447,8 @@ test('удаление заметки не принимается, если ве
   assert.deepEqual(orphaned, ['.changeset/foo.md'])
 })
 
-test('вложенный package.json (templates) релиз-релевантен, корневой манифест — нет', () => {
+test('вложенный package.json (templates) релиз-релевантен', () => {
   const pkg = { name: '@holocronlab/brt', dir: 'brt', hasSrc: true }
-  assert.equal(isReleaseRelevantPath('packages/brt/package.json', pkg), false)
   assert.equal(isReleaseRelevantPath('packages/brt/templates/hello-world/package.json', pkg), true)
 })
 

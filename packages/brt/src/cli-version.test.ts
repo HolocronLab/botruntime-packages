@@ -13,8 +13,11 @@ it('CLI_VERSION is a plain semver version, not a decorated banner', () => {
   expect(semver.valid(CLI_VERSION)).toBe(CLI_VERSION)
 })
 
-it('epilogue links to this package CHANGELOG (DEVLP-174)', () => {
-  expect(CLI_VERSION_CHANGELOG_URL).toMatch(/^https:\/\/github\.com\/HolocronLab\/botruntime-packages\/blob\/main\/packages\/brt\/CHANGELOG\.md$/)
+it('epilogue links to this package changelog location (DEVLP-174)', () => {
+  expect(CLI_VERSION_CHANGELOG_URL).toMatch(/^https:\/\/github\.com\/HolocronLab\/botruntime-packages\/tree\/main\/packages\/brt$/)
+  // Помещается в 80-колоночный wrap yargs своей строкой: разорванный переносом
+  // URL некликабелен и некопируем.
+  expect(CLI_VERSION_CHANGELOG_URL.length).toBeLessThanOrEqual(80)
   expect(CLI_VERSION_EPILOGUE).toContain(CLI_VERSION_CHANGELOG_URL)
 })
 
@@ -41,9 +44,9 @@ it('`brt --help` epilogue contains the CHANGELOG link', () => {
   })
 
   expect(result.status).toBe(0)
-  // yargs hard-wraps help/epilogue text at its 80-column max width (see
-  // node_modules/yargs windowWidth()), which can split the URL mid-token across
-  // a line break with no separator — strip newlines before asserting so the
-  // check verifies content, not incidental line wrapping.
-  expect(result.stdout.replace(/\n/g, '')).toContain(CLI_VERSION_CHANGELOG_URL)
+  // Ссылка обязана быть НЕразорванной: разбитый 80-колоночным wrap'ом yargs URL
+  // некликабелен и некопируем — тест ловит контент ровно одной строкой, без
+  // маскировки склейкой переносов.
+  const lines = result.stdout.split('\n')
+  expect(lines.some((line) => line.trim() === CLI_VERSION_CHANGELOG_URL)).toBe(true)
 })
