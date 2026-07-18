@@ -342,7 +342,15 @@ jobs:
       # with fork-package-catalog above and publish-public-packages.yml.
       - name: Resolve packages/* build order
         id: package-order
-        run: echo "list=$(node scripts/package-order.mjs)" >> "$GITHUB_OUTPUT"
+        # Гард для исторических ref: workflow-файл берётся из ветки диспатча, а
+        # checkout — из inputs.ref; у ref старше DEVLP-162 файла нет, и без гарда
+        # это был бы малопонятный MODULE_NOT_FOUND.
+        run: |
+          if [ ! -f scripts/package-order.mjs ]; then
+            echo "::error::этот ref предшествует централизованному package-order (DEVLP-162). Для публикации исторического ref создайте временную ветку с него и cherry-pick'ните коммит с scripts/package-order.mjs, либо публикуйте актуальный main."
+            exit 1
+          fi
+          echo "list=$(node scripts/package-order.mjs)" >> "$GITHUB_OUTPUT"
 
       - name: Install this package's dependency chain, type-check, and test
         env:
