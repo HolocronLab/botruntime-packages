@@ -1,0 +1,165 @@
+{
+  "$comment": "DEVLP-159: registry of Botpress/@bpinternal upstream versions our forks were cut from. There is no single place these lived before this file — reconstructed from README.md, docs/adr/0005, git history (fork commits e3694c9/f4a8963/38d2c83/6495425), and in-source 'ported from' comments (grep the paths under \"source\" to re-derive). Do NOT invent a version for an entry you cannot trace back to one of those; use pinned:null and explain in note instead. scripts/upstream-watch.mjs reads this file weekly and diffs `pinned` against the live npm `latest` for each non-null `upstream`.",
+  "forks": [
+    {
+      "package": "botruntime-client",
+      "path": "packages/botruntime-client",
+      "upstream": "@botpress/client",
+      "pinned": "1.46.0",
+      "source": "README.md (runtime libraries table); docs/adr/0005-opapi-as-source-of-truth.md (byte-oracle: index.d.ts must byte-equal this exact version)",
+      "note": null
+    },
+    {
+      "package": "botruntime-sdk",
+      "path": "packages/botruntime-sdk",
+      "upstream": "@botpress/sdk",
+      "pinned": "6.13.0",
+      "source": "README.md; commit f4a8963 ('fork @botpress/sdk@6.13.0')",
+      "note": null
+    },
+    {
+      "package": "botruntime-zui",
+      "path": "packages/botruntime-zui",
+      "upstream": "@bpinternal/zui",
+      "pinned": "2.3.0",
+      "source": "README.md; CHANGELOG.md; commit e3694c9 ('fork @bpinternal/zui@2.3.0 from source')",
+      "note": null
+    },
+    {
+      "package": "botruntime-chat",
+      "path": "packages/botruntime-chat",
+      "upstream": "@botpress/chat",
+      "pinned": "0.5.5",
+      "source": "README.md (vendored dist, not the byte oracle)",
+      "note": "vendored dist, not source-forked — a bump still needs a manual re-vendor, check-drift.sh does not cover it."
+    },
+    {
+      "package": "botruntime-tunnel",
+      "path": "packages/botruntime-tunnel",
+      "upstream": "@bpinternal/tunnel",
+      "pinned": "0.1.25",
+      "source": "README.md; CHANGELOG.md; commit e3694c9",
+      "note": null
+    },
+    {
+      "package": "botruntime-verel",
+      "path": "packages/botruntime-verel",
+      "upstream": "@bpinternal/verel",
+      "pinned": "0.2.0",
+      "source": "README.md; commit e3694c9 (vendored dist, VRL/wasm executor)",
+      "note": "vendored dist, not source-forked."
+    },
+    {
+      "package": "botruntime-yargs-extra",
+      "path": "packages/botruntime-yargs-extra",
+      "upstream": "@bpinternal/yargs-extra",
+      "pinned": "0.0.21",
+      "source": "README.md; commit e3694c9 (vendored dist)",
+      "note": "vendored dist, not source-forked."
+    },
+    {
+      "package": "botruntime-const",
+      "path": "packages/botruntime-const",
+      "upstream": "@bpinternal/const",
+      "pinned": "0.24.0",
+      "source": "commit e3694c9 (reimplement the single used symbol) and commit 6495425 ('+ FileId + limitConfigs from @bpinternal/const 0.24.0')",
+      "note": "NOT a byte-fork — reimplements only the handful of symbols brt/runtime actually use (prefixToObjectMap, FileId, limitConfigs). A drift alert here means 'go check whether upstream added/changed one of those symbols', not 'resync the whole package'."
+    },
+    {
+      "package": "botruntime-api",
+      "path": "packages/botruntime-api",
+      "upstream": "@botpress/api",
+      "pinned": "1.108.0",
+      "source": "docs/adr/0005-opapi-as-source-of-truth.md; live build-time dependency in packages/botruntime-api/package.json (self-verifying — cross-check that file directly, this pin should never drift from it without a matching ADR-0005 update)",
+      "note": null
+    },
+    {
+      "package": "botruntime-adk",
+      "path": "packages/botruntime-adk",
+      "upstream": "@botpress/adk",
+      "pinned": "2.0.2",
+      "source": "commit 38d2c83 ('136 src files reconstructed from npm bundle maps' of @botpress/adk@2.0.2)",
+      "note": null
+    },
+    {
+      "package": "botruntime-jex",
+      "path": "packages/botruntime-jex",
+      "upstream": "@bpinternal/jex",
+      "pinned": "1.2.4",
+      "source": "commit 38d2c83 ('npm source, 86 tests pass, leaf')",
+      "note": null
+    },
+    {
+      "package": "botruntime-analytics",
+      "path": "packages/botruntime-analytics",
+      "upstream": "@botpress/analytics",
+      "pinned": null,
+      "source": "commit 38d2c83 names the upstream package but only records our own fork's initial version (0.1.0), not the upstream version it was cut from",
+      "note": "upstream @botpress/analytics returns 404 on the public npm registry (confirmed via `npm view` and the raw registry API) — it looks unpublished/removed, and no commit or doc records which upstream version this minimal fork (AdkError/isAdkError only) was read from. Do not invent one; if the package resurfaces under a different name/scope, re-derive the pin from that source instead."
+    },
+    {
+      "package": "botruntime-thicktoken",
+      "path": "packages/botruntime-thicktoken",
+      "upstream": "@bpinternal/thicktoken",
+      "pinned": "2.0.0",
+      "source": "commit 6495425 ('npm source, WASM-inlined; leaf')",
+      "note": null
+    },
+    {
+      "package": "botruntime-cognitive",
+      "path": "packages/botruntime-cognitive",
+      "upstream": "@botpress/cognitive",
+      "pinned": "0.6.1",
+      "source": "commit 6495425 ('clone source; 42 tests pass')",
+      "note": null
+    },
+    {
+      "package": "botruntime-zai",
+      "path": "packages/botruntime-zai",
+      "upstream": "@botpress/zai",
+      "pinned": "2.7.1",
+      "source": "commit 6495425 ('clone source; repoint cognitive/thicktoken/zui')",
+      "note": null
+    },
+    {
+      "package": "botruntime-llmz",
+      "path": "packages/botruntime-llmz",
+      "upstream": "llmz",
+      "pinned": "0.0.84",
+      "source": "commit 6495425 ('clone source; repoint client/cognitive/thicktoken/zui')",
+      "note": "PRECEDENT PACKAGE for DEVLP-159 (the pnpm/bun patch on source-map-js@1.2.1 was lost on this exact fork and the prod bot went silent on every turn until 52afff9 re-applied it). Package name on npm is unscoped 'llmz', not '@botpress/llmz'. Commit 52afff9 manually re-applied a patch equivalent to what upstream shipped in llmz@0.0.85, but that was a point patch, not a full source resync — bumping this pin means diffing the ENTIRE range from 0.0.84 to the target release, re-checking packages/botruntime-llmz/patches/source-map-js@1.2.1.patch still applies, not just this one symptom."
+    },
+    {
+      "package": "botruntime-evals",
+      "path": "packages/botruntime-evals",
+      "upstream": "@botpress/evals",
+      "pinned": "2.0.2",
+      "source": "commit 6495425 ('reconstructed from npm bundle source maps')",
+      "note": null
+    },
+    {
+      "package": "botruntime-runtime",
+      "path": "packages/botruntime-runtime",
+      "upstream": "@botpress/runtime",
+      "pinned": "2.0.2",
+      "source": "commit 6495425 ('115 src files reconstructed from the bundle maps')",
+      "note": null
+    },
+    {
+      "package": "brt",
+      "path": "packages/brt",
+      "upstream": "@botpress/cli",
+      "pinned": null,
+      "source": "README.md and CHANGELOG.md both say 'full fork of @botpress/cli' but neither, nor any commit message (0eca3d4, a69d364, f4a8963), records the upstream version number",
+      "note": "Sibling packages forked in the same window (client@1.46.0, sdk@6.13.0, chat@0.5.5, zui@2.3.0, all committed 2026-06-30) suggest the CLI fork point is from that same @botpress/cli release train, but that is an inference, not a recorded fact — do not treat it as a pin. Needs a one-time manual reconciliation (e.g. diff @botpress/cli's published versions around 2026-06-30) before this entry can carry a real version."
+    },
+    {
+      "package": "integrations/telegram",
+      "path": "integrations/telegram",
+      "upstream": "@botpresshub/telegram",
+      "pinned": "1.0.9",
+      "source": "integrations/telegram/integration.definition.ts:5 ('Originally ported from @botpresshub/telegram v1.0.9'); initial package.json description at commit 0eca3d4",
+      "note": "upstream @botpresshub/telegram also returns 404 on the public npm registry (confirmed) — looks unpublished/moved/renamed. The 1.0.9 pin is real (it is the recorded fork point) but there is currently nothing live to diff it against; the watch script reports this as 'upstream unavailable' rather than silently treating it as 'no drift'."
+    }
+  ]
+}
