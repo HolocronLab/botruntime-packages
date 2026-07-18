@@ -233,8 +233,6 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     return apiUrl
   }
 
-  // machineCloudapiClient — Bearer = the profile's workspace PAT. Administrative
-  // bot mutations use this client together with canonical workspace/bot scope.
   protected machineCloudapiClient(profile: ProfileCredentials, apiUrl: string): CloudapiClient {
     return new CloudapiClient(apiUrl, profile.token)
   }
@@ -251,9 +249,6 @@ export abstract class CloudCommand<C extends CloudCommandDefinition> extends Glo
     botsStoreModule.writeBotsStore(this.botsStorePath(), store)
   }
 
-  // botCloudapiClient — Bearer = the bot's per-bot key from bots.json. Used
-  // only by API surfaces that require the bot principal (for example chat,
-  // bot versions, and hosted eval).
   protected async botCloudapiClient(profileName: string, botId: string, apiUrl: string): Promise<CloudapiClient> {
     const store = this.readBotsStore()
     const creds = botsStoreModule.getBotCreds(store, profileName, botId)
