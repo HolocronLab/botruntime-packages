@@ -89,3 +89,8 @@ test('scanDirectories fails loud when a configured target directory is missing',
     rmSync(repoRoot, { recursive: true, force: true })
   }
 })
+
+test('template-literal динамический импорт и .mts/.cts тоже под гейтом', () => {
+  const violations = findBannedImports('x.mts', 'const m = await import(`@botpress/runtime`)')
+  assert.equal(violations.length, 1)
+})

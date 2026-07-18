@@ -20,14 +20,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // provenance comments elsewhere are deliberate and out of this gate's scope.
 export const DEFAULT_TARGET_DIRS = [
   'packages/brt/templates',
-  // Стартеры ADK — то, что brt init --type bot реально копирует пользователю
-  // (AgentProjectGenerator): без них гейт пропускал бы запрещённый импорт в
-  // каждый новый сгенерированный проект.
-  'packages/botruntime-adk/assets-static/templates',
-  'packages/botruntime-adk/assets-static/agent0/capabilities/skills',
+  // ВЕСЬ assets-static ADK: стартеры (то, что brt init --type bot копирует
+  // пользователю), agent0-скиллы И генераторные шаблоны инструкций
+  // (assistant-instructions → CLAUDE.md/AGENTS.md генерируемого бота) — любой
+  // из этих путей доезжает до каждого нового проекта.
+  'packages/botruntime-adk/assets-static',
 ]
 
-const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json'])
+const SCANNABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx', '.json'])
 const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 
 // Matches an actual module specifier, not prose: `from '@botpress/x'`,
@@ -37,7 +37,7 @@ const EXCLUDED_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 // "botpress/skills" (a plugin-marketplace name, not an npm import).
 // \s+ после ключевых слов покрывает и перенос строки (multiline import), а
 // `import '...'` — side-effect форму без from; require допускает пробел до скобки.
-const IMPORT_PATTERN = /\b(?:from\s+|require\s*\(\s*|import\s*\(\s*|import\s+)['"]@botpress\/[^'"]+['"]/
+const IMPORT_PATTERN = /\b(?:from\s+|require\s*\(\s*|import\s*\(\s*|import\s+)['"`]@botpress\/[^'"`]+['"`]/
 
 // package.json dependency/devDependency/peerDependency key, e.g.
 // `"@botpress/sdk": "1.0.0"`.
