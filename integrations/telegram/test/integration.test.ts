@@ -52,6 +52,21 @@ describe('host<->SDK envelope adapter', () => {
     expect(res && res.status).toBe(200)
   })
 
+  it('acknowledges Telegram service messages without creating user content', async () => {
+    const res = await call(
+      'webhook_received',
+      JSON.stringify({
+        message: {
+          from: { is_bot: false, id: 7, first_name: 'Ann' },
+          chat: { id: -1001, type: 'supergroup' },
+          message_id: 6,
+          left_chat_member: { is_bot: false, id: 8, first_name: 'Bob' },
+        },
+      })
+    )
+    expect(res && res.status).toBe(200)
+  })
+
   it('re-nests the flat provider request so a real text reaches the env-configured @holocronlab/botruntime-client', async () => {
     const prev = process.env.BP_TOKEN
     const prevApiUrl = process.env.BP_API_URL

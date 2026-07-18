@@ -2,6 +2,7 @@ import type { CloudapiClient, LogEntry } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import { cloudInfo } from '../cloud-io'
 import * as errors from '../errors'
+import { parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
 
 // brt logs — GET /v1/admin/workspaces/{workspaceId}/bots/{botId}/logs using the
@@ -57,8 +58,15 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
     // cursor holds, so the next poll re-queries from the same point and cannot
     // skip a log written during the sleep interval before the first entry ever
     // arrives (the bug of jumping to a post-sleep `now` on an empty window).
-    let cursor = this.argv.since ?? new Date(Date.now() - ONE_HOUR_MS).toISOString()
-    await drain(cursor, this.argv.until)
+    const nowMs = Date.now()
+    const since = this.argv.since === undefined ? undefined : parseTimeFilter(this.argv.since, '--since', nowMs)
+    const until = this.argv.until === undefined ? undefined : parseTimeFilter(this.argv.until, '--until', nowMs)
+    if (since !== undefined && until !== undefined && since.timeMs > until.timeMs) {
+      throw new errors.BotpressCLIError('--since must not be after --until')
+    }
+
+    let cursor = since?.wire ?? new Date(nowMs - ONE_HOUR_MS).toISOString()
+    await drain(cursor, until?.wire)
     if (lastTimestamp) cursor = bumpMs(lastTimestamp, 1)
 
     if (printed === 0) this._printDevHintIfEmpty()

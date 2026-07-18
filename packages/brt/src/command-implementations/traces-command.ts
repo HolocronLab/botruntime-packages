@@ -1,6 +1,7 @@
 import type { TraceListParams } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
+import { parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
 
 const POSITIVE_DECIMAL_ID = /^[1-9][0-9]*$/
@@ -345,8 +346,8 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
 
   const rawSince = mergedFilter(input.since, tokens.get('since'), 'since')
   const rawUntil = mergedFilter(input.until, tokens.get('until'), 'until')
-  const since = rawSince === undefined ? undefined : parseTraceTimeFilter(rawSince, '--since', nowMs)
-  const until = rawUntil === undefined ? undefined : parseTraceTimeFilter(rawUntil, '--until', nowMs)
+  const since = rawSince === undefined ? undefined : parseTimeFilter(rawSince, '--since', nowMs)
+  const until = rawUntil === undefined ? undefined : parseTimeFilter(rawUntil, '--until', nowMs)
   if (since !== undefined && until !== undefined && since.timeMs > until.timeMs) {
     throw new errors.BotpressCLIError('--since must not be after --until')
   }
@@ -451,70 +452,6 @@ function validateCodeFilter(value: string | undefined, flag: string): void {
   if (value !== undefined && !CODE_ID.test(value)) {
     throw new errors.BotpressCLIError(`${flag} must be a 1-64 character workflow/action identifier`)
   }
-}
-
-const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/
-const TRACE_DURATION = /^([0-9]+)(ms|s|m|h|d)$/
-const DURATION_MULTIPLIER = {
-  ms: 1,
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-} as const
-
-function parseTraceTimeFilter(
-  value: string,
-  flag: '--since' | '--until',
-  nowMs: number,
-): {
-  wire: string
-  timeMs: number
-} {
-  const duration = TRACE_DURATION.exec(value)
-  if (duration) {
-    const amount = Number(duration[1])
-    const unit = duration[2] as keyof typeof DURATION_MULTIPLIER
-    const delta = amount * DURATION_MULTIPLIER[unit]
-    const timeMs = nowMs - delta
-    if (!Number.isSafeInteger(amount) || !Number.isFinite(timeMs) || timeMs < 0) {
-      throw new errors.BotpressCLIError(`${flag} duration is too large`)
-    }
-    return { wire: new Date(timeMs).toISOString(), timeMs }
-  }
-
-  const match = RFC3339.exec(value)
-  if (!match || !validTimestampParts(match)) {
-    throw new errors.BotpressCLIError(`${flag} must be RFC3339 or a duration such as 30s, 5m, or 1h`)
-  }
-  const timeMs = Date.parse(value)
-  if (!Number.isFinite(timeMs)) {
-    throw new errors.BotpressCLIError(`${flag} must be RFC3339 or a duration such as 30s, 5m, or 1h`)
-  }
-  return { wire: value, timeMs }
-}
-
-function validTimestampParts(match: RegExpExecArray): boolean {
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const hour = Number(match[4])
-  const minute = Number(match[5])
-  const second = Number(match[6])
-  const offsetHour = match[7] === undefined ? 0 : Number(match[7])
-  const offsetMinute = match[8] === undefined ? 0 : Number(match[8])
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  return (
-    month >= 1 &&
-    month <= 12 &&
-    day >= 1 &&
-    day <= daysInMonth &&
-    hour <= 23 &&
-    minute <= 59 &&
-    second <= 59 &&
-    offsetHour <= 23 &&
-    offsetMinute <= 59
-  )
 }
 
 export function parseTracePage(value: unknown, pageSize: number): TracePage {
