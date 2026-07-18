@@ -14,7 +14,7 @@
 // contains that exact "name@version" (catches a patch key that no longer matches anything
 // installed, e.g. after an unrelated bump moved the transitive version).
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -52,11 +52,21 @@ export function resolvedVersionSpecs(bunLock) {
   return new Set(Object.values(packages).map((entry) => entry[0]))
 }
 
-export function checkPatchedDependencies(pkgDir, { readFile = (p) => readFileSync(p, 'utf8') } = {}) {
+export function checkPatchedDependencies(pkgDir, { readFile = (p) => readFileSync(p, 'utf8'), requiredPatches = [] } = {}) {
   const violations = []
   const packageJsonPath = join(pkgDir, 'package.json')
   const packageJson = JSON.parse(readFile(packageJsonPath))
   const patchedDependencies = packageJson.patchedDependencies
+  // Baseline обязательных патчей проверяется ДО early-return: снос всей
+  // декларации (форма llmz-инцидента) иначе выглядел бы как «патчей нет — чисто».
+  for (const required of requiredPatches) {
+    if (!patchedDependencies || !(required in patchedDependencies)) {
+      violations.push(
+        `${packageJsonPath}: обязательный патч "${required}" отсутствует в patchedDependencies ` +
+        `(baseline: scripts/required-patches.json — снятие патча требует осознанной правки обоих мест)`
+      )
+    }
+  }
   if (patchedDependencies === undefined) return violations
   if (patchedDependencies === null || typeof patchedDependencies !== 'object' || Array.isArray(patchedDependencies)) {
     violations.push(`${packageJsonPath}: patchedDependencies must be an object`)
@@ -113,7 +123,19 @@ export function checkPatchedDependencies(pkgDir, { readFile = (p) => readFileSyn
 
 function main() {
   const pkgDirs = findPackageJsonDirs(root)
-  const allViolations = pkgDirs.flatMap((pkgDir) => checkPatchedDependencies(pkgDir))
+  const baseline = JSON.parse(readFileSync(join(root, 'scripts', 'required-patches.json'), 'utf8'))
+  const allViolations = pkgDirs.flatMap((pkgDir) => {
+    const rel = relative(root, pkgDir).replaceAll('\\', '/')
+    return checkPatchedDependencies(pkgDir, { requiredPatches: baseline[rel] ?? [] })
+  })
+  // Baseline-каталог, отсутствующий на диске, — тоже дефект (переименовали пакет,
+  // забыли baseline): обязательные патчи не должны молча испаряться вместе с ним.
+  for (const [rel, required] of Object.entries(baseline)) {
+    if (rel.startsWith('_')) continue
+    if (!pkgDirs.some((dir) => relative(root, dir).replaceAll('\\', '/') === rel)) {
+      allViolations.push(`scripts/required-patches.json: каталог "${rel}" (обязательные патчи: ${required.join(', ')}) не найден в репо`)
+    }
+  }
 
   if (allViolations.length > 0) {
     process.stderr.write('Patched-dependency gate failed:\n\n')

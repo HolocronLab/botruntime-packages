@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -140,6 +140,50 @@ test('flags a missing/unparsable bun.lock instead of silently skipping the lockf
     assert.match(violations[0], /bun\.lock is missing or unparsable/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('deleting the entire patchedDependencies block still fails when a baseline patch is required — the exact llmz-incident shape', () => {
+  const dir = makeTempPackage({ packageJson: { name: 'patches-block-deleted' } })
+  try {
+    const violations = checkPatchedDependencies(dir, { requiredPatches: ['source-map-js@1.2.1'] })
+    assert.equal(violations.length, 1)
+    assert.match(violations[0], /source-map-js@1\.2\.1/)
+    assert.match(violations[0], /required-patches\.json/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a required baseline patch that is present and coherent passes clean', () => {
+  const patchRelPath = 'patches/source-map-js@1.2.1.patch'
+  const dir = makeTempPackage({
+    packageJson: {
+      name: 'baseline-satisfied',
+      patchedDependencies: { 'source-map-js@1.2.1': patchRelPath },
+    },
+    bunLock: JSON.stringify({
+      patchedDependencies: { 'source-map-js@1.2.1': patchRelPath },
+      packages: { 'source-map-js': ['source-map-js@1.2.1', '', {}, 'sha512-x'] },
+    }),
+    patchFiles: [patchRelPath],
+  })
+  try {
+    assert.deepEqual(checkPatchedDependencies(dir, { requiredPatches: ['source-map-js@1.2.1'] }), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the baseline manifest itself pins the two incident-class patches to real repo directories', () => {
+  const root = new URL('..', import.meta.url).pathname
+  const baseline = JSON.parse(readFileSync(join(root, 'scripts', 'required-patches.json'), 'utf8'))
+  assert.deepEqual(baseline['packages/botruntime-llmz'], ['source-map-js@1.2.1'])
+  assert.deepEqual(baseline['integrations/telegram'], ['node-fetch@2.7.0'])
+  const dirs = findPackageJsonDirs(root).map((dir) => dir.split('/').slice(-2).join('/'))
+  for (const rel of Object.keys(baseline)) {
+    if (rel.startsWith('_')) continue
+    assert.ok(dirs.includes(rel), `baseline references a directory missing from the repo: ${rel}`)
   }
 })
 
