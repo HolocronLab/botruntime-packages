@@ -6,6 +6,7 @@ import { BaseIntegration } from '../common'
 import { ActionMetadataStore } from './action-metadata'
 import { extractContext } from './context'
 import { IntegrationLogger } from './integration-logger'
+import { deliveryOutcomeResponse, isDeliveryOutcomeError } from './delivery-outcome'
 import {
   CommonHandlerProps,
   IntegrationHandlers,
@@ -21,6 +22,7 @@ import {
 
 export * from './types'
 export * from './integration-logger'
+export * from './delivery-outcome'
 
 type ServerProps = CommonHandlerProps<BaseIntegration> & {
   req: Request
@@ -108,6 +110,10 @@ export const integrationHandler =
       response = await handleOperation(props)
       return response ? { ...response, status: response.status ?? 200 } : { status: 200 }
     } catch (thrown: unknown) {
+      if (isDeliveryOutcomeError(thrown)) {
+        logger.forBot().error(thrown.message)
+        return deliveryOutcomeResponse(thrown)
+      }
       const { status, body, error } = handlerErrorToHttpResponse({
         thrown,
         unexpectedErrorMessage:
@@ -179,14 +185,16 @@ const onMessageCreated = async ({ ctx, req, client, logger, instance }: ServerPr
   }
 
   type UpdateMessageProps = Parameters<(typeof client)['updateMessage']>[0]
+  let ackTags: UpdateMessageProps['tags'] | undefined
   const ack = async ({ tags }: Pick<UpdateMessageProps, 'tags'>) => {
-    await client.updateMessage({
-      id: message.id,
-      tags,
-    })
+    ackTags = { ...ackTags, ...tags }
   }
 
   await messageHandler({ ctx, conversation, message, user, type, client, payload, ack, logger })
+  if (ackTags) {
+    return { body: JSON.stringify({ ack: { tags: ackTags } }) }
+  }
+  return undefined
 }
 
 const onActionTriggered = async ({ req, ctx, client, logger, instance }: ServerProps) => {
