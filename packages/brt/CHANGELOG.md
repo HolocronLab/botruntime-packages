@@ -6,7 +6,11 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.17 (current) — 2026-07-19
+## 0.7.18 (current) — 2026-07-19
+
+- Accept canonical `integration_delivery` / `integration.delivery` rows and filters so `brt traces` can inspect outbound provider receipts without rejecting the Cloud response.
+
+## 0.7.17 — 2026-07-19
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.2.12
 - Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.13.6
