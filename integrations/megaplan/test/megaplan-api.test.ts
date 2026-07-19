@@ -327,7 +327,8 @@ test('createNegotiationTask writes material through the NegotiationItem versions
     expect(url.pathname).toBe('/api/v3/task')
     const b = JSON.parse(body)
     expect(b.isNegotiation).toBe(true)
-    expect(b.negotiationExecutors).toEqual([{ contentType: 'Employee', id: 'E2' }])
+    expect(b.executors).toEqual([{ contentType: 'Employee', id: 'E2' }])
+    expect(b.negotiationExecutors).toBeUndefined()
     expect(b.negotiationItems[0]).toEqual({
       contentType: 'NegotiationItem',
       versions: [
