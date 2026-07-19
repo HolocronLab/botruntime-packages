@@ -28,12 +28,12 @@ export const createAxiosInstance = (
   if (retry) {
     axiosRetry(axiosInstance, retry)
   }
-  preserveAxiosError(axiosInstance)
+  installAxiosErrorFidelity(axiosInstance)
 
   return axiosInstance
 }
 
-const preserveAxiosError = (instance: axios.AxiosInstance): void => {
+export const installAxiosErrorFidelity = (instance: axios.AxiosInstance): void => {
   instance.interceptors.response.use(undefined, (error: unknown) => {
     if (!axios.isAxiosError(error) || !(error instanceof Error)) return Promise.reject(error)
 

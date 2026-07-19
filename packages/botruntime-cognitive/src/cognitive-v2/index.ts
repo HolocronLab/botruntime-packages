@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios'
 import { backOff } from 'exponential-backoff'
 import { createNanoEvents, Unsubscribe } from 'nanoevents'
+import { installAxiosErrorFidelity, toApiError } from '@holocronlab/botruntime-client'
 import { defaultModel, models } from './models'
 import {
   CognitiveRequest,
@@ -62,6 +63,8 @@ type RequestOptions = {
   signal?: AbortSignal
   timeout?: number
 }
+
+type RetrySafety = 'idempotent' | 'non_idempotent'
 
 const isBrowser = () => typeof window !== 'undefined' && typeof window.fetch === 'function'
 
@@ -129,6 +132,7 @@ export class CognitiveBeta {
       withCredentials: this._withCredentials,
       baseURL: this._apiUrl,
     })
+    installAxiosErrorFidelity(this._axiosClient)
   }
 
   public clone(): CognitiveBeta {
@@ -159,7 +163,8 @@ export class CognitiveBeta {
             timeout: options.timeout ?? this._timeout,
           }),
         options,
-        req
+        req,
+        'non_idempotent'
       )
 
       this._events.emit('response', req, data)
@@ -203,7 +208,8 @@ export class CognitiveBeta {
             timeout: options.timeout ?? this._timeout,
           }),
         options,
-        req
+        req,
+        'non_idempotent'
       )
 
       this._events.emit('response', req, data)
@@ -228,7 +234,8 @@ export class CognitiveBeta {
             timeout: options.timeout ?? this._timeout,
           }),
         options,
-        req
+        req,
+        'non_idempotent'
       )
 
       this._events.emit('response', req, data)
@@ -253,7 +260,8 @@ export class CognitiveBeta {
             timeout: options.timeout ?? this._timeout,
           }),
         options,
-        req
+        req,
+        'non_idempotent'
       )
 
       if (data.error) {
@@ -345,7 +353,8 @@ export class CognitiveBeta {
             }
           ),
         options,
-        req
+        req,
+        'non_idempotent'
       )
 
       const nodeStream: AsyncIterable<Uint8Array> = res.data as any
@@ -435,7 +444,8 @@ export class CognitiveBeta {
               timeout: options.timeout ?? this._timeout,
             }),
           options,
-          req
+          req,
+          'non_idempotent'
         )
 
         const nodeStream: AsyncIterable<Uint8Array> = res.data as any
@@ -517,30 +527,41 @@ export class CognitiveBeta {
     return false
   }
 
-  private async _withServerRetry<T>(fn: () => Promise<T>, options: RequestOptions = {}, req?: BetaRequest): Promise<T> {
+  private async _withServerRetry<T>(
+    fn: () => Promise<T>,
+    options: RequestOptions = {},
+    req?: BetaRequest,
+    retrySafety: RetrySafety = 'idempotent'
+  ): Promise<T> {
     let attemptCount = 0
-    return backOff(
-      async () => {
-        try {
-          const result = await fn()
-          attemptCount = 0
-          return result
-        } catch (error) {
-          if (attemptCount > 0 && req) {
-            this._events.emit('retry', req, error)
+    try {
+      return await backOff(
+        async () => {
+          try {
+            const result = await fn()
+            attemptCount = 0
+            return result
+          } catch (error) {
+            if (attemptCount > 0 && req) {
+              this._events.emit('retry', req, error)
+            }
+            attemptCount++
+            throw error
           }
-          attemptCount++
-          throw error
+        },
+        {
+          numOfAttempts: 3,
+          startingDelay: 300,
+          timeMultiple: 2,
+          jitter: 'full',
+          retry: (e) =>
+            retrySafety === 'idempotent' && !options.signal?.aborted && this._isRetryableServerError(e),
         }
-      },
-      {
-        numOfAttempts: 3,
-        startingDelay: 300,
-        timeMultiple: 2,
-        jitter: 'full',
-        retry: (e) => !options.signal?.aborted && this._isRetryableServerError(e),
-      }
-    )
+      )
+    }
+    catch (error) {
+      throw toApiError(error)
+    }
   }
 }
 

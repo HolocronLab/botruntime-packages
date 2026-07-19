@@ -78,6 +78,16 @@ describe('toApiError — no-response transport failures', () => {
     const apiErr = toApiError(err)
     expect(isApiError(apiErr) && apiErr.type).toBe('ResourceNotFound')
   })
+
+  it('preserves an owned gateway HTTP code when the generated error type has a different canonical code', () => {
+    const err = new FakeAxiosError('Request failed with status code 502', undefined, {
+      data: { code: 502, type: 'Internal', id: 'e502', message: 'cognitive generate failed' },
+      status: 502,
+    })
+    const apiErr = toApiError(err)
+    expect(isApiError(apiErr) && apiErr.code).toBe(502)
+    expect(isApiError(apiErr) && apiErr.type).toBe('Internal')
+  })
 })
 
 describe('toApiError — response present but body is falsy (finding 2: egress-gateway 500/502 with empty body)', () => {
