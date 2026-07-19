@@ -470,6 +470,46 @@ describe('brt traces public contract', () => {
     expect(stdout).toContain('action=createPayment')
   })
 
+  it('accepts canonical hosted integration delivery traces', async () => {
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            source: 'integration_delivery',
+            name: 'integration.delivery',
+            kind: 'producer',
+            status: 'unset',
+            messageId: 'm_1784432959538377308',
+            attributes: {
+              'job.id': '1a4b8714-771f-45bd-8966-e014acaddd99',
+              'delivery.status': 'outcome_unknown',
+              'delivery.phase': 'provider_send',
+              'delivery.operation': 'sendDocument',
+            },
+            payload: { error: { code: 'TELEGRAM_PROVIDER_TIMEOUT' } },
+          }),
+        ],
+        meta: {},
+      })
+    )
+
+    const result = await command({
+      json: true,
+      source: 'integration_delivery',
+      name: 'integration.delivery',
+      action: 'sendDocument',
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    const query = new URL(calls[0]!.url).searchParams
+    expect(query.get('source')).toBe('integration_delivery')
+    expect(query.get('name')).toBe('integration.delivery')
+    expect(query.get('action')).toBe('sendDocument')
+    expect(JSON.parse(stdout).traces[0]).toEqual(
+      expect.objectContaining({ source: 'integration_delivery', name: 'integration.delivery' })
+    )
+  })
+
   it('preserves non-LLM trace content in JSON output', async () => {
     const complete = trace({
       conversationId: 'conv:1',

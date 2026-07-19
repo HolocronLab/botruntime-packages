@@ -22,6 +22,7 @@ const TRACE_SOURCES = new Set([
   'cognitive_v2',
   'cognitive_action',
   'integration_action',
+  'integration_delivery',
   'observation',
   'unknown',
 ])
@@ -41,6 +42,7 @@ const TRACE_NAMES = new Set([
   'cognitive.generateText',
   'cognitive.generateContent',
   'integration.action',
+  'integration.delivery',
   'observation',
   'unknown',
 ])
@@ -49,6 +51,7 @@ const TRACE_FILTER_SOURCES = new Set([
   'cognitive_v2',
   'cognitive_action',
   'integration_action',
+  'integration_delivery',
   'observation',
 ])
 const TRACE_FILTER_NAMES = new Set([...TRACE_NAMES].filter((name) => name !== 'unknown'))
