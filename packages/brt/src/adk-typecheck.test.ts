@@ -117,9 +117,7 @@ describe('runAdkTypecheck', () => {
     if (outcome.status !== 'failed') throw new Error('unreachable')
     expect(outcome.errorCount).toBe(1)
     expect(outcome.formatted).toContain('index.ts')
-    // tsc's own 1-based line/column diagnostic location for this exact source
-    // (plain, non-colorized format.ts.formatDiagnostics, since a test run has
-    // no TTY — see runTypecheck's useColor switch).
+    // Captured `tsc` output is non-TTY and preserves its plain 1-based location.
     expect(outcome.formatted).toMatch(/index\.ts\(1,14\)/)
     expect(outcome.formatted).toMatch(/TS2322/)
   })
@@ -140,8 +138,8 @@ describe('runAdkTypecheck', () => {
     expect(outcome.formatted).toContain('b.ts')
   })
 
-  // Codex review (DEVLP-173): forces `--noEmit` CLI-flag semantics regardless
-  // of what the project's own tsconfig says, so `allowImportingTsExtensions`
+  // Force `--noEmit` CLI-flag semantics regardless of the project's own
+  // tsconfig, so `allowImportingTsExtensions`
   // (in the generated default tsconfig) combined with a tsconfig that omits
   // `noEmit` never surfaces a spurious TS5096 config error instead of real
   // source diagnostics.

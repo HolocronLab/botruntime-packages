@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as errors from './errors'
 
-// adk-typecheck — brt deploy --adk's pre-bundle safety net (DEVLP-173). The ADK
+// adk-typecheck — brt deploy --adk's pre-bundle safety net. The ADK
 // bundling pipeline (adk-bundle.ts -> BuildCommand -> BundleCommand -> esbuild)
 // only ever STRIPS types; it never runs the TypeScript checker. A bot with a
 // tool-props type error therefore deployed clean and only failed at runtime,
