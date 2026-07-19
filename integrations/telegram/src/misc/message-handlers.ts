@@ -2,6 +2,7 @@ import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { Markup, Telegraf, Telegram } from 'telegraf'
 import { getStoredBotToken } from '../botToken'
 import { resolveTelegramMedia, type TelegramMedia } from './files'
+import { providerDeliveryError } from './delivery-outcome'
 import { makeTelegraf } from './telegraf'
 import { markdownHtmlToTelegramPayloads, stdMarkdownToTelegramHtml } from './markdown-to-telegram-html'
 import type { AckFunction, MessageHandlerProps, TelegramMessage } from './types'
@@ -34,12 +35,14 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
   url,
   media,
   send,
+  operation,
   fallback,
 }: {
   props: MessageHandlerProps<T>
   url: string
   media?: TelegramMedia
   send: (telegram: Telegram) => SendMediaMethod
+  operation: string
   fallback?: () => Promise<void>
 }) => {
   const { ctx, conversation, ack, logger, payload, client } = props
@@ -50,33 +53,37 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
   const sendFn = send(telegraf.telegram)
   const caption = 'caption' in payload ? (payload as { caption?: string }).caption : undefined
   const opts = { ...(caption ? { caption } : {}), ...thread }
-  logger.forBot().debug(`calling ${sendFn.name} to Telegram chat ${chat}: ${url}`)
+  logger.forBot().debug(`calling ${operation} to Telegram chat ${chat}: ${url}`)
   const title = 'title' in payload ? (payload as { title?: string }).title : undefined
-  const resolvedMedia = media ?? await resolveTelegramMedia(url, title)
+  const resolvedMedia = media ?? await resolveTelegramMedia(url, title, operation)
   let message: TelegramMessage
+  let ackOperation = operation
   try {
-    message = await sendFn
-      .call(telegraf.telegram, chat, resolvedMedia, opts)
-      .catch(mapToRuntimeErrorAndThrow(`Failed to ${sendFn.name}`))
+    message = await sendFn.call(telegraf.telegram, chat, resolvedMedia, opts)
   } catch (err) {
+    const deliveryError = providerDeliveryError(err, operation)
+    if (deliveryError.outcome === 'outcome_unknown') throw deliveryError
     if (fallback) {
       await fallback()
       return
     }
     // A buffered document came from an authenticated Botruntime URL. Re-sending that URL as text
     // would give the recipient a link they cannot open, so preserve the delivery failure instead.
-    if (typeof resolvedMedia !== 'string') throw err
+    if (typeof resolvedMedia !== 'string') throw deliveryError
     logger
       .forBot()
       .warn(
-        `Telegram could not send the media using ${sendFn.name}, sending it as a plain text link instead: ${String(err)}`
+        `Telegram could not send the media using ${operation}, sending it as a plain text link instead: ${String(err)}`
       )
     const text = caption ? `${caption}\n${url}` : url
-    message = await telegraf.telegram
-      .sendMessage(chat, text, thread)
-      .catch(mapToRuntimeErrorAndThrow('Fail to send media link fallback'))
+    try {
+      message = await telegraf.telegram.sendMessage(chat, text, thread)
+      ackOperation = 'sendMessage'
+    } catch (fallbackError) {
+      throw providerDeliveryError(fallbackError, 'sendMessage')
+    }
   }
-  await ackMessage(message, ack)
+  await ackMessage(message, ack, ackOperation)
 }
 
 export const handleTextMessage = async (props: MessageHandlerProps<'text'>) => {
@@ -106,7 +113,7 @@ export const handleTextMessage = async (props: MessageHandlerProps<'text'>) => {
 }
 
 export const handleImageMessage = async (props: MessageHandlerProps<'image'>) => {
-  await sendContentOrFallback({ props, url: props.payload.imageUrl, send: (t) => t.sendPhoto })
+  await sendContentOrFallback({ props, url: props.payload.imageUrl, send: (t) => t.sendPhoto, operation: 'sendPhoto' })
 }
 
 export const handleAudioMessage = async (props: MessageHandlerProps<'audio'>) => {
@@ -115,16 +122,17 @@ export const handleAudioMessage = async (props: MessageHandlerProps<'audio'>) =>
     props,
     url: props.payload.audioUrl,
     send: (t) => t.sendVoice,
-    fallback: () => sendContentOrFallback({ props, url: props.payload.audioUrl, send: (t) => t.sendAudio }),
+    operation: 'sendVoice',
+    fallback: () => sendContentOrFallback({ props, url: props.payload.audioUrl, send: (t) => t.sendAudio, operation: 'sendAudio' }),
   })
 }
 
 export const handleVideoMessage = async (props: MessageHandlerProps<'video'>) => {
-  await sendContentOrFallback({ props, url: props.payload.videoUrl, send: (t) => t.sendVideo })
+  await sendContentOrFallback({ props, url: props.payload.videoUrl, send: (t) => t.sendVideo, operation: 'sendVideo' })
 }
 
 export const handleFileMessage = async (props: MessageHandlerProps<'file'>) => {
-  await sendContentOrFallback({ props, url: props.payload.fileUrl, send: (t) => t.sendDocument })
+  await sendContentOrFallback({ props, url: props.payload.fileUrl, send: (t) => t.sendDocument, operation: 'sendDocument' })
 }
 
 export const handleLocationMessage = async ({
