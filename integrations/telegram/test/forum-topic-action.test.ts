@@ -19,7 +19,11 @@ describe('createForumTopic action', () => {
     const output = await createForumTopic(
       {
         input: { chatId: '-100123', name: 'Дело № 42' },
-        ctx: { integrationId: 'telegram-installation', configuration: { botToken: 'config-token' } },
+        ctx: {
+          integrationId: 'telegram-installation',
+          webhookId: 'wh_test',
+          configuration: { botToken: 'config-token' },
+        },
         client,
       },
       {

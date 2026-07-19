@@ -409,14 +409,14 @@ test('downloadFile rejects oversized approved versions before buffering them', a
   })
 })
 
-test('getNegotiationDecision reads the aggregate status and human visa from the actual version', async () => {
+test('getNegotiationDecision reads full Task projection instead of sparse negotiationItems collection', async () => {
   const env = makeEnv((req, _body, url) => {
     expect(req.method).toBe('GET')
-    expect(url.pathname).toBe('/api/v3/task/T9/negotiationItems')
+    expect(url.pathname).toBe('/api/v3/task/T9')
     return json(
       200,
       wrap(
-        '[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","comment":{"contentType":"Comment","id":"C1","content":"Проверено"},"timeCreated":"2026-07-14T09:10:11+03:00","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","comment":{"contentType":"Comment","id":"C2","content":"Согласовано"},"timeCreated":"2026-07-14T10:11:12+03:00","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}}]'
+        '{"contentType":"Task","id":"T9","isNegotiation":true,"negotiationItems":[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","comment":{"contentType":"Comment","id":"C1","content":"Проверено"},"timeCreated":"2026-07-14T09:10:11+03:00","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","comment":{"contentType":"Comment","id":"C2","content":"Согласовано"},"timeCreated":"2026-07-14T10:11:12+03:00","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}}]}'
       )
     )
   })
@@ -438,6 +438,49 @@ test('getNegotiationDecision reads the aggregate status and human visa from the 
       ],
     })
   })
+})
+
+test('getNegotiationDecision rejects when any full Task material has a bad actual version', async () => {
+  const env = makeEnv((_req, _body, url) => {
+    expect(url.pathname).toBe('/api/v3/task/T9')
+    return json(200, wrap(JSON.stringify({
+      contentType: 'Task',
+      id: 'T9',
+      negotiationItems: [
+        { id: 'N1', actualVersion: { id: 'V1', status: 'ok', visas: [{ id: 'Z1', status: 'ok' }] } },
+        {
+          id: 'N2',
+          actualVersion: {
+            id: 'V2',
+            status: 'bad',
+            visas: [{ id: 'Z2', status: 'bad', comment: { id: 'C2', content: 'Исправить' }, userCreated: { id: 'E2', name: 'Анна' } }],
+          },
+        },
+      ],
+    })))
+  })
+  await withEnv(env, async () => {
+    expect(await newClient(env.url).getNegotiationDecision('T9')).toMatchObject({
+      status: 'rejected',
+      itemId: 'N2',
+      versionId: 'V2',
+      actorId: 'E2',
+      actorName: 'Анна',
+      approverVisas: [{ id: 'Z2', status: 'bad', actorId: 'E2', actorName: 'Анна', comment: 'Исправить' }],
+    })
+  })
+})
+
+test('getNegotiationDecision stays pending for not_rated or missing actual versions', async () => {
+  for (const negotiationItems of [
+    [{ id: 'N1', actualVersion: { id: 'V1', status: 'not_rated' } }],
+    [{ id: 'N1' }],
+  ]) {
+    const env = makeEnv(() => json(200, wrap(JSON.stringify({ contentType: 'Task', id: 'T9', negotiationItems }))))
+    await withEnv(env, async () => {
+      expect((await newClient(env.url).getNegotiationDecision('T9')).status).toBe('pending')
+    })
+  }
 })
 
 // API error: only field+message surface; the trace blob is dropped.
