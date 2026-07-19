@@ -7,7 +7,12 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.2.11 (current) — 2026-07-18
+## 2.2.12 (current) — 2026-07-19
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-runtime@2.2.12
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.13.6
+
+## 2.2.11 — 2026-07-18
 
 - `chat.clearTranscript()` now checkpoints a stable Cloud message cursor together with the cleared LLM transcript. Long-lived channel history can no longer be re-imported after a reset when an integration refreshes conversation tags; generated bot definitions include the backward-compatible cursor field.
 

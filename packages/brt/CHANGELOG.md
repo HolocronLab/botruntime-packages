@@ -6,7 +6,12 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.16 (current) — 2026-07-19
+## 0.7.17 (current) — 2026-07-19
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.2.12
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.13.6
+
+## 0.7.16 — 2026-07-19
 
 - Run `brt deploy --adk` type checking through the project's own `tsc` executable, adding compatibility with native TypeScript 7 while preserving TypeScript 5/6 diagnostics and `--noEmit` safety.
 

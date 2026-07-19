@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.13.5 (current)
+## 6.13.6 (current) — 2026-07-19
+
+- Added a typed integration delivery outcome contract and returned provider ACK tags to the host so Cloud can distinguish definitive failures from ambiguous post-dispatch timeouts without unsafe automatic retries.
+
+## 6.13.5
 
 - feat(sdk,brt): egress network policy в контракте определения интеграции (DEVLP-145) (d1e2c94)
 - feat(integrations): publish provider-verified webhook contract (8e5f126)
