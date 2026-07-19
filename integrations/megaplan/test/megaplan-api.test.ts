@@ -409,14 +409,14 @@ test('downloadFile rejects oversized approved versions before buffering them', a
   })
 })
 
-test('getNegotiationDecision reads full Task projection instead of sparse negotiationItems collection', async () => {
+test('getNegotiationDecision resolves the actual-version link through the matching full version', async () => {
   const env = makeEnv((req, _body, url) => {
     expect(req.method).toBe('GET')
     expect(url.pathname).toBe('/api/v3/task/T9')
     return json(
       200,
       wrap(
-        '{"contentType":"Task","id":"T9","isNegotiation":true,"negotiationItems":[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","comment":{"contentType":"Comment","id":"C1","content":"Проверено"},"timeCreated":"2026-07-14T09:10:11+03:00","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","comment":{"contentType":"Comment","id":"C2","content":"Согласовано"},"timeCreated":"2026-07-14T10:11:12+03:00","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}}]}'
+        '{"contentType":"Task","id":"T9","isNegotiation":true,"negotiationItems":[{"contentType":"NegotiationItem","id":"N1","actualVersion":{"contentType":"NegotiationItemVersion","id":"V2"},"versions":[{"contentType":"NegotiationItemVersion","id":"V1","status":"bad","visas":[{"contentType":"NegotiationVisa","id":"OLD","status":"bad"}]},{"contentType":"NegotiationItemVersion","id":"V2","status":"ok","attache":{"contentType":"File","id":"F2","path":"/attach/claim-v2.docx","name":"claim-v2.docx"},"visas":[{"contentType":"NegotiationVisa","id":"Z1","status":"ok","comment":{"contentType":"Comment","id":"C1","content":"Проверено"},"timeCreated":"2026-07-14T09:10:11+03:00","userCreated":{"contentType":"Employee","id":"E2","name":"Анна"}},{"contentType":"NegotiationVisa","id":"Z2","status":"ok","comment":{"contentType":"Comment","id":"C2","content":"Согласовано"},"timeCreated":"2026-07-14T10:11:12+03:00","userCreated":{"contentType":"Employee","id":"E3","name":"Борис"}}]}]}]}'
       )
     )
   })
@@ -437,6 +437,69 @@ test('getNegotiationDecision reads full Task projection instead of sparse negoti
         { id: 'Z2', status: 'ok', actorId: 'E3', actorName: 'Борис', comment: 'Согласовано', timeCreated: '2026-07-14T10:11:12+03:00' },
       ],
     })
+  })
+})
+
+test('getNegotiationDecision fails loud when an actual-version link has no matching full entity', async () => {
+  const env = makeEnv(() => json(200, wrap(JSON.stringify({
+    contentType: 'Task',
+    id: 'T9',
+    negotiationItems: [{
+      id: 'N1',
+      actualVersion: { contentType: 'NegotiationItemVersion', id: 'V2' },
+      versions: [{ contentType: 'NegotiationItemVersion', id: 'V1', status: 'ok', visas: [] }],
+    }],
+  }))))
+  await withEnv(env, async () => {
+    await expect(newClient(env.url).getNegotiationDecision('T9')).rejects.toThrow(
+      /actual version V2.*no matching full version/i
+    )
+  })
+})
+
+test('getNegotiationDecision prefers the identity-matched full version over a partial inline status', async () => {
+  const env = makeEnv(() => json(200, wrap(JSON.stringify({
+    contentType: 'Task',
+    id: 'T9',
+    negotiationItems: [{
+      id: 'N1',
+      actualVersion: { id: 'V2', status: 'ok' },
+      versions: [{
+        id: 'V2',
+        status: 'ok',
+        attache: { id: 'F2', path: '/attach/full.docx', name: 'full.docx' },
+        visas: [{ id: 'Z1', status: 'ok', userCreated: { id: 'E2', name: 'Анна' } }],
+      }],
+    }],
+  }))))
+  await withEnv(env, async () => {
+    expect(await newClient(env.url).getNegotiationDecision('T9')).toMatchObject({
+      status: 'approved',
+      fileId: 'F2',
+      filePath: '/attach/full.docx',
+      actorId: 'E2',
+      approverVisas: [{ id: 'Z1', status: 'ok', actorId: 'E2' }],
+    })
+  })
+})
+
+test('getNegotiationDecision rejects duplicate version identities even with an inline status', async () => {
+  const env = makeEnv(() => json(200, wrap(JSON.stringify({
+    contentType: 'Task',
+    id: 'T9',
+    negotiationItems: [{
+      id: 'N1',
+      actualVersion: { id: 'V2', status: 'ok' },
+      versions: [
+        { id: 'V2', status: 'ok', visas: [] },
+        { id: 'V2', status: 'ok', visas: [] },
+      ],
+    }],
+  }))))
+  await withEnv(env, async () => {
+    await expect(newClient(env.url).getNegotiationDecision('T9')).rejects.toThrow(
+      /actual version V2.*multiple matching full versions/i
+    )
   })
 })
 
@@ -481,6 +544,30 @@ test('getNegotiationDecision stays pending for not_rated or missing actual versi
       expect((await newClient(env.url).getNegotiationDecision('T9')).status).toBe('pending')
     })
   }
+})
+
+test('getNegotiationDecision returns pending details from the first unresolved material', async () => {
+  const env = makeEnv(() => json(200, wrap(JSON.stringify({
+    contentType: 'Task',
+    id: 'T9',
+    negotiationItems: [
+      { id: 'N1', actualVersion: { id: 'V1', status: 'ok', visas: [{ id: 'Z1', status: 'ok' }] } },
+      { id: 'N2', actualVersion: { id: 'V2', status: 'not_rated', visas: [] } },
+    ],
+  }))))
+  await withEnv(env, async () => {
+    expect(await newClient(env.url).getNegotiationDecision('T9')).toEqual({
+      status: 'pending',
+      itemId: 'N2',
+      versionId: 'V2',
+      fileId: undefined,
+      filePath: undefined,
+      fileName: undefined,
+      actorId: undefined,
+      actorName: undefined,
+      approverVisas: [],
+    })
+  })
 })
 
 // API error: only field+message surface; the trace blob is dropped.
