@@ -1,6 +1,7 @@
 import type { Client, IntegrationProps } from '../bp'
 import type { ApprovalOperationStatePayload } from '../../definitions/state'
 import { MAX_APPROVAL_FILE_BYTES, readBytesCapped } from '../megaplan-api'
+import { ApiError } from '../types'
 import { buildClient, run } from './shared'
 
 const APPROVAL_CLAIM_EXPIRY_MS = 15 * 60 * 1000
@@ -72,15 +73,26 @@ export const createNegotiationTask: IntegrationProps['actions']['createNegotiati
       })
       throw error
     }
-    // Do not release the claim if this POST fails: the response is ambiguous and
-    // Megaplan may already have created the task. After the lease expires, the
-    // deterministic marker lookup recovers that task before any new POST.
-    const task = await api.createNegotiationTask({
-      ...input,
-      name: `${input.name} [${operationMarker}]`,
-      statement: [input.statement, `Botforge operation: ${operationMarker}`].filter(Boolean).join('\n\n'),
-      materialFile,
-    })
+    let task: Awaited<ReturnType<typeof api.createNegotiationTask>>
+    try {
+      task = await api.createNegotiationTask({
+        ...input,
+        name: `${input.name} [${operationMarker}]`,
+        statement: [input.statement, `Botforge operation: ${operationMarker}`].filter(Boolean).join('\n\n'),
+        materialFile,
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {
+          claimId,
+          operationMarker,
+          status: 'claimed',
+        })
+      }
+      // Network and 5xx outcomes remain fenced: the task may have been created
+      // even though its response did not reach the integration.
+      throw error
+    }
     const item = task.negotiationItems?.[0]
     const output = { taskId: task.id, itemId: item?.id, versionId: item?.actualVersion?.id }
     await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {

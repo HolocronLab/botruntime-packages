@@ -328,8 +328,9 @@ test('createNegotiationTask creates a native approval with an immutable material
     const b = JSON.parse(body)
     expect(b.isNegotiation).toBe(true)
     expect(b.negotiationExecutors).toEqual([{ contentType: 'Employee', id: 'E2' }])
-    expect(b.negotiationItems[0].actualVersion.text).toContain('sha256:abc123')
-    expect(b.negotiationItems[0].actualVersion.attache).toEqual({ contentType: 'File', id: 'F1' })
+    expect(b.negotiationItems[0].text).toContain('sha256:abc123')
+    expect(b.negotiationItems[0].file).toEqual({ contentType: 'File', id: 'F1' })
+    expect(b.negotiationItems[0].actualVersion).toBeUndefined()
     return json(
       200,
       wrap(
