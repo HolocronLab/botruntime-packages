@@ -8,7 +8,7 @@ const expectedPolicies = [
     hosts: ["api.telegram.org"],
     ingressRelayed: true,
     webhookAuthMode: "shared_secret",
-    sdkSpec: "^6.13.5",
+    sdkSpec: "^6.13.6",
     brtSpec: "^0.5.5",
   },
   {

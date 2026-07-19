@@ -51,5 +51,6 @@ real JavaScript errors, preserving their original cause in the Bun integration h
 ## Webhook retries
 
 Version 1.1.9 identifies an inbound delivery by the installation webhook and Telegram `update_id`.
+Version 1.1.10 reports outbound delivery as `failed` only before provider acceptance or after a definitive provider rejection. A timeout after calling Telegram is `outcome_unknown`: the platform records it but never retries the non-idempotent send automatically. A successful Telegram response is acknowledged with provider message tags.
 Telegram retries are acknowledged without creating a second Botruntime message or running the bot
 twice; `message_id` remains the transport anchor for replies and reactions.
