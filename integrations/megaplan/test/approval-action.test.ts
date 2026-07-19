@@ -37,7 +37,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     }
     if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
       const body = await request.json() as any
-      attachedFileId = body.negotiationItems[0].file.id
+      attachedFileId = body.negotiationItems[0].versions[0].attache.id
       return Response.json({
         meta: { status: 200, errors: [] },
         data: { contentType: 'Task', id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V1' } }] },

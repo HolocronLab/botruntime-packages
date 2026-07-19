@@ -321,15 +321,23 @@ test('addComment posts HTML content', async () => {
   })
 })
 
-test('createNegotiationTask creates a native approval with an immutable material version', async () => {
+test('createNegotiationTask writes material through the NegotiationItem versions collection', async () => {
   const env = makeEnv((req, body, url) => {
     expect(req.method).toBe('POST')
     expect(url.pathname).toBe('/api/v3/task')
     const b = JSON.parse(body)
     expect(b.isNegotiation).toBe(true)
     expect(b.negotiationExecutors).toEqual([{ contentType: 'Employee', id: 'E2' }])
-    expect(b.negotiationItems[0].text).toContain('sha256:abc123')
-    expect(b.negotiationItems[0].file).toEqual({ contentType: 'File', id: 'F1' })
+    expect(b.negotiationItems[0]).toEqual({
+      contentType: 'NegotiationItem',
+      versions: [
+        {
+          contentType: 'NegotiationItemVersion',
+          text: '<b>claim.docx</b><br><code>sha256:abc123</code>',
+          attache: { contentType: 'File', id: 'F1' },
+        },
+      ],
+    })
     expect(b.negotiationItems[0].actualVersion).toBeUndefined()
     return json(
       200,
