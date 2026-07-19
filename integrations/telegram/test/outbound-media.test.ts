@@ -51,7 +51,7 @@ test('image messages download protected Botruntime media before sendPhoto', asyn
   const props = {
     type: 'image',
     payload: { imageUrl: protectedImageUrl },
-    ctx: { integrationId: 'telegram', configuration: { botToken: '123:test-token' } },
+    ctx: { integrationId: 'telegram', webhookId: 'wh_test', configuration: { botToken: '123:test-token' } },
     conversation: { id: 'conversation', tags: { chatId: '-1001' } },
     message: { id: 'outbound', tags: {} },
     ack: async () => {

@@ -12,4 +12,4 @@ export type Configuration = {
 
 export type Logger = IntegrationLogger
 // Only the fields the handlers actually read; the SDK passes a richer ctx at runtime.
-export type Context = { integrationId: string; configuration: Configuration }
+export type Context = { integrationId: string; webhookId: string; configuration: Configuration }

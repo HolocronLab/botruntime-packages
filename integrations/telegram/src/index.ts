@@ -46,10 +46,10 @@ const DEFAULT_COMMANDS = [
 // every install; the donor never sets one (Botpress Cloud relies on the unguessable webhook URL).
 // The SDK's register dispatch surfaces ONLY webhookUrl to register() and drops webhookSecret, so we
 // thread the secret from the raw register body through this module var (set by the Lambda wrapper
-// below, read by register, cleared in the wrapper's finally). Integration dispatch is serialized
-// process-wide by the host (env critical section) and each bot runs in its own child process, so a
-// single register op can never race another's secret. Absent (e.g. dev long-poll, which XORs
-// register) -> setWebhook without secret_token, exactly the donor behavior.
+// below, read by register, cleared in the wrapper's finally). Each installation ref runs in its
+// own FIFO Worker, so a register op cannot race another operation against this module state.
+// Absent (e.g. dev long-poll, which XORs register) -> setWebhook without secret_token, exactly the
+// donor behavior.
 let pendingWebhookSecret: string | undefined
 
 const register = async ({ webhookUrl, ctx, client }: { webhookUrl: string; ctx: Context; client: Client }) => {
@@ -133,6 +133,7 @@ const webhookHandler = async (props: HandlerProps) =>
     ok(data.message, 'Handler received a non-message update, so the event was ignored')
 
     const message = data.message as TelegramMessage
+    const updateId = data.update_id
     ok(!isTelegramServiceMessage(message), 'Handler received a Telegram service message, so the message was ignored')
     const telegramConversationId = message.chat.id
     const telegramUserId = message.from?.id
@@ -142,6 +143,8 @@ const webhookHandler = async (props: HandlerProps) =>
     ok(telegramConversationId, 'Handler received message with empty "chat.id" value')
     ok(telegramUserId, 'Handler received message with empty "from.id" value')
     ok(messageId, 'Handler received an empty message id')
+    ok(Number.isSafeInteger(updateId), 'Handler received an empty or invalid update id')
+    ok(ctx.webhookId, 'Handler received an empty webhook id')
 
     const fromUser = message.from as User
     const userName = getUserNameFromTelegramUser(fromUser)
@@ -187,11 +190,14 @@ const webhookHandler = async (props: HandlerProps) =>
     logger.forBot().debug(`Received message from user ${telegramUserId}: ${JSON.stringify(message)}`)
 
     await client
-      .createMessage({
+      .getOrCreateMessage({
         tags: {
           id: messageId.toString(),
           chatId: telegramConversationId.toString(),
+          updateId: updateId.toString(),
+          webhookId: ctx.webhookId,
         },
+        discriminateByTags: ['webhookId', 'updateId'],
         type: bpMessage.type,
         payload: bpMessage.payload,
         userId: user.id,
@@ -253,7 +259,12 @@ const lambdaHandler = async (req: LambdaRequest) => {
   if (botId && !headers['x-bot-user-id']) headers['x-bot-user-id'] = `${botId}_bot`
   const integrationId = headers['x-integration-id']
   if (integrationId && !headers['x-integration-alias']) headers['x-integration-alias'] = integrationId
-  if (!headers['x-webhook-id']) headers['x-webhook-id'] = integrationId ?? 'webhook'
+  if (!headers['x-webhook-id']) {
+    if (op === 'webhook_received') {
+      return { status: 400, body: JSON.stringify({ message: 'Missing trusted webhook identity' }) }
+    }
+    headers['x-webhook-id'] = integrationId ?? 'webhook'
+  }
 
   let body = req.body
   if (op === 'webhook_received') {

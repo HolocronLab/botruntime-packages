@@ -47,3 +47,9 @@ Telegram's normal URL delivery.
 Version 1.1.8 acknowledges Telegram service messages, such as membership changes, without turning
 them into user content or making Telegram retry the webhook. Telegram API network failures remain
 real JavaScript errors, preserving their original cause in the Bun integration host.
+
+## Webhook retries
+
+Version 1.1.9 identifies an inbound delivery by the installation webhook and Telegram `update_id`.
+Telegram retries are acknowledged without creating a second Botruntime message or running the bot
+twice; `message_id` remains the transport anchor for replies and reactions.

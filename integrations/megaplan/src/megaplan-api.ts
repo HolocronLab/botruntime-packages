@@ -410,12 +410,13 @@ export class MegaplanApiClient {
       timeCreated?: string
     }>
   }> {
-    const items = await this.do<NegotiationItem[]>(
+    const task = await this.do<Task>(
       'GET',
-      `/api/v3/task/${esc(taskId)}/negotiationItems`,
+      `/api/v3/task/${esc(taskId)}`,
       undefined,
       undefined
     )
+    const items = task.negotiationItems ?? []
     if (items.length === 0) {
       throw new Error(`megaplan: negotiation task ${taskId} has no materials`)
     }
