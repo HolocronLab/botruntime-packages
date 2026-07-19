@@ -52,5 +52,7 @@ real JavaScript errors, preserving their original cause in the Bun integration h
 
 Version 1.1.9 identifies an inbound delivery by the installation webhook and Telegram `update_id`.
 Version 1.1.10 reports outbound delivery as `failed` only before provider acceptance or after a definitive provider rejection. A timeout after calling Telegram is `outcome_unknown`: the platform records it but never retries the non-idempotent send automatically. A successful Telegram response is acknowledged with provider message tags.
+
+Version 1.1.11 uploads protected documents with the runtime's native proxied `fetch` multipart transport. This keeps authenticated Botruntime file URLs private and makes binary uploads use the same egress gateway contract as other provider calls under Bun.
 Telegram retries are acknowledged without creating a second Botruntime message or running the bot
 twice; `message_id` remains the transport anchor for replies and reactions.

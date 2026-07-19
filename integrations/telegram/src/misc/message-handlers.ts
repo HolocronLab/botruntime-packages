@@ -3,7 +3,8 @@ import { Markup, Telegraf, Telegram } from 'telegraf'
 import { getStoredBotToken } from '../botToken'
 import { resolveTelegramMedia, type TelegramMedia } from './files'
 import { providerDeliveryError } from './delivery-outcome'
-import { makeTelegraf } from './telegraf'
+import { sendDocumentUpload } from './provider-upload'
+import { makeTelegraf, TELEGRAM_REQUEST_TIMEOUT_MS } from './telegraf'
 import { markdownHtmlToTelegramPayloads, stdMarkdownToTelegramHtml } from './markdown-to-telegram-html'
 import type { AckFunction, MessageHandlerProps, TelegramMessage } from './types'
 import { threadExtra } from './threading'
@@ -59,7 +60,18 @@ const sendContentOrFallback = async <T extends 'image' | 'audio' | 'video' | 'fi
   let message: TelegramMessage
   let ackOperation = operation
   try {
-    message = await sendFn.call(telegraf.telegram, chat, resolvedMedia, opts)
+    if (operation === 'sendDocument' && typeof resolvedMedia !== 'string') {
+      message = await sendDocumentUpload({
+        botToken,
+        chatId: chat,
+        media: resolvedMedia,
+        caption,
+        messageThreadId: thread.message_thread_id,
+        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
+      })
+    } else {
+      message = await sendFn.call(telegraf.telegram, chat, resolvedMedia, opts)
+    }
   } catch (err) {
     const deliveryError = providerDeliveryError(err, operation)
     if (deliveryError.outcome === 'outcome_unknown') throw deliveryError
