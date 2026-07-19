@@ -581,13 +581,15 @@ test('approved document is copied without leaking credentials and returns a stab
         meta: { status: 200, errors: [] },
         data: { id: 'T1', negotiationItems: [{
           id: 'N1',
-          actualVersion: {
+          actualVersion: { contentType: 'NegotiationItemVersion', id: 'V2' },
+          versions: [{
+            contentType: 'NegotiationItemVersion',
             id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/approved', name: 'approved.docx' },
             visas: [
               { id: 'Z1', status: 'ok', comment: { id: 'C1', content: 'Проверено' }, timeCreated: '2026-07-14T09:10:11+03:00', userCreated: { id: 'E2', name: 'Юрист 1' } },
               { id: 'Z2', status: 'ok', comment: { id: 'C2', content: 'Согласовано' }, timeCreated: '2026-07-14T10:11:12+03:00', userCreated: { id: 'E3', name: 'Юрист 2' } },
             ],
-          },
+          }],
         }] },
       })
     }

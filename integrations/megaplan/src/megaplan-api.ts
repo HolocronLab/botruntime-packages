@@ -26,6 +26,7 @@ import {
   selectTransition,
   type Task,
   type NegotiationItem,
+  type NegotiationItemVersion,
   type TaskActionName,
   type Todo,
   encodeBody,
@@ -64,6 +65,25 @@ export type MegaplanConfig = {
 }
 
 type Method = 'GET' | 'POST'
+
+function resolveActualVersion(taskId: string, item: NegotiationItem): NegotiationItemVersion | undefined {
+  const actual = item.actualVersion
+  if (!actual) return undefined
+  if (item.versions === undefined) {
+    if (actual.status !== undefined) return actual
+    throw new Error(`megaplan: negotiation task ${taskId} item ${item.id ?? '<unknown>'} has an unresolvable actual version`)
+  }
+  if (!actual.id) {
+    throw new Error(`megaplan: negotiation task ${taskId} item ${item.id ?? '<unknown>'} has an unresolvable actual version`)
+  }
+  const matches = (item.versions ?? []).filter((version) => version.id === actual.id)
+  if (matches.length !== 1) {
+    throw new Error(
+      `megaplan: negotiation task ${taskId} item ${item.id ?? '<unknown>'} actual version ${actual.id} has ${matches.length === 0 ? 'no matching full version' : 'multiple matching full versions'}`
+    )
+  }
+  return matches[0]
+}
 
 function transientStatus(status: number): boolean {
   // transport error (0), rate limit (429), server fault (5xx). Other 4xx are
@@ -420,10 +440,15 @@ export class MegaplanApiClient {
     if (items.length === 0) {
       throw new Error(`megaplan: negotiation task ${taskId} has no materials`)
     }
-    const rejected = items.find((item) => item.actualVersion?.status === 'bad')
-    const approved = rejected === undefined && items.every((item) => item.actualVersion?.status === 'ok')
-    const selected = rejected ?? items[0]!
-    const version = selected.actualVersion
+    const resolved = items.map((item) => ({ item, version: resolveActualVersion(taskId, item) }))
+    const rejected = resolved.find(({ version }) => version?.status === 'bad')
+    const approved = rejected === undefined && resolved.every(({ version }) => version?.status === 'ok')
+    const selected = rejected ?? (
+      approved
+        ? resolved[0]!
+        : resolved.find(({ version }) => version?.status !== 'ok') ?? resolved[0]!
+    )
+    const version = selected.version
     const approverVisas = (version?.visas ?? []).map((visa) => ({
       id: visa.id,
       status: visa.status,
@@ -437,7 +462,7 @@ export class MegaplanApiClient {
     )
     return {
       status: rejected ? 'rejected' : approved ? 'approved' : 'pending',
-      itemId: selected.id,
+      itemId: selected.item.id,
       versionId: version?.id,
       fileId: version?.attache?.id,
       filePath: version?.attache?.path,
