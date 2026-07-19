@@ -323,8 +323,13 @@ export class MegaplanApiClient {
       negotiationItems: [
         {
           contentType: ContentType.NegotiationItem,
-          text: materialText,
-          file: { contentType: ContentType.File, id: t.materialFile.id },
+          versions: [
+            {
+              contentType: ContentType.NegotiationItemVersion,
+              text: materialText,
+              attache: { contentType: ContentType.File, id: t.materialFile.id },
+            },
+          ],
         },
       ],
     })

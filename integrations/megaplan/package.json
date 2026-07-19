@@ -1,6 +1,6 @@
 {
   "name": "@botruntime/megaplan",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
   "description": "Megaplan CRM integration (Botpress-style) for the botruntime runtime-host. Replaces the Go CRM client.",
