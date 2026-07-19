@@ -317,7 +317,7 @@ export class MegaplanApiClient {
       statement: t.statement,
       responsible: { contentType: ContentType.Employee, id: t.responsibleId } satisfies Ref,
       deals: t.dealIds.map((id) => ({ contentType: ContentType.Deal, id }) satisfies Ref),
-      negotiationExecutors: t.approverIds.map(
+      executors: t.approverIds.map(
         (id) => ({ contentType: ContentType.Employee, id }) satisfies Ref
       ),
       negotiationItems: [

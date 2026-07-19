@@ -14,6 +14,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
   let attachedFileId = ''
+  let approverIds: string[] = []
 
   process.env.BP_API_URL = 'https://runtime.local'
   process.env.BP_TOKEN = 'bp-token'
@@ -38,6 +39,8 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
       const body = await request.json() as any
       attachedFileId = body.negotiationItems[0].versions[0].attache.id
+      approverIds = body.executors.map((executor: { id: string }) => executor.id)
+      expect(body.negotiationExecutors).toBeUndefined()
       return Response.json({
         meta: { status: 200, errors: [] },
         data: { contentType: 'Task', id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V1' } }] },
@@ -68,6 +71,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     } as any)
     expect(output).toEqual({ taskId: 'T1', itemId: 'N1', versionId: 'V1' })
     expect(attachedFileId).toBe('F1')
+    expect(approverIds).toEqual(['E2'])
   } finally {
     globalThis.fetch = originalFetch
     process.env.BP_API_URL = originalApiUrl
