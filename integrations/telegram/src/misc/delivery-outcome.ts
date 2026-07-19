@@ -2,12 +2,15 @@ import { DeliveryOutcomeError } from '@holocronlab/botruntime-sdk'
 import { TelegramError } from 'telegraf'
 
 export function providerDeliveryError(error: unknown, operation: string): DeliveryOutcomeError {
-  if (!(error instanceof TelegramError)) {
+  if (!(error instanceof TelegramError) || error.code >= 500) {
+    const code = error instanceof TelegramError
+      ? `TELEGRAM_HTTP_${error.code}`
+      : isTimeout(error) ? 'TELEGRAM_PROVIDER_TIMEOUT' : 'TELEGRAM_PROVIDER_TRANSPORT'
     return new DeliveryOutcomeError({
       outcome: 'outcome_unknown',
       phase: 'provider_send',
       operation,
-      code: isTimeout(error) ? 'TELEGRAM_PROVIDER_TIMEOUT' : 'TELEGRAM_PROVIDER_TRANSPORT',
+      code,
       message: 'Telegram provider response was not received after dispatch',
       cause: error,
     })

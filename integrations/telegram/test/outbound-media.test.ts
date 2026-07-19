@@ -50,9 +50,13 @@ afterEach(() => {
 })
 
 test('file provider timeout is outcome_unknown after provider invocation', async () => {
-  Telegram.prototype.sendDocument = (async () => {
-    throw new DOMException('The operation was aborted', 'AbortError')
-  }) as typeof Telegram.prototype.sendDocument
+  const cloudFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('https://api.telegram.org/')) {
+      throw new DOMException('The operation was aborted', 'AbortError')
+    }
+    return cloudFetch(input, init)
+  }) as typeof fetch
   const props = fileProps()
 
   const error = await handleFileMessage(props).catch((value) => value)
@@ -64,10 +68,47 @@ test('file provider timeout is outcome_unknown after provider invocation', async
   expect(error.code).toBe('TELEGRAM_PROVIDER_TIMEOUT')
 })
 
-test('file transport failure without provider response is outcome_unknown', async () => {
+test('protected document bytes use native multipart fetch instead of Telegraf node-fetch', async () => {
+  let legacyCalls = 0
+  let providerCalls = 0
   Telegram.prototype.sendDocument = (async () => {
-    throw new Error('socket closed without response')
+    legacyCalls++
+    return { message_id: 98 } as Message.DocumentMessage
   }) as typeof Telegram.prototype.sendDocument
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input)
+    if (url === internalImageUrl) {
+      return new Response('docx-bytes', { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } })
+    }
+    if (url === 'https://api.telegram.org/bot123:test-token/sendDocument') {
+      providerCalls++
+      expect(init?.body).toBeInstanceOf(FormData)
+      return Response.json({
+        ok: true,
+        result: { message_id: 99, date: 1, chat: { id: -1001, type: 'supergroup' }, document: { file_id: 'f', file_unique_id: 'u' } },
+      })
+    }
+    throw new Error(`unexpected fetch ${url}`)
+  }) as typeof fetch
+  let ackTags: Record<string, string> | undefined
+  const props = fileProps()
+  props.ack = async ({ tags }) => { ackTags = tags }
+
+  await handleFileMessage(props)
+
+  expect(legacyCalls).toBe(0)
+  expect(providerCalls).toBe(1)
+  expect(ackTags).toEqual({ id: '99', 'botruntime.delivery.operation': 'sendDocument' })
+})
+
+test('file transport failure without provider response is outcome_unknown', async () => {
+  const cloudFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('https://api.telegram.org/')) {
+      throw new Error('socket closed without response')
+    }
+    return cloudFetch(input, init)
+  }) as typeof fetch
 
   const error = await handleFileMessage(fileProps()).catch((value) => value)
 
@@ -77,9 +118,13 @@ test('file transport failure without provider response is outcome_unknown', asyn
 })
 
 test('definitive Telegram rejection is failed without losing provider status', async () => {
-  Telegram.prototype.sendDocument = (async () => {
-    throw new TelegramError({ error_code: 400, description: 'Bad Request: wrong file identifier' })
-  }) as typeof Telegram.prototype.sendDocument
+  const cloudFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('https://api.telegram.org/')) {
+      return Response.json({ ok: false, error_code: 400, description: 'Bad Request: wrong file identifier' }, { status: 400 })
+    }
+    return cloudFetch(input, init)
+  }) as typeof fetch
 
   const error = await handleFileMessage(fileProps()).catch((value) => value)
 
@@ -88,6 +133,25 @@ test('definitive Telegram rejection is failed without losing provider status', a
   expect(error.phase).toBe('provider_send')
   expect(error.operation).toBe('sendDocument')
   expect(error.code).toBe('TELEGRAM_HTTP_400')
+})
+
+test('Telegram 5xx after dispatch is outcome_unknown and is not retried', async () => {
+  let providerCalls = 0
+  const cloudFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('https://api.telegram.org/')) {
+      providerCalls++
+      return Response.json({ ok: false, error_code: 502, description: 'Bad Gateway' }, { status: 502 })
+    }
+    return cloudFetch(input, init)
+  }) as typeof fetch
+
+  const error = await handleFileMessage(fileProps()).catch((value) => value)
+
+  expect(error).toBeInstanceOf(DeliveryOutcomeError)
+  expect(error.outcome).toBe('outcome_unknown')
+  expect(error.code).toBe('TELEGRAM_HTTP_502')
+  expect(providerCalls).toBe(1)
 })
 
 test('audio timeout does not invoke the non-idempotent audio fallback', async () => {
