@@ -43,7 +43,12 @@ export type BlocItem =
 export type MessageType = keyof Payloads
 
 export type Conversation = { id: string; tags: Record<string, string | undefined> }
-export type Message = { id: string; tags: Record<string, string | undefined> }
+export type Message = {
+  id: string
+  type?: string
+  payload?: Record<string, unknown>
+  tags: Record<string, string | undefined>
+}
 export type User = { id: string; name?: string; pictureUrl?: string; tags: Record<string, string | undefined> }
 
 export type AckFunction = (props: { tags: Record<string, string> }) => Promise<void>
@@ -73,7 +78,9 @@ export type Client = {
     conversationId: string
     tags: Record<string, string>
     discriminateByTags: string[]
-  }): Promise<{ message: Message }>
+    schedule?: { delay: number }
+  }): Promise<{ message: Message; meta?: { created?: boolean } }>
+  updateMessage(x: { id: string; payload: Record<string, unknown> }): Promise<{ message: Message }>
 }
 
 // Channel handler props (donor: bp.MessageProps['channel'][T]).

@@ -133,6 +133,7 @@ function storedFilePayload(
   providerFileId: string,
   providerFileUniqueId: string,
   filename?: string,
+  updateId?: number,
 ) {
   return {
     fileId: file.id,
@@ -142,8 +143,16 @@ function storedFilePayload(
     providerFileId,
     providerFileUniqueId,
     providerMessageId: String(message.message_id),
+    ...(Number.isSafeInteger(updateId) ? { providerUpdateId: String(updateId) } : {}),
     ...(mediaGroupId(message) ? { providerMediaGroupId: mediaGroupId(message) } : {}),
   }
+}
+
+function captionPayload(message: TelegramMessage, logger: Logger): { caption?: string } {
+  if (!('caption' in message) || typeof message.caption !== 'string') return {}
+  const { text, warnings } = telegramTextMsgToStdMarkdown(message.caption, message.caption_entities)
+  warnings?.forEach((warningMsg) => logger.forBot().warn(warningMsg))
+  return { caption: text }
 }
 
 function mediaGroupId(message: TelegramMessage): string | undefined {
@@ -154,10 +163,12 @@ export const convertTelegramMessageToBotpressMessage = async ({
   message,
   telegram,
   logger,
+  updateId,
 }: {
   message: TelegramMessage
   telegram: Telegram
   logger: Logger
+  updateId?: number
 }): Promise<IncomingMessage> => {
   if ('photo' in message) {
     const photo = _.maxBy(message.photo, (p) => p.height * p.width)
@@ -165,7 +176,11 @@ export const convertTelegramMessageToBotpressMessage = async ({
     const file = await ingestById(telegram, photo.file_id, photo.file_unique_id, 'image/jpeg', message)
     return {
       type: 'image',
-      payload: { imageUrl: file.url, ...storedFilePayload(file, message, photo.file_id, photo.file_unique_id) },
+      payload: {
+        imageUrl: file.url,
+        ...captionPayload(message, logger),
+        ...storedFilePayload(file, message, photo.file_id, photo.file_unique_id, undefined, updateId),
+      },
     }
   }
 
@@ -174,7 +189,10 @@ export const convertTelegramMessageToBotpressMessage = async ({
     const file = await ingestById(telegram, sticker.file_id, sticker.file_unique_id, 'image/webp', message)
     return {
       type: 'image',
-      payload: { imageUrl: file.url, ...storedFilePayload(file, message, sticker.file_id, sticker.file_unique_id) },
+      payload: {
+        imageUrl: file.url,
+        ...storedFilePayload(file, message, sticker.file_id, sticker.file_unique_id, undefined, updateId),
+      },
     }
   }
 
@@ -191,7 +209,15 @@ export const convertTelegramMessageToBotpressMessage = async ({
       type: 'audio',
       payload: {
         audioUrl: file.url,
-        ...storedFilePayload(file, message, message.audio.file_id, message.audio.file_unique_id, message.audio.file_name),
+        ...captionPayload(message, logger),
+        ...storedFilePayload(
+          file,
+          message,
+          message.audio.file_id,
+          message.audio.file_unique_id,
+          message.audio.file_name,
+          updateId,
+        ),
       },
     }
   }
@@ -206,7 +232,11 @@ export const convertTelegramMessageToBotpressMessage = async ({
     )
     return {
       type: 'audio',
-      payload: { audioUrl: file.url, ...storedFilePayload(file, message, message.voice.file_id, message.voice.file_unique_id) },
+      payload: {
+        audioUrl: file.url,
+        ...captionPayload(message, logger),
+        ...storedFilePayload(file, message, message.voice.file_id, message.voice.file_unique_id, undefined, updateId),
+      },
     }
   }
 
@@ -223,7 +253,15 @@ export const convertTelegramMessageToBotpressMessage = async ({
       type: 'video',
       payload: {
         videoUrl: file.url,
-        ...storedFilePayload(file, message, message.video.file_id, message.video.file_unique_id, message.video.file_name),
+        ...captionPayload(message, logger),
+        ...storedFilePayload(
+          file,
+          message,
+          message.video.file_id,
+          message.video.file_unique_id,
+          message.video.file_name,
+          updateId,
+        ),
       },
     }
   }
@@ -245,7 +283,8 @@ export const convertTelegramMessageToBotpressMessage = async ({
         fileUrl: file.url,
         title: filename ?? 'файл',
         mimeType: contentType,
-        ...storedFilePayload(file, message, message.document.file_id, message.document.file_unique_id, filename),
+        ...captionPayload(message, logger),
+        ...storedFilePayload(file, message, message.document.file_id, message.document.file_unique_id, filename, updateId),
       },
     }
   }

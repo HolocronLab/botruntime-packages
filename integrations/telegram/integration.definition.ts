@@ -11,7 +11,7 @@ import { telegramMessageChannels } from './definitions/channels'
 //   - channels gain `contactRequest` (definitions/channels.ts) for the share-phone gap.
 export default new IntegrationDefinition({
   name: 'telegram',
-  version: '1.1.12',
+  version: '1.2.0',
   title: 'Telegram',
   description: 'Engage with your audience in real-time.',
   icon: 'icon.svg',
@@ -51,6 +51,7 @@ export default new IntegrationDefinition({
           chatId: { title: 'Chat ID', description: 'The message Chat id' },
           updateId: { title: 'Update ID', description: 'Telegram update_id used for webhook deduplication' },
           webhookId: { title: 'Webhook ID', description: 'Botruntime installation webhook identity' },
+          mediaGroupId: { title: 'Media Group ID', description: 'Telegram media_group_id used for album aggregation' },
         },
       },
       conversation: {
