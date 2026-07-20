@@ -24,8 +24,9 @@ describe('runtime eval workflow trace-reader contract', () => {
 
   it('binds an explicitly synchronized CLI manifest to the hosted run', () => {
     expect(source).toContain('evalManifestId: z.string().optional()')
+    expect(source).toContain('evalManifestFileId: z.string().optional()')
     expect(source).toContain('input.evalManifestId ?? loadedManifestId')
-    expect(source).toContain('manifest.manifestId ?? file.id')
+    expect(source).toContain('fileId: input.evalManifestFileId')
     expect(source).toContain('does not match the loaded eval manifest')
   })
 
@@ -92,5 +93,44 @@ describe('runtime eval workflow trace-reader contract', () => {
       /catch \(error\) \{\s+assertHostedEvalExecutionActive\(signal\)\s+return hostedLifecycle\.terminalizeFailure/,
     )
     expect(source.match(/assertHostedEvalExecutionActive\(signal\)/g)).toHaveLength(4)
+  })
+
+  it('checkpoints each eval turn inside the enclosing eval step', () => {
+    const evalCheckpoint = source.indexOf('checkpointEval: async')
+    const operationCheckpoint = source.indexOf('checkpointEvalOperation:')
+
+    expect(operationCheckpoint).toBeGreaterThan(evalCheckpoint)
+    expect(source).toContain("phase === 'dispatch' || phase === 'effect' || phase === 'turn' || phase === 'persist'")
+    expect(source).toMatch(
+      /checkpointEvalOperation:[\s\S]*?step\([\s\S]*?assertHostedEvalStartBudget\([\s\S]*?return execute\(\)/,
+    )
+    expect(source).toContain('runId: String(vortexRunId)')
+    expect(source).toContain("phase === 'cleanup'")
+  })
+
+  it('persists completion only after the immutable eval report checkpoint', () => {
+    const reportCheckpoint = source.indexOf('const report = await step(`run-eval-')
+    const rememberReport = source.indexOf('hostedLifecycle.rememberCompletedReport(report)')
+
+    expect(reportCheckpoint).toBeGreaterThan(-1)
+    expect(rememberReport).toBeGreaterThan(reportCheckpoint)
+    expect(source).toContain('onProgress: (event) => hostedLifecycle.onProgress(event, step)')
+  })
+
+  it('rejects unsupported durable suites before creating the hosted run', () => {
+    const durablePreflight = source.indexOf('validateDurableEvalDefinitions(filteredDefinitions, true, durableEffects)')
+    const createRun = source.indexOf("step('create-run'")
+
+    expect(durablePreflight).toBeGreaterThan(-1)
+    expect(createRun).toBeGreaterThan(durablePreflight)
+    expect(source).toContain('durableEffects,')
+  })
+
+  it('keeps controls across workflow yields and clears them before terminal failure', () => {
+    expect(source).toContain('!isStepSignal(error) && controlsUsed')
+    expect(source).toContain("'cleanup-eval-controls'")
+    expect(source).toContain('control:terminal-cleanup')
+    expect(source).toMatch(/cleanup-eval-controls[\s\S]*?maxAttempts: 5/)
+    expect(source).toContain('if (isStepSignal(cleanupError)) throw cleanupError')
   })
 })

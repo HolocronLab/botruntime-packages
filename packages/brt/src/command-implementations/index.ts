@@ -7,6 +7,7 @@ import * as utils from '../utils'
 import { AddCommand } from './add-command'
 import type { BaseCommand } from './base-command'
 import * as bots from './bot-commands'
+import { DeployBotVersionCommand, ListBotVersionsCommand } from './bot-versions-command'
 import { BuildCommand } from './build-command'
 import { BundleCommand } from './bundle-command'
 import { ChatCommand } from './chat-command'
@@ -54,6 +55,12 @@ export default {
       get: getHandler(bots.GetBotCommand),
       delete: getHandler(bots.DeleteBotCommand),
       list: getHandler(bots.ListBotsCommand),
+      versions: {
+        subcommands: {
+          list: getHandler(ListBotVersionsCommand),
+          deploy: getHandler(DeployBotVersionCommand),
+        },
+      },
     },
   },
   integrations: {
@@ -63,6 +70,7 @@ export default {
       delete: getHandler(integrations.DeleteIntegrationCommand),
       install: getHandler(integrations.CloudIntegrationInstallCommand),
       register: getHandler(integrations.CloudIntegrationRegisterCommand),
+      upgrade: getHandler(integrations.CloudIntegrationUpgradeCommand),
       publish: getHandler(integrations.CloudIntegrationPublishCommand),
     },
   },

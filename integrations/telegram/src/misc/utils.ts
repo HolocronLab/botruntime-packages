@@ -29,8 +29,8 @@ export const mapToRuntimeErrorAndThrow =
       : new RuntimeError(`${message}: ${thrown}`)
   }
 
-export async function ackMessage(message: TelegramMessage, ack: AckFunction) {
-  await ack({ tags: { id: `${message.message_id}` } })
+export async function ackMessage(message: TelegramMessage, ack: AckFunction, operation?: string) {
+  await ack({ tags: { id: `${message.message_id}`, ...(operation ? { 'botruntime.delivery.operation': operation } : {}) } })
 }
 
 export async function sendCard(

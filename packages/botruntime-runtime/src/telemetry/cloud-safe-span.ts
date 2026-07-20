@@ -9,7 +9,8 @@ import {
   ERROR_NAME_LIMIT_BYTES,
   ERROR_STACK_LIMIT_BYTES,
 } from './error-diagnostics'
-import { getSpanOmittedPayloads } from './trace-payloads'
+import { Spans } from './spans'
+import { getSpanOmittedPayloads, getSpanPayloads } from './trace-payloads'
 
 /**
  * The only runtime spans that may cross the managed-cloud boundary.
@@ -32,86 +33,24 @@ export const VORTEX_EXPORTED_SPANS = new Set([
   'cognitive.request',
 ])
 
-export const CLOUD_SAFE_ATTRIBUTE_KEYS = new Set([
-  'endpoint',
-  'action.type',
-  'ai.requested_model',
-  'ai.model',
-  'ai.provider',
-  'ai.stop_reason',
-  'ai.messages_count',
-  'ai.input_length',
-  'ai.input_tokens',
-  'ai.output_tokens',
-  'ai.cost',
-  'ai.latency_ms',
-  'integration',
-  'channel',
-  'ai.prompt_source',
-  'ai.prompt_category',
-  'autonomous.iteration',
-  'autonomous.status',
-  'autonomous.tool.name',
-  'autonomous.tool.object',
-  'autonomous.tool.status',
-  'workflow.name',
-  'http.status_code',
+const TRACE_ID = /^[0-9a-f]{32}$/
+const SPAN_ID = /^[0-9a-f]{16}$/
+const ZERO_TRACE_ID = '0'.repeat(32)
+const ZERO_SPAN_ID = '0'.repeat(16)
+const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+const CANONICAL_SPAN_ATTRIBUTES: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+  Object.values(Spans).map((definition) => [definition.name, new Set(Object.keys(definition.attributes))]),
+)
+const COMMON_SPAN_ATTRIBUTES = new Set([
+  'importance',
+  'adk.tier',
+  'remaining_time_ms',
   'payloads.omitted_count',
   'error.kind',
   'error.name',
   'error.code',
   'error.message',
   'error.stack',
-])
-
-const TRACE_ID = /^[0-9a-f]{32}$/
-const SPAN_ID = /^[0-9a-f]{16}$/
-const ZERO_TRACE_ID = '0'.repeat(32)
-const ZERO_SPAN_ID = '0'.repeat(16)
-const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+\-]{0,95}$/
-const CODE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/\-]{0,63}$/
-
-const COUNT_KEYS = new Set([
-  'ai.messages_count',
-  'ai.input_length',
-  'ai.input_tokens',
-  'ai.output_tokens',
-  'autonomous.iteration',
-])
-const MODEL_KEYS = new Set(['ai.requested_model', 'ai.model'])
-const CODE_KEYS = new Set([
-  'ai.provider',
-  'integration',
-  'channel',
-  'ai.prompt_source',
-  'ai.prompt_category',
-  'autonomous.tool.name',
-  'autonomous.tool.object',
-  'workflow.name',
-])
-const ENDPOINTS = new Set(['/v2/cognitive/generate-text', '/v1/chat/actions'])
-const ACTION_TYPES = new Set(['generateText', 'generateContent'])
-const STOP_REASONS = new Set(['stop', 'max_tokens', 'tool_calls', 'content_filter', 'other'])
-const AUTONOMOUS_STATUSES = new Set([
-  'pending',
-  'generation_error',
-  'execution_error',
-  'invalid_code_error',
-  'thinking_requested',
-  'callback_requested',
-  'exit_success',
-  'exit_error',
-  'aborted',
-])
-const TOOL_STATUSES = new Set(['think', 'success', 'error'])
-const ERROR_KINDS = new Set([
-  'disabled',
-  'payment_required',
-  'rate_limited',
-  'timeout',
-  'upstream',
-  'internal',
 ])
 const OTEL_SPAN_KINDS = new Set([
   SpanKind.INTERNAL,
@@ -128,59 +67,37 @@ function boundedInteger(value: AttributeValue, max: number): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max
 }
 
-function boundedNumber(value: AttributeValue, max: number): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max
-}
-
 function validString(value: AttributeValue, pattern: RegExp): value is string {
   return typeof value === 'string' && pattern.test(value)
 }
 
-function safeAttribute(key: string, value: AttributeValue): AttributeValue | undefined {
-  // Transport-only correlation: the server extracts this into its private
-  // conversation column and removes it from stored/public metadata. No other
-  // user/message/session identifier is allowed through this boundary.
-  if (key === 'conversationId') return validString(value, CORRELATION_ID) ? value : undefined
-  if (!CLOUD_SAFE_ATTRIBUTE_KEYS.has(key)) return undefined
+function validOtelAttribute(value: AttributeValue): boolean {
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (!Array.isArray(value)) return true
+  return value.every((item) => typeof item !== 'number' || Number.isFinite(item))
+}
 
+function safeAttribute(spanName: string, key: string, value: AttributeValue): AttributeValue | undefined {
+  const canonicalKeys = CANONICAL_SPAN_ATTRIBUTES.get(spanName)
+  if (!canonicalKeys?.has(key) && !COMMON_SPAN_ATTRIBUTES.has(key)) return undefined
+  if (key === 'conversationId' || key === 'userId' || key === 'messageId') {
+    return validString(value, CORRELATION_ID) ? value : undefined
+  }
   if (key === 'error.name') return boundedErrorString(value, ERROR_NAME_LIMIT_BYTES)
   if (key === 'error.code') return boundedErrorString(value, ERROR_CODE_LIMIT_BYTES)
   if (key === 'error.message') return boundedErrorString(value, ERROR_MESSAGE_LIMIT_BYTES)
   if (key === 'error.stack') return boundedErrorString(value, ERROR_STACK_LIMIT_BYTES)
 
-  if (COUNT_KEYS.has(key)) return boundedInteger(value, 1_000_000_000) ? value : undefined
-  if (MODEL_KEYS.has(key)) return validString(value, MODEL_ID) ? value : undefined
-  if (CODE_KEYS.has(key)) return validString(value, CODE_ID) ? value : undefined
-
-  switch (key) {
-    case 'endpoint':
-      return typeof value === 'string' && ENDPOINTS.has(value) ? value : undefined
-    case 'action.type':
-      return typeof value === 'string' && ACTION_TYPES.has(value) ? value : undefined
-    case 'ai.stop_reason':
-      return typeof value === 'string' && STOP_REASONS.has(value) ? value : undefined
-    case 'autonomous.status':
-      return typeof value === 'string' && AUTONOMOUS_STATUSES.has(value) ? value : undefined
-    case 'autonomous.tool.status':
-      return typeof value === 'string' && TOOL_STATUSES.has(value) ? value : undefined
-    case 'error.kind':
-      return typeof value === 'string' && ERROR_KINDS.has(value) ? value : undefined
-    case 'ai.cost':
-      return boundedNumber(value, 1_000_000) ? value : undefined
-    case 'ai.latency_ms':
-      return boundedInteger(value, 86_400_000) ? value : undefined
-    case 'http.status_code':
-      return boundedInteger(value, 599) && value >= 100 ? value : undefined
-    default:
-      return undefined
-  }
+  if (key === 'error.kind') return boundedErrorString(value, ERROR_CODE_LIMIT_BYTES)
+  if (key === 'payloads.omitted_count') return boundedInteger(value, 1_000_000_000) ? value : undefined
+  return validOtelAttribute(value) ? value : undefined
 }
 
-export function sanitizeCloudAttributes(attributes: Attributes): Attributes {
+export function sanitizeCloudAttributes(spanName: string, attributes: Attributes): Attributes {
   const safe: Attributes = {}
   for (const [key, value] of Object.entries(attributes)) {
     if (value === undefined) continue
-    const sanitized = safeAttribute(key, value)
+    const sanitized = safeAttribute(spanName, key, value)
     if (sanitized !== undefined) safe[key] = sanitized
   }
   return safe
@@ -239,8 +156,8 @@ function enrichErrorAttributes(span: ReadableSpan, attributes: Attributes): void
 }
 
 /**
- * Returns a structurally valid OTEL span containing only the managed-cloud
- * allowlist. Invalid or unapproved spans fail closed and are not exported.
+ * Returns a structurally valid OTEL span containing the canonical attributes
+ * declared by that runtime span. Invalid or unregistered spans fail closed.
  */
 export function sanitizeCloudSpan(span: ReadableSpan): ReadableSpan | null {
   if (!VORTEX_EXPORTED_SPANS.has(span.name)) return null
@@ -250,7 +167,10 @@ export function sanitizeCloudSpan(span: ReadableSpan): ReadableSpan | null {
   if (!context) return null
 
   const parent = span.parentSpanContext ? normalizedSpanContext(span.parentSpanContext) : undefined
-  const attributes = sanitizeCloudAttributes(span.attributes)
+  const attributes = sanitizeCloudAttributes(span.name, span.attributes)
+  for (const payload of getSpanPayloads(span)) {
+    if (CANONICAL_SPAN_ATTRIBUTES.get(span.name)?.has(payload.key)) attributes[payload.key] = payload.value
+  }
   const omittedPayloadCount = getSpanOmittedPayloads(span).length
   if (omittedPayloadCount > 0 && boundedInteger(omittedPayloadCount, 1_000_000_000)) {
     attributes['payloads.omitted_count'] = omittedPayloadCount
@@ -271,14 +191,14 @@ export function sanitizeCloudSpan(span: ReadableSpan): ReadableSpan | null {
     events: [],
     ended: span.ended,
     resource: emptyCloudResource,
-    instrumentationScope: { name: 'brt.cloud-safe' },
+    instrumentationScope: { name: 'brt.cloud' },
     droppedAttributesCount: 0,
     droppedEventsCount: 0,
     droppedLinksCount: 0,
   }
 }
 
-/** Applies the managed-cloud allowlist before OTLP encoding. */
+/** Applies the canonical runtime span schema before OTLP encoding. */
 export class CloudSafeSpanExporter implements SpanExporter {
   public constructor(private readonly delegate: SpanExporter) {}
 

@@ -4,6 +4,7 @@ import * as errors from '../errors'
 import { CloudCommand, type EvalCloudTarget } from './cloud-command'
 import { prepareHostedEvalManifest } from '../eval-manifest-prepare'
 import { aggregateRepeatedEvals, runWithConcurrency, type RepeatedEvalAttempt } from '../eval-repeat'
+import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 
 const POSITIVE_DECIMAL = /^[1-9][0-9]*$/
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
@@ -15,6 +16,30 @@ const MAX_DATABASE_ID = 9_223_372_036_854_775_807n
 const MAX_RUNS = 100
 const MAX_DURATION_MS = 86_400_000
 const POLL_INTERVAL_MS = 3_000
+
+const EVAL_DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
+  EVAL_CONTROL_FAILED:
+    'isolated development eval control failed; verify the dev tunnel and runtime authorization, then inspect the correlated trace',
+  CHAT_PAYLOAD_INVALID:
+    'message payload could not be decoded for eval grading; upgrade brt and @holocronlab/botruntime-evals together, rebuild the agent, then inspect the correlated trace',
+  CHAT_LISTENER_FAILED:
+    'the response listener stopped during the turn; check tunnel connectivity and inspect the correlated trace',
+  EVAL_RELATION_NOT_FOUND:
+    'the declared conversation relation did not resolve; verify its integration, channel, and tag selectors',
+  EVAL_RELATION_AMBIGUOUS:
+    'the declared conversation relation matched more than one conversation; make its tag selector unique',
+}
+
+const WORKFLOW_FAILURE_REASONS = {
+  EVAL_MANIFEST_MISSING: 'The requested eval manifest is unavailable',
+  EVAL_MANIFEST_SCHEMA_INCOMPATIBLE: 'The eval manifest schema is incompatible with this runtime',
+  EVAL_MANIFEST_HASH_MISMATCH: 'The eval manifest content failed integrity verification',
+  DELIVERY_UNAVAILABLE: 'Hosted eval workflow delivery unavailable',
+  WORKFLOW_FAILED: 'The hosted eval workflow failed; inspect runtime traces for details',
+} as const
+
+type WorkflowFailureCode = keyof typeof WORKFLOW_FAILURE_REASONS
+type WorkflowFailure = { code: WorkflowFailureCode; reason: string }
 
 const RUN_STATUSES = ['pending', 'running', 'completed', 'failed'] as const
 const WORKFLOW_STATUSES = [
@@ -54,6 +79,8 @@ const ASSERTION_KINDS = [
   'delivered_to',
   'not_delivered_to',
   'conversation_mode',
+  'table_row_exists',
+  'table_row_count',
   'outcome',
   'unknown',
 ] as const
@@ -147,16 +174,20 @@ abstract class EvalCloudCommand<C extends EvalDefinition> extends CloudCommand<C
       if (this.argv.verbose) {
         if (entry.errorCode && entry.errorPhase) {
           this.logger.log(
-            `    diagnostic code=${entry.errorCode}  phase=${entry.errorPhase}  turn=${entry.errorTurnIndex ?? '-'}`
+            `    diagnostic code=${entry.errorCode}  kind=${entry.errorKind ?? '-'}  phase=${entry.errorPhase}  turn=${entry.errorTurnIndex ?? '-'}`
           )
+          const hint = EVAL_DIAGNOSTIC_HINTS[entry.errorCode]
+          if (hint) this.logger.log(`    hint: ${hint}`)
         }
         const correlatedResult = entry.results.find((result) => result.conversationId)
         const correlation = entry.conversationId
           ? { conversationId: entry.conversationId, traceId: entry.traceId }
           : correlatedResult
         if (correlation?.conversationId) {
+          const targetFlag = target.output.environment === 'development' ? ' --dev' : ''
+          const traceFlag = correlation.traceId ? ` --trace-id ${correlation.traceId}` : ''
           this.logger.log(
-            `    inspect: brt traces --conversation-id ${correlation.conversationId}${correlation.traceId ? `  traceId=${correlation.traceId}` : ''}`
+            `    inspect: brt traces${targetFlag}${traceFlag} --conversation-id ${correlation.conversationId}`
           )
         }
         for (const result of entry.results) {
@@ -252,6 +283,8 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       this.argv.type === undefined
         ? undefined
         : requireEnum(this.argv.type, ['capability', 'regression'] as const, '--type')
+    this.logger.debug('Checking platform toolchain compatibility')
+    assertPlatformToolchainCompatible(inspectPlatformToolchain(this.projectDir))
     this.logger.debug('Resolving hosted eval target')
     const target = await this.resolveEvalTarget()
     if ('runtimeBotId' in target) {
@@ -266,7 +299,7 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       workspaceId: target.output.workspaceId,
       client: target.client.sdkClient(apiBotId, target.output.workspaceId),
     })
-    this.logger.debug(`Hosted eval manifest ready (${manifest.manifestFileId})`)
+    this.logger.debug(`Hosted eval manifest ready (${manifest.manifestId})`)
 
     const filter = {
       ...(name !== undefined ? { names: [name] } : {}),
@@ -276,7 +309,8 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
     const input = {
       ...(Object.keys(filter).length > 0 ? { filter } : {}),
       runType: 'manual',
-      evalManifestId: manifest.manifestFileId,
+      evalManifestId: manifest.manifestId,
+      evalManifestFileId: manifest.manifestFileId,
       ...(judgeModel !== undefined ? { judgeModel } : {}),
     }
     const attempts = await runWithConcurrency(
@@ -339,37 +373,41 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
 
     const deadline = Date.now() + timeout
     while (Date.now() <= deadline) {
-      const current = parseWorkflowResponse(await target.client.getEvalWorkflow(created.id, target.runtimeHeader))
-      if (current.status === 'completed') {
-        const completion = parseWorkflowCompletion(current.output)
-        const detail = parseEvalRunDetail(await target.client.getEvalRun(completion.runId, target.runtimeHeader))
-        const passed = !(
-          completion.failed > 0 ||
-          detail.status === 'failed' ||
-          detail.entries.some((item) => item.passed === false)
+      try {
+        const current = parseWorkflowResponse(
+          await target.client.getEvalWorkflow(created.id, target.runtimeHeader, deadline)
         )
-        return {
-          completion,
-          detail,
-          summary: {
-            id: detail.id,
-            passed,
-            duration: completion.duration,
-            failedAssertions: detail.entries.flatMap((entry) =>
-              entry.results.filter((result) => !result.passed && !result.skipped).map((result) => result.assertionKind)
-            ),
-          },
+        if (current.status === 'completed') {
+          const completion = parseWorkflowCompletion(current.output)
+          const detail = parseEvalRunDetail(
+            await target.client.getEvalRun(completion.runId, target.runtimeHeader, deadline)
+          )
+          return buildEvalAttempt(detail, completion)
         }
-      }
-      if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
-        if (current.failureCode === 'delivery_unavailable') {
+        if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
+          const linked = await this.findLinkedEvalRun(target, created.id, deadline)
+          if (linked) return buildEvalAttempt(linked, completionFromDetail(linked))
+
+          const failure = current.failure
+          if (this.argv.json) {
+            this.logger.json({
+              schemaVersion: 1,
+              target: target.output,
+              workflow: { id: current.id, status: current.status, failure },
+            })
+          }
+          if (failure.code === 'DELIVERY_UNAVAILABLE') {
+            throw new errors.BotpressCLIError(
+              `${failure.code}: ${failure.reason}; verify that \`brt dev\` is still running and the development tunnel is connected, then retry`
+            )
+          }
           throw new errors.BotpressCLIError(
-            'hosted eval workflow delivery unavailable; verify that `brt dev` is still running and the development tunnel is connected, then retry'
+            `${failure.code}: ${failure.reason}; hosted eval workflow ${current.status}, inspect runtime traces and retry`
           )
         }
-        throw new errors.BotpressCLIError(
-          `hosted eval workflow ${current.status}; redeploy the bot to refresh its eval manifest, then inspect runtime traces and retry`
-        )
+      } catch (thrown) {
+        if (!(thrown instanceof errors.TransientRequestError)) throw thrown
+        this.logger.debug(`Hosted eval terminal polling remains transiently unavailable: ${thrown.message}`)
       }
       await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
     }
@@ -377,6 +415,66 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       `hosted eval workflow timed out after ${timeout}ms; inspect \`brt eval runs --latest\` and runtime traces before retrying`
     )
   }
+
+  private async findLinkedEvalRun(
+    target: EvalTarget,
+    workflowId: string,
+    deadline: number
+  ): Promise<EvalRunDetail | undefined> {
+    try {
+      const page = parseEvalRunPage(
+        await target.client.listEvalRuns(target.selector, { limit: MAX_RUNS }, target.runtimeHeader, deadline),
+        MAX_RUNS
+      )
+      const summary = page.runs.find((run) => run.workflowId === workflowId)
+      if (!summary) return undefined
+      return parseEvalRunDetail(await target.client.getEvalRun(summary.id, target.runtimeHeader, deadline))
+    } catch (thrown) {
+      if (thrown instanceof errors.TransientRequestError) throw thrown
+      // The linked-run lookup is recovery-only. Preserve the workflow's typed,
+      // sanitized terminal failure when an older server does not support it.
+      return undefined
+    }
+  }
+}
+
+function buildEvalAttempt(
+  detail: EvalRunDetail,
+  completion: ReturnType<typeof parseWorkflowCompletion>
+): {
+  completion: ReturnType<typeof parseWorkflowCompletion>
+  detail: EvalRunDetail
+  summary: RepeatedEvalAttempt
+} {
+  const passed = !(
+    completion.failed > 0 ||
+    detail.status === 'failed' ||
+    detail.entries.some((item) => item.passed === false)
+  )
+  return {
+    completion,
+    detail,
+    summary: {
+      id: detail.id,
+      passed,
+      duration: completion.duration,
+      failedAssertions: detail.entries.flatMap((entry) =>
+        entry.results.filter((result) => !result.passed && !result.skipped).map((result) => result.assertionKind)
+      ),
+    },
+  }
+}
+
+function completionFromDetail(detail: EvalRunDetail): ReturnType<typeof parseWorkflowCompletion> {
+  const passed = detail.entries.filter((entry) => entry.passed === true).length
+  const failed = detail.entries.filter((entry) => entry.passed === false).length
+  const startedAt = detail.startedAt ? Date.parse(detail.startedAt) : Number.NaN
+  const completedAt = detail.completedAt ? Date.parse(detail.completedAt) : Number.NaN
+  const duration =
+    Number.isFinite(startedAt) && Number.isFinite(completedAt)
+      ? Math.min(MAX_DURATION_MS, Math.max(0, completedAt - startedAt))
+      : 0
+  return { runId: detail.id, passed, failed, total: detail.entries.length, duration }
 }
 
 function parseEvalRunPage(value: unknown, limit: number): { runs: EvalRunSummary[]; nextToken?: string } {
@@ -499,7 +597,7 @@ function parseWorkflowResponse(value: unknown): {
   id: string
   status: (typeof WORKFLOW_STATUSES)[number]
   output: Record<string, unknown>
-  failureCode?: 'delivery_unavailable'
+  failure: WorkflowFailure
 } {
   if (!isRecord(value) || !isRecord(value.workflow)) {
     throw new errors.BotpressCLIError('hosted eval workflow response is malformed')
@@ -511,9 +609,29 @@ function parseWorkflowResponse(value: unknown): {
     id: requireIdentifier(value.workflow.id, 'workflow id', 128),
     status: requireEnum(value.workflow.status, WORKFLOW_STATUSES, 'workflow status'),
     output: value.workflow.output,
-    ...(value.workflow.failureReason === 'workflow delivery unavailable'
-      ? { failureCode: 'delivery_unavailable' as const }
-      : {}),
+    failure: sanitizeWorkflowFailure(value.workflow.failureReason),
+  }
+}
+
+function sanitizeWorkflowFailure(value: unknown): WorkflowFailure {
+  if (value === 'workflow delivery unavailable') {
+    return {
+      code: 'DELIVERY_UNAVAILABLE',
+      reason: WORKFLOW_FAILURE_REASONS.DELIVERY_UNAVAILABLE,
+    }
+  }
+  if (typeof value === 'string') {
+    for (const code of [
+      'EVAL_MANIFEST_MISSING',
+      'EVAL_MANIFEST_SCHEMA_INCOMPATIBLE',
+      'EVAL_MANIFEST_HASH_MISMATCH',
+    ] as const) {
+      if (value.startsWith(`${code}:`)) return { code, reason: WORKFLOW_FAILURE_REASONS[code] }
+    }
+  }
+  return {
+    code: 'WORKFLOW_FAILED',
+    reason: WORKFLOW_FAILURE_REASONS.WORKFLOW_FAILED,
   }
 }
 

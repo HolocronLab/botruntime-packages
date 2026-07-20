@@ -7,7 +7,12 @@ export async function prepareHostedEvalManifest(input: {
   botId: string
   workspaceId: string
   client: Client
-}): Promise<{ manifestFileId: string; fixtures: number; evals: number }> {
+}): Promise<{
+  manifestId: string
+  manifestFileId: string
+  fixtures: number
+  evals: number
+}> {
   const definitions = await loadEvalsFromDir(`${input.projectDir}/evals`)
   if (definitions.length === 0) {
     throw new Error(`No eval definitions found in ${input.projectDir}/evals.`)

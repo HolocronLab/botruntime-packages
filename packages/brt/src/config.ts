@@ -115,6 +115,16 @@ const deployWatch = {
   default: false,
 } satisfies CommandOption
 
+// DEVLP-173: brt deploy --adk runs the project's own `tsc --noEmit` before
+// bundling so a tool-props type error blocks the deploy instead of surfacing at
+// runtime. This is a deliberate, logged escape hatch — never a silent skip.
+const deployNoTypecheck = {
+  type: 'boolean',
+  description:
+    'Skip the pre-deploy TypeScript typecheck for an ADK agent (brt deploy --adk only). A bot with a type error can then deploy and fail at runtime instead.',
+  default: false,
+} satisfies CommandOption
+
 // Cloud-backed bot commands (brt config/secret/link) — see
 // src/api/cloudapi-client.ts and src/cloud-project-link.ts. Agent projects use
 // agent.json/agent.local.json as canonical coordinates; classic projects use
@@ -158,12 +168,12 @@ const cloudDevTarget = {
 
 const cloudLogsSince = {
   type: 'string',
-  description: 'Start of the time range to fetch logs from, RFC3339 (default: 1 hour ago)',
+  description: 'Start of the time range, RFC3339 or look-back duration such as 10m or 1h (default: 1 hour ago)',
 } satisfies CommandOption
 
 const cloudLogsUntil = {
   type: 'string',
-  description: 'End of the time range to fetch logs from, RFC3339',
+  description: 'End of the time range, RFC3339 or look-back duration such as 30s or 5m',
 } satisfies CommandOption
 
 const cloudLogsLevel = {
@@ -206,6 +216,12 @@ const cloudTracesLimit = {
 const cloudTracesNextToken = {
   type: 'string',
   description: 'Resume listing from this server-issued pagination cursor',
+} satisfies CommandOption
+
+const cloudTracesIncludeLlm = {
+  type: 'boolean',
+  description: 'Include canonical LLM request and response content in CLI output',
+  default: false,
 } satisfies CommandOption
 
 const cloudTracesTokens = {
@@ -502,6 +518,7 @@ const deploySchema = {
     default: false,
   },
   watch: deployWatch,
+  noTypecheck: deployNoTypecheck,
   local: {
     ...cloudLocal,
     description: 'For --adk, use the strict local agent link; classic deploy does not use this flag',
@@ -758,26 +775,6 @@ const checkSchema = {
   ...projectSchema,
 } satisfies CommandSchema
 
-const chatSchema = {
-  ...globalSchema,
-  ...credentialsSchema,
-  chatApiUrl: {
-    type: 'string',
-    description: 'The URL of the chat server',
-  },
-  botId: {
-    type: 'string',
-    positional: true,
-    idx: 0,
-    description: 'The bot ID to chat with',
-  },
-  protocol: {
-    choices: ['polling'] satisfies ReadonlyArray<ServerEventsProtocol>,
-    default: 'polling' as const,
-    description: 'The Chat response transport',
-  },
-} satisfies CommandSchema
-
 const listProfilesSchema = {
   ...globalSchema,
   displayToken: {
@@ -828,6 +825,25 @@ const cloudProjectSchema = {
   local: cloudLocal,
 } satisfies CommandSchema
 
+const chatSchema = {
+  ...cloudProjectSchema,
+  botId: {
+    ...cloudBotIdOverride,
+    positional: true,
+    idx: 0,
+  },
+  dev: cloudDevTarget,
+  chatApiUrl: {
+    type: 'string',
+    description: 'The URL of the chat server',
+  },
+  protocol: {
+    choices: ['polling'] satisfies ReadonlyArray<ServerEventsProtocol>,
+    default: 'polling' as const,
+    description: 'The Chat response transport',
+  },
+} satisfies CommandSchema
+
 const cloudConfigSetSchema = {
   ...cloudProjectSchema,
   dev: cloudDevTarget,
@@ -875,12 +891,13 @@ const cloudLinkSchema = {
   },
 } satisfies CommandSchema
 
-// brt logs [--bot-id] [--since] [--until] [--level] [--grep] [--conversation-id]
-// [--follow] [--limit] — GET /v1/admin/bots/{id}/logs, authenticated with the
-// selected workspace/profile PAT rather than the per-bot key. Bot ID resolution
-// mirrors other cloud-project commands: --bot-id overrides the canonical link.
+// brt logs [--bot-id] [--dev] [--since] [--until] [--level] [--grep] [--conversation-id]
+// [--follow] [--limit] — workspace-scoped logs authenticated with the selected
+// profile PAT rather than the per-bot key. Development resolves and attests the
+// opaque runtime target before reading the canonical numeric bot.
 const logsSchema = {
   ...cloudProjectSchema,
+  dev: cloudDevTarget,
   since: cloudLogsSince,
   until: cloudLogsUntil,
   level: cloudLogsLevel,
@@ -909,11 +926,11 @@ const tracesSchema = {
   until: cloudTracesUntil,
   limit: cloudTracesLimit,
   nextToken: cloudTracesNextToken,
+  includeLlm: cloudTracesIncludeLlm,
 } satisfies CommandSchema
 
-// brt conversations list|show — cloud metadata-only conversation diagnostics.
-// List projects out backend tags; show builds a privacy-safe timeline only from
-// the typed trace projection and deliberately has no include-llm bypass.
+// brt conversations list|show — compact conversation diagnostics. Detailed
+// canonical LLM content remains available through `brt traces --include-llm`.
 const conversationsListSchema = {
   ...cloudProjectSchema,
   tokens: cloudConversationsTokens,
@@ -927,6 +944,25 @@ const conversationsShowSchema = {
   ...cloudProjectSchema,
   conversationId: cloudConversationId,
   dev: cloudDevTarget,
+} satisfies CommandSchema
+
+// brt bots versions list|deploy (DEVLP-166) — deploy-version rollback DX. No
+// `dev` flag: unlike logs/traces/conversations, the server mounts these routes
+// bot-scoped only (mw+mb, no workspace-PAT alternative — see cloudapi's
+// routes_admin.go), so there is no dev-tunnel target to resolve against.
+const botVersionsListSchema = {
+  ...cloudProjectSchema,
+} satisfies CommandSchema
+
+const botVersionsDeploySchema = {
+  ...cloudProjectSchema,
+  versionId: {
+    type: 'string',
+    description: 'The version ID to make current (from `brt bots versions list`)',
+    demandOption: true,
+    positional: true,
+    idx: 0,
+  },
 } satisfies CommandSchema
 
 const evalRunSchema = {
@@ -952,7 +988,7 @@ const evalRunsSchema = {
   nextToken: cloudEvalRunsNextToken,
 } satisfies CommandSchema
 
-// brt integrations install|register use the project-target Cloud API channel.
+// brt integrations install|register|upgrade use the project-target Cloud API channel.
 // Publishing is intentionally different: it is an integration-only alias for
 // the canonical Botpress-shaped deploy path so catalog metadata, runtime
 // definition, bundle, ownership, visibility, and dry-run validation are one
@@ -971,6 +1007,22 @@ const cloudIntegrationRegisterSchema = {
   ...cloudProjectSchema,
   dev: cloudDevTarget,
   webhookId: cloudWebhookId,
+} satisfies CommandSchema
+
+const cloudIntegrationUpgradeSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  ref: cloudIntegrationRef,
+  alias: {
+    type: 'string',
+    description:
+      'Effective alias of the one existing installation to upgrade; explicit stored aliases take priority, and an empty stored alias resolves by integration name (defaults to the target integration name)',
+  },
+  wait: {
+    type: 'boolean',
+    description: 'Reserved for runtime readiness; currently rejected before mutation because Cloud does not expose it',
+    default: false,
+  },
 } satisfies CommandSchema
 
 const cloudIntegrationPublishSchema = {
@@ -1035,9 +1087,12 @@ export const schemas = {
   traces: tracesSchema,
   conversationsList: conversationsListSchema,
   conversationsShow: conversationsShowSchema,
+  botVersionsList: botVersionsListSchema,
+  botVersionsDeploy: botVersionsDeploySchema,
   evalRun: evalRunSchema,
   evalRuns: evalRunsSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
+  cloudIntegrationUpgrade: cloudIntegrationUpgradeSchema,
   cloudIntegrationPublish: cloudIntegrationPublishSchema,
 } as const

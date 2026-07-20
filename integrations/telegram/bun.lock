@@ -5,8 +5,8 @@
     "": {
       "name": "@botruntime/telegram",
       "dependencies": {
-        "@holocronlab/botruntime-client": "^1.46.0",
-        "@holocronlab/botruntime-sdk": "^6.13.3",
+        "@holocronlab/botruntime-client": "^1.46.6",
+        "@holocronlab/botruntime-sdk": "^6.13.6",
         "@holocronlab/botruntime-zui": "^2.3.0",
         "https-proxy-agent": "^9.1.0",
         "lodash": "^4.17.21",
@@ -24,6 +24,9 @@
         "typescript": "^5.9.3",
       },
     },
+  },
+  "patchedDependencies": {
+    "node-fetch@2.7.0": "patches/node-fetch@2.7.0.patch",
   },
   "packages": {
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
@@ -148,7 +151,7 @@
 
     "@holocronlab/botruntime-chat": ["@holocronlab/botruntime-chat@0.5.6", "", { "dependencies": { "axios": "1.2.5", "browser-or-node": "^2.1.1", "event-source-polyfill": "^1.0.31", "eventsource": "^2.0.2", "jsonwebtoken": "^9.0.2", "qs": "^6.11.0", "verror": "^1.10.1", "zod": "^3.21.4" } }, "sha512-eua9M5VwfCggLkVEmQXJUgSbYrCPorS4Tdpup+aNh2YaBGCeENxgsvTtuElCUqwlbrld6vS3KboFxBPw5Poj5Q=="],
 
-    "@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+    "@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.6", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-JUdeYpn9yRb2SVQXwGBzwgesHBC0dZzqpsma/AGSzPcemt0eWS4+IQZWul3OGGGbtkpvKut3o3ColFjF+nLGxA=="],
 
     "@holocronlab/botruntime-cognitive": ["@holocronlab/botruntime-cognitive@0.6.1", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.3", "axios": "^1.7.9", "exponential-backoff": "^3.1.1", "nanoevents": "^9.1.0" } }, "sha512-MjSoKkv5kGUj2bpXrIxQ5PL5KPC+wZaAgzom43v0OVDD59yGkfMwIQdzzFpRnGUuekaWFf5KY9BnSQo5r5Gpow=="],
 
@@ -162,7 +165,7 @@
 
     "@holocronlab/botruntime-runtime": ["@holocronlab/botruntime-runtime@2.1.1", "", { "dependencies": { "@holocronlab/botruntime-chat": "^0.5.6", "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-cognitive": "^0.6.1", "@holocronlab/botruntime-const": "^0.1.1", "@holocronlab/botruntime-evals": "^2.1.0", "@holocronlab/botruntime-llmz": "^0.0.85", "@holocronlab/botruntime-sdk": "^6.13.4", "@holocronlab/botruntime-thicktoken": "^2.0.0", "@holocronlab/botruntime-zai": "^2.7.1", "@holocronlab/botruntime-zui": "^2.3.0", "@opentelemetry/api": "^1.9.0", "@opentelemetry/api-logs": "^0.213.0", "@opentelemetry/context-async-hooks": "^2.2.0", "@opentelemetry/core": "^2.2.0", "@opentelemetry/exporter-logs-otlp-http": "^0.213.0", "@opentelemetry/exporter-trace-otlp-http": "^0.213.0", "@opentelemetry/instrumentation": "^0.208.0", "@opentelemetry/instrumentation-http": "^0.208.0", "@opentelemetry/resources": "^2.2.0", "@opentelemetry/sdk-logs": "^0.213.0", "@opentelemetry/sdk-trace-base": "^2.2.0", "@opentelemetry/sdk-trace-node": "^2.2.0", "@opentelemetry/semantic-conventions": "^1.38.0", "axios": "^1.13.2", "bytes": "^3.1.2", "dedent": "^1.7.1", "fast-safe-stringify": "^2.1.1", "fast-xml-parser": "^5.3.3", "glob": "^11.1.0", "lodash": "^4.17.21", "ms": "^2.1.3", "object-sizeof": "^2.6.5", "p-limit": "^7.3.0", "pretty-bytes": "^7.0.1", "ulid": "^3.0.2", "undici": "^7.16.0" }, "peerDependencies": { "@types/react": ">=18", "typescript": ">=4.5.0" } }, "sha512-pG+RvPhDvcrzQNSA3J0mlpeMCIrpQCg8kLACTn1n11YnMTmngagb597kWimK9/O/8Qb0p7nGH4Kk8pFSXVSvmw=="],
 
-    "@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.4", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-6tcw9e4pTguwxOSdghVGbBwVyAet6E8KviE9PdkhbiyWZKt+00Fm0Z7OP8CoQ44UeL4rqJCV1AVb1Ju7XA++mA=="],
+    "@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.6", "", { "dependencies": { "@holocronlab/botruntime-client": "1.46.6", "@holocronlab/botruntime-zui": "2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-l8BCUrathvGlTjuUod0RXSZ9hPwITDl9AZE5Elqh92TRT+o6V3LlZsBVGg/gGdexfUD5B2Xc3io9WBxervefcw=="],
 
     "@holocronlab/botruntime-thicktoken": ["@holocronlab/botruntime-thicktoken@2.0.0", "", {}, "sha512-Pq51SO0WpuBRGPB/y86gLsw9GBnxlDZkRkCSTTmbH2LbEfci/ERjgiudyre+GmrkOWNKQxwkvqad8cKnwo+uag=="],
 
@@ -1192,11 +1195,29 @@
 
     "@babel/template/@babel/types": ["@babel/types@7.29.7", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA=="],
 
+    "@holocronlab/botruntime-adk/@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+
+    "@holocronlab/botruntime-adk/@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.4", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-6tcw9e4pTguwxOSdghVGbBwVyAet6E8KviE9PdkhbiyWZKt+00Fm0Z7OP8CoQ44UeL4rqJCV1AVb1Ju7XA++mA=="],
+
     "@holocronlab/botruntime-chat/axios": ["axios@1.2.5", "", { "dependencies": { "follow-redirects": "^1.15.0", "form-data": "^4.0.0", "proxy-from-env": "^1.1.0" } }, "sha512-9pU/8mmjSSOb4CXVsvGIevN+MlO/t9OWtKadTaLuN85Gge3HGorUckgp8A/2FH4V4hJ7JuQ3LIeI7KAV9ITZrQ=="],
+
+    "@holocronlab/botruntime-cognitive/@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+
+    "@holocronlab/botruntime-evals/@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
 
     "@holocronlab/botruntime-jex/node-fetch": ["node-fetch@3.3.2", "", { "dependencies": { "data-uri-to-buffer": "^4.0.0", "fetch-blob": "^3.1.4", "formdata-polyfill": "^4.0.10" } }, "sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA=="],
 
+    "@holocronlab/botruntime-llmz/@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+
     "@holocronlab/botruntime-llmz/ulid": ["ulid@2.4.0", "", { "bin": { "ulid": "bin/cli.js" } }, "sha512-fIRiVTJNcSRmXKPZtGzFQv9WRrZ3M9eoptl/teFJvjOzmpU+/K/JH6HZ8deBfb5vMEpicJcLn7JmvdknlMq7Zg=="],
+
+    "@holocronlab/botruntime-runtime/@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+
+    "@holocronlab/botruntime-runtime/@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.4", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-6tcw9e4pTguwxOSdghVGbBwVyAet6E8KviE9PdkhbiyWZKt+00Fm0Z7OP8CoQ44UeL4rqJCV1AVb1Ju7XA++mA=="],
+
+    "@holocronlab/brt/@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+
+    "@holocronlab/brt/@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.4", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-6tcw9e4pTguwxOSdghVGbBwVyAet6E8KviE9PdkhbiyWZKt+00Fm0Z7OP8CoQ44UeL4rqJCV1AVb1Ju7XA++mA=="],
 
     "@opentelemetry/exporter-logs-otlp-http/@opentelemetry/core": ["@opentelemetry/core@2.6.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.29.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0 <1.10.0" } }, "sha512-HLM1v2cbZ4TgYN6KEOj+Bbj8rAKriOdkF9Ed3tG25FoprSiQl7kYc+RRT6fUZGOvx0oMi5U67GoFdT+XUn8zEg=="],
 

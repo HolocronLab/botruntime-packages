@@ -24,9 +24,16 @@ import { cloudInfo } from '../cloud-io'
 import * as cloudProfileResolve from '../cloud-profile-resolve'
 import * as cloudLink from '../cloud-project-link'
 import * as errors from '../errors'
+import {
+  parseServerRuntimeContract,
+  RuntimeContractError,
+  type RuntimeContractReadiness,
+} from '../runtime-contract'
+import { assertPlatformToolchainCompatible, inspectPlatformToolchain } from '../toolchain-contract'
 import { resolveDevBotTarget, type DevBotTarget } from '../dev-target'
-import { buildDevWorkerEnvironment } from '../dev-worker-env'
+import { buildDevWorkerEnvironment, fetchDevConfigVars } from '../dev-worker-env'
 import { DevTraceIngestServer } from '../dev-trace-ingest'
+import { formatTunnelFailure, isTunnelUnavailableStatus } from '../dev-tunnel-diagnostics'
 import * as tables from '../tables'
 import type { CommandArgv } from '../typings'
 import * as utils from '../utils'
@@ -49,9 +56,18 @@ function developmentProductionTags(
   productionBotId: string | number | undefined
 ): Record<string, string> | undefined {
   // This tag belongs to botruntime's grouping contract, not the upstream Botpress API.
-  if (!apiUrl || agentLink.isBotpressCloudHost(apiUrl) || productionBotId === undefined) return undefined
+  if (!apiUrl || agentLink.isBotpressCloudHost(apiUrl)) return undefined
+  if (productionBotId === undefined) {
+    throw new errors.BotpressCLIError(
+      'botruntime Development requires a linked Production target; run `brt link --bot-id <production-runtime-id> --key-stdin` first'
+    )
+  }
   const value = String(productionBotId)
-  if (!/^[1-9][0-9]*$/.test(value)) return undefined
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new errors.BotpressCLIError(
+      `botruntime Production target must be a positive numeric runtime ID, got "${value}"; repair the project with brt link`
+    )
+  }
   return { [PRODUCTION_BOT_ID_TAG]: value }
 }
 
@@ -288,7 +304,18 @@ function parseReadinessProjection(
   throw readinessContractError(`${path}.authority must be authoritative or unknown`)
 }
 
-function parseCloudDependencyReadiness(bot: DevBotReadinessBot): CloudDependencyReadiness {
+function parseRuntimeContract(value: unknown): RuntimeContractReadiness {
+  try {
+    return parseServerRuntimeContract(value)
+  } catch (thrown) {
+    if (thrown instanceof RuntimeContractError) throw readinessContractError(thrown.message)
+    throw thrown
+  }
+}
+
+function parseCloudDependencyReadiness(
+  bot: DevBotReadinessBot
+): CloudDependencyReadiness & { runtimeContract: RuntimeContractReadiness } {
   if (!isRecord(bot.devReadiness) || bot.devReadiness.schemaVersion !== 1) {
     throw readinessContractError('schemaVersion must equal 1')
   }
@@ -327,6 +354,7 @@ function parseCloudDependencyReadiness(bot: DevBotReadinessBot): CloudDependency
     ),
     plugins: parseReadinessProjection(bot.devReadiness.plugins, 'bot.devReadiness.plugins', pluginItems),
     lastDevDeployment,
+    runtimeContract: parseRuntimeContract(bot.devReadiness.runtimeContract),
   }
 }
 
@@ -375,6 +403,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // and run that bot through the dev-bot/tunnel path. Cloud deployment lives
     // exclusively under the explicitly named `brt deploy --adk` command.
     if (adkBundle.isAgentProject(this.projectPaths.abs.workDir)) {
+      const toolchain = inspectPlatformToolchain(this.projectPaths.abs.workDir)
+      assertPlatformToolchainCompatible(toolchain)
       return this._runAgentTunnelDev()
     }
 
@@ -399,40 +429,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       this._deployedIntegrationName = handleResult.definition.name
     }
 
-    let env: Record<string, string> = Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    )
-    if (this._initialDef.type === 'integration') {
-      env = { ...env, BP_API_URL: api.url, BP_TOKEN: api.token }
-    }
-
-    const defaultPort = this._initialDef.type === 'integration' ? DEFAULT_INTEGRATION_PORT : DEFAULT_BOT_PORT
-    if (this._initialDef.type === 'integration' || this._initialDef.type === 'bot') {
-      const knownSecrets = await this._readKnownSecretsFromCache()
-      let secretEnvVariables = await this.promptSecrets(this._initialDef.definition, this.argv, {
-        knownSecrets: Object.keys(knownSecrets),
-        formatEnv: true,
-      })
-      secretEnvVariables = {
-        ...this._applyPrefixToSecrets(knownSecrets),
-        ...secretEnvVariables,
-      }
-      const nonNullSecretEnvVariables = utils.records.filterValues(secretEnvVariables, utils.guards.is.notNull)
-
-      if (!this.argv.noSecretCaching) {
-        await this._writeKnownSecretsToCache(secretEnvVariables)
-      }
-
-      env = { ...env, ...nonNullSecretEnvVariables }
-    }
-
-    const port = this.argv.port ?? defaultPort
-
-    const urlParseResult = utils.url.parse(this.argv.tunnelUrl)
-    if (urlParseResult.status === 'error') {
-      throw new errors.BotpressCLIError(`Invalid tunnel URL: ${urlParseResult.error}`)
-    }
-
+    // Resolved here (ahead of the secrets block below) purely so the dev bot's own
+    // runtime id — needed to look up its already-set CLOUD config vars before the
+    // required-secret validation below — is known early. Only the id/cache-persist
+    // step moves up; tunnel URL parsing/formatting stays where it was.
     const cachedTunnelId = await this.projectCache.get('tunnelId')
 
     let tunnelId: string
@@ -446,6 +446,23 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     if (cachedTunnelId !== tunnelId) {
       await this.projectCache.set('tunnelId', tunnelId)
+    }
+
+    let env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    )
+    if (this._initialDef.type === 'integration') {
+      env = { ...env, BP_API_URL: api.url, BP_TOKEN: api.token }
+    }
+
+    const defaultPort = this._initialDef.type === 'integration' ? DEFAULT_INTEGRATION_PORT : DEFAULT_BOT_PORT
+    env = { ...env, ...(await this._resolveDevSecretEnvVariables(api, tunnelId)) }
+
+    const port = this.argv.port ?? defaultPort
+
+    const urlParseResult = utils.url.parse(this.argv.tunnelUrl)
+    if (urlParseResult.status === 'error') {
+      throw new errors.BotpressCLIError(`Invalid tunnel URL: ${urlParseResult.error}`)
     }
 
     const { url: parsedTunnelUrl } = urlParseResult
@@ -462,7 +479,10 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     })
 
     let worker: Worker | undefined = undefined
-    const traceIngest = this._initialDef.type === 'bot' ? await DevTraceIngestServer.start() : undefined
+    const traceIngest =
+      this._initialDef.type === 'bot'
+        ? await DevTraceIngestServer.start({ workerLogsToStderr: Boolean(this.argv.json) })
+        : undefined
 
     const supervisor = new utils.tunnel.TunnelSupervisor(wsTunnelUrl, tunnelId, this.logger)
     supervisor.events.on('connected', ({ tunnel }) => {
@@ -737,8 +757,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     let target: DevBotTarget
     if (bot && productionTags) {
-      // botruntime createBot is idempotent by tunnel ID, so this restores the
-      // production link without replacing the dev runtime or its history.
+      // botruntime createBot is idempotent by tunnel ID. Repeating it proves
+      // that the cached Development still belongs to this Production project.
       const response = await api.client
         .createBot({
           dev: true,
@@ -801,6 +821,9 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private async _runAgentTunnelDev(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const watchEnabled = this.argv.watch !== false
+    const assertCurrentToolchain = (): void => {
+      assertPlatformToolchainCompatible(inspectPlatformToolchain(dir))
+    }
     const installer = this._buildAdkDependencyInstaller()
     const credentials = await this._resolveAgentDevConnection(dir)
     const devTarget = await this._ensureAgentDevTarget(dir, credentials)
@@ -842,6 +865,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // Initial generation fails loudly (never a silent no-op): a broken agent
     // project should stop `brt dev` outright instead of starting a tunnel dev
     // session against a bot that was never successfully generated.
+    assertCurrentToolchain()
     const botPath = await adkBundle.generateAgentBot(dir, installer, generationOptions()).catch((thrown) => {
       throw errors.BotpressCLIError.wrap(thrown, 'agent dev: initial bot generation failed')
     })
@@ -851,19 +875,28 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     // persisted dev bot's tunnel is reused instead of a fresh uuid being minted.
     adkDevId.restoreDevTunnelId(botPath, this.logger)
 
-    let regenerating = false
     let regenDirty = false
+    let dependencySnapshotFingerprint = adkBundle.agentDependencySnapshotBuildFingerprint(
+      dir,
+      ADK_DEV_DEPENDENCY_ENV
+    )
+    let queuedDependencySnapshotFingerprint = dependencySnapshotFingerprint
+    let regenerationPromise: Promise<void> | undefined
     // A file change during regeneration queues exactly one additional pass,
     // preventing concurrent writes to the generated bot.
-    const regenerate = async (): Promise<void> => {
-      if (regenerating) {
-        regenDirty = true
-        return
-      }
-      regenerating = true
-      try {
+    const regenerate = (nextDependencySnapshotFingerprint: string): Promise<void> => {
+      queuedDependencySnapshotFingerprint = nextDependencySnapshotFingerprint
+      regenDirty = true
+      if (regenerationPromise) return regenerationPromise
+
+      const run = Promise.resolve().then(async () => {
         do {
           regenDirty = false
+          const passDependencySnapshotFingerprint = queuedDependencySnapshotFingerprint
+          // Lockfiles are watched as source inputs. Re-check the physical
+          // graph on every regeneration so an install performed while dev is
+          // running cannot silently rebuild and redeploy a mixed toolchain.
+          assertCurrentToolchain()
           // A newly provisioned nested dev bot is persisted before choosing
           // the next config target; agent.local.json remains the sole source.
           adkDevId.preserveDevId(dir, botPath, this.logger)
@@ -872,10 +905,13 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           // re-runs the agent generator's restoreDevId(), which drops tunnelId
           // again whenever agent.local.json already has a devId.
           adkDevId.restoreDevTunnelId(botPath, this.logger)
+          dependencySnapshotFingerprint = passDependencySnapshotFingerprint
         } while (regenDirty)
-      } finally {
-        regenerating = false
-      }
+      })
+      regenerationPromise = run.finally(() => {
+        regenerationPromise = undefined
+      })
+      return regenerationPromise
     }
 
     let watcher: Awaited<ReturnType<typeof utils.filewatcher.FileWatcher.watch>> | undefined
@@ -883,17 +919,31 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       watcher = await utils.filewatcher.FileWatcher.watch(
         dir,
         async (events) => {
-          if (
-            !events.some((e) =>
-              adkBundle.isAgentSourceChange(dir, e.path, {
-                dependencyEnv: 'dev',
-              })
-            )
+          const sourceEvents = events.filter((event) =>
+            adkBundle.isAgentSourceChange(dir, event.path, {
+              dependencyEnv: 'dev',
+            })
           )
-            return
+          if (sourceEvents.length === 0) return
+
+          const dependencySnapshotPath = pathlib.resolve(
+            dir,
+            '.adk',
+            'dependencies',
+            `${ADK_DEV_DEPENDENCY_ENV}.json`
+          )
+          const onlyDependencySnapshot = sourceEvents.every(
+            (event) => pathlib.resolve(event.path) === dependencySnapshotPath
+          )
+          const nextDependencySnapshotFingerprint = adkBundle.agentDependencySnapshotBuildFingerprint(
+            dir,
+            ADK_DEV_DEPENDENCY_ENV
+          )
+          if (onlyDependencySnapshot && nextDependencySnapshotFingerprint === dependencySnapshotFingerprint) return
+
           this.logger.log('Agent source changed, regenerating tunnel bot')
           try {
-            await regenerate()
+            await regenerate(nextDependencySnapshotFingerprint)
           } catch (thrown) {
             // Loud, never silent: a transient generate error (e.g. a syntax
             // error mid-edit) must not kill the dev session, but it must be
@@ -979,6 +1029,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private async _runDevCheck(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const isAgent = adkBundle.isAgentProject(dir)
+    const localToolchain = inspectPlatformToolchain(dir)
+    assertPlatformToolchainCompatible(localToolchain)
     const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
     const legacyLink = cloudLink.loadLinkIfPresent(dir, linkEnv)
     const agentLocalInfo = agentLink.readAgentLocalInfo(dir)
@@ -1064,7 +1116,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const cloudReadiness = parseCloudDependencyReadiness(report.bot)
 
     await client.requireEvalBotReady(devId).catch((thrown) => {
-      if (thrown instanceof errors.HTTPError && thrown.status === 503) {
+      if (thrown instanceof errors.HTTPError && isTunnelUnavailableStatus(thrown.status)) {
         throw new errors.BotpressCLIError(
           `development tunnel is not connected for dev bot "${devId}"; start or restart \`brt dev\`, then retry \`brt dev --check\``
         )
@@ -1097,9 +1149,30 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     const failed = isAgent ? [] : this._failedReadinessIntegrations(readinessIntegrations, integrations)
-    const evalTransport = { ready: true, integration: 'botruntime/eval (native)' }
+    const localEvalManifest = localToolchain.capabilities['evalManifest']
+    const cloudRuntime = cloudReadiness.runtimeContract
+    const serverEvalManifest =
+      cloudRuntime.authority === 'authoritative' ? cloudRuntime.capabilities.evalManifest : undefined
+    const evalTransport = {
+      ready:
+        localEvalManifest !== undefined &&
+        serverEvalManifest !== undefined &&
+        localEvalManifest === serverEvalManifest,
+      integration: 'botruntime/eval (native)',
+      localManifestSchema: localEvalManifest ?? null,
+      serverManifestSchema: serverEvalManifest ?? null,
+      ...(cloudRuntime.authority === 'unknown'
+        ? { reason: cloudRuntime.reason }
+        : localEvalManifest === undefined
+          ? { reason: 'local toolchain does not declare the evalManifest capability' }
+          : localEvalManifest !== serverEvalManifest
+            ? {
+                reason: `eval manifest capability mismatch: local=${localEvalManifest}, server=${serverEvalManifest}`,
+              }
+            : {}),
+    }
     const output = {
-      ok: failed.length === 0 && (!dependencies || dependencies.ok),
+      ok: failed.length === 0 && (!dependencies || dependencies.ok) && evalTransport.ready,
       bot: {
         id: report.bot.id,
         dev: report.bot.dev,
@@ -1107,6 +1180,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       },
       integrations: readinessIntegrations,
       evalTransport,
+      toolchain: {
+        ready: true,
+        capabilities: localToolchain.capabilities,
+        packages: localToolchain.packages,
+        ...(localToolchain.lockfile ? { lockfile: localToolchain.lockfile } : {}),
+      },
       ...(dependencies ? { dependencies } : {}),
     }
 
@@ -1126,7 +1205,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           this.logger.log(`  ${alias}: ${status}${reason}`)
         }
       }
-      this.logger.log(`Eval transport: ready (${output.evalTransport.integration})`)
+      this.logger.log(
+        output.evalTransport.ready
+          ? `Eval transport: ready (${output.evalTransport.integration}, manifest schema ${output.evalTransport.localManifestSchema})`
+          : `Eval transport: not ready (${output.evalTransport.reason ?? 'runtime contract mismatch'})`
+      )
+      this.logger.log(`Toolchain: ready (${output.toolchain.packages.length} resolved platform packages)`)
       if (dependencies) {
         this._printAgentDependencyReport(dependencies)
       }
@@ -1144,6 +1228,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
               `• ${alias}: ${reason}${integration.statusReason ? ` — ${integration.statusReason}` : ''}`
           )
           .join('\n')}`
+      )
+    }
+
+    if (!evalTransport.ready) {
+      throw new errors.BotpressCLIError(
+        `Eval transport is not ready: ${evalTransport.reason ?? 'local and server runtime contracts are incompatible'}`
       )
     }
 
@@ -1425,6 +1515,54 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     throw new errors.UnsupportedProjectType()
   }
 
+  // Extracted from run() so it is directly testable: resolves the env-formatted secret
+  // overrides for the dev worker (local cache + argv/prompted values), counting a bot's
+  // already-set CLOUD config vars (env.X) as known so required-secret validation does not
+  // block an unattended run whose local cache is empty/absent (--no-secret-caching or a
+  // fresh checkout). Returns {} for project types other than integration/bot.
+  private async _resolveDevSecretEnvVariables(
+    api: apiUtils.ApiClient,
+    tunnelId: string
+  ): Promise<Record<string, string>> {
+    if (this._initialDef?.type !== 'integration' && this._initialDef?.type !== 'bot') {
+      return {}
+    }
+    const knownSecrets = await this._readKnownSecretsFromCache()
+    // Codex P1 (DEVLP-124): a secret already set as a CLOUD config var (env.X) must count
+    // as "already set" for required-secret validation. `tunnelId` is the dev bot's own
+    // runtime id (see resolveDevBotTarget: bot.id is always asserted equal to it), so this
+    // is the same lookup _spawnWorkerForResolvedDevTarget performs later — memoized by
+    // _resolveRemoteDevConfigVars, so it is fetched over the network at most once per `brt
+    // dev` invocation.
+    // Только ключи, ОБЪЯВЛЕННЫЕ в definition.secrets: облачный стор может нести
+    // необъявленные/легаси ключи (ADK_CONFIGURATION, удалённый из definition секрет) —
+    // попав в knownSecrets, они заставляют promptSecrets предлагать «удаление», которое
+    // трогает лишь локальный кэш, а облачное значение остаётся → бесконечный повтор
+    // неработающего промпта.
+    const declaredSecretNames = new Set(Object.keys(this._initialDef.definition.secrets ?? {}))
+    const remoteConfigVarNames =
+      this._initialDef.type === 'bot'
+        ? Object.keys(await this._resolveRemoteDevConfigVars(api, tunnelId)).filter((name) =>
+            declaredSecretNames.has(name)
+          )
+        : []
+    let secretEnvVariables = await this.promptSecrets(this._initialDef.definition, this.argv, {
+      knownSecrets: [...new Set([...Object.keys(knownSecrets), ...remoteConfigVarNames])],
+      formatEnv: true,
+    })
+    secretEnvVariables = {
+      ...this._applyPrefixToSecrets(knownSecrets),
+      ...secretEnvVariables,
+    }
+    const nonNullSecretEnvVariables = utils.records.filterValues(secretEnvVariables, utils.guards.is.notNull)
+
+    if (!this.argv.noSecretCaching) {
+      await this._writeKnownSecretsToCache(secretEnvVariables)
+    }
+
+    return nonNullSecretEnvVariables
+  }
+
   private async _writeKnownSecretsToCache(secretEnvVariables: Record<string, string | null>) {
     const knownSecrets: Record<string, string | null> = {}
     for (const [prefixedSecretName, secretValue] of Object.entries(secretEnvVariables)) {
@@ -1482,6 +1620,33 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     return worker
   }
 
+  // Overridable seam for tests (same pattern as _ensureDevBotTarget/_spawnWorker): builds
+  // its own throwaway CloudapiClient because this runs before the worker exists, off the
+  // same api.url/api.token/api.workspaceId as _ensureDevBotTarget above.
+  private _fetchDevConfigVars = (api: apiUtils.ApiClient, runtimeBotId: string): Promise<Record<string, string>> =>
+    fetchDevConfigVars({
+      client: new CloudapiClient(api.url, api.token),
+      runtimeBotId,
+      workspaceId: api.workspaceId,
+    })
+
+  // Memoizes _fetchDevConfigVars by runtimeBotId: `run()` needs the cloud config-var
+  // NAMES early (before promptSecrets' required-secret validation), and
+  // _spawnWorkerForResolvedDevTarget needs the same VALUES a moment later for the same
+  // dev bot — both calls share this cache so the network round-trip happens at most once
+  // per `brt dev` invocation.
+  private _remoteDevConfigVarsCache: { runtimeBotId: string; values: Promise<Record<string, string>> } | undefined
+
+  private _resolveRemoteDevConfigVars(
+    api: apiUtils.ApiClient,
+    runtimeBotId: string
+  ): Promise<Record<string, string>> {
+    if (this._remoteDevConfigVarsCache?.runtimeBotId !== runtimeBotId) {
+      this._remoteDevConfigVarsCache = { runtimeBotId, values: this._fetchDevConfigVars(api, runtimeBotId) }
+    }
+    return this._remoteDevConfigVarsCache.values
+  }
+
   private async _spawnWorkerForResolvedDevTarget(
     api: apiUtils.ApiClient,
     httpTunnelUrl: string,
@@ -1496,6 +1661,13 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       // the opaque runtime bot in x-bot-id while storage/admin clients get the
       // distinct numeric target id from BP_/ADK_TARGET_BOT_ID.
       const { target } = await this._ensureDevBotTarget(api, httpTunnelUrl)
+      // DEVLP-124/MAJOR-8: `brt dev` spawns the worker itself — there is no supervisor
+      // here to inject env.X — so the CLI pulls its own decrypted config variables
+      // before building the child env. Same client/token/workspace as _ensureDevBotTarget
+      // above (workspace-PAT, opaque runtime id); fetchDevConfigVars fails loud on
+      // anything but a legitimate 404. Memoized: `run()` already resolved this bot's
+      // config vars once (by the same runtime id) ahead of the required-secret prompt.
+      const configVars = await this._resolveRemoteDevConfigVars(api, target.runtimeBotId)
       env = buildDevWorkerEnvironment({
         inherited,
         apiUrl: api.url,
@@ -1503,6 +1675,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         workspaceId: api.workspaceId,
         target,
         spanIngestUrl,
+        configVars,
       })
     }
     return this._spawnWorker(env, port)
@@ -1555,6 +1728,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const line = this.logger.line()
     line.started(`Deploying dev integration ${chalk.bold(integrationDef.name)}...`)
 
+      apiUtils.assertNetworkDeclared(integrationDef)
     const createIntegrationBody = {
       ...(await this.prepareCreateIntegrationBody(integrationDef)),
       ...(await this.prepareIntegrationDependencies(integrationDef, api)),
@@ -1670,8 +1844,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     }
 
     if (bot && target && productionTags) {
-      // Reuse the idempotent create path to link a legacy dev target while
-      // preserving its numeric target ID and all bot-scoped data.
+      // Reuse the idempotent create path to validate the cached Development
+      // against its immutable Production project.
       const response = await api.client
         .createBot({
           dev: true,
@@ -1737,6 +1911,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
 
     this.logger.debug(`Forwarding request to ${axiosConfig.url}`)
     const response = await axios(axiosConfig)
+    this.logger.debug(
+      `Tunnel response ${request.method} ${request.path} -> HTTP ${response.status} (requestId=${request.id})`
+    )
+    if (response.status >= 400) {
+      this.logger.warn(formatTunnelFailure(request, response.status, response.data))
+    }
     this.logger.debug('Sending back response up the tunnel')
 
     return {

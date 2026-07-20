@@ -1,19 +1,11 @@
 import { BaseWorkflow } from '../../primitives/workflow'
 import { z } from '@holocronlab/botruntime-sdk'
 import { context } from '../context/context'
-import type {
-  EvalDefinition,
-  EvalManifest,
-  EvalRunnerConfig,
-  EvalRunReport,
-} from '@holocronlab/botruntime-evals'
-import {
-  EVAL_MANIFEST_TAGS,
-  EVAL_MANIFEST_SCHEMA_VERSION,
-  createNativeEvalChatClient,
-} from '@holocronlab/botruntime-evals'
+import type { EvalRunnerConfig, EvalRunReport } from '@holocronlab/botruntime-evals'
+import { createNativeEvalChatClient } from '@holocronlab/botruntime-evals'
 import {
   runEvalSuite,
+  validateDurableEvalDefinitions,
   validateEvalCapabilities,
   validateEvalControlCapabilities,
 } from '@holocronlab/botruntime-evals/runner'
@@ -27,48 +19,16 @@ import { Client } from '@holocronlab/botruntime-client'
 import { resolveEvalExecutionEnvironment } from './eval-environment'
 import { HostedEvalLifecycle } from './hosted-eval-lifecycle'
 import { createHostedFixtureResolver } from './eval-fixtures'
-import { PlatformEvalControl } from './eval-control'
-import { fetchEvalManifestFile } from './eval-file-fetch'
+import { PlatformEvalEffects } from './eval-control'
+import { isStepSignal } from '../../primitives/workflow-signal'
+import { loadEvalManifest } from './eval-manifest-loader'
 import {
   assertHostedEvalExecutionActive,
   assertHostedEvalInvocationBudget,
+  assertHostedEvalPersistenceBudget,
   assertHostedEvalStartBudget,
   resolveHostedEvalIdleTimeout,
 } from './eval-runner-policy'
-
-async function loadEvalManifest(client: Client): Promise<{
-  evals: EvalDefinition[]
-  fileId: string | undefined
-  chatWebhookId: string | undefined
-  fixtures: NonNullable<EvalManifest['fixtures']>
-}> {
-  const { files } = await client.listFiles({ tags: EVAL_MANIFEST_TAGS })
-
-  if (files.length === 0) {
-    return { evals: [], fileId: undefined, chatWebhookId: undefined, fixtures: {} }
-  }
-
-  const file = files[0]!
-  const res = await fetchEvalManifestFile(file.url, client)
-  if (!res.ok) {
-    throw new Error(`Failed to fetch eval manifest: ${res.status}`)
-  }
-
-  const manifest = (await res.json()) as EvalManifest
-
-  if (manifest.schemaVersion !== EVAL_MANIFEST_SCHEMA_VERSION) {
-    throw new Error(
-      `Eval manifest schema version ${manifest.schemaVersion} is not supported (expected ${EVAL_MANIFEST_SCHEMA_VERSION}). Redeploy the bot to update the manifest.`,
-    )
-  }
-
-  return {
-    evals: manifest.evals,
-    fileId: manifest.manifestId ?? file.id,
-    chatWebhookId: manifest.chatWebhookId,
-    fixtures: manifest.fixtures ?? {},
-  }
-}
 
 export const EvalRunnerWorkflow = new BaseWorkflow({
   name: 'builtin_eval_runner' as const,
@@ -84,6 +44,7 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       .optional(),
     runType: z.enum(['scheduled', 'manual']).optional().default('scheduled'),
     evalManifestId: z.string().optional(),
+    evalManifestFileId: z.string().optional(),
     idleTimeout: z.number().optional(),
     /** @deprecated Compatibility no-op: the LLM judge returns a boolean verdict, not a score. */
     judgePassThreshold: z.number().optional(),
@@ -130,13 +91,12 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       evals: definitions,
       fileId: loadedManifestId,
       fixtures,
-    } = await step('load-manifest', () => loadEvalManifest(sdkClient))
-
-    if (definitions.length === 0) {
-      throw new Error(
-        'No eval manifest found. Upload eval definitions via the files API before running the eval workflow.',
-      )
-    }
+    } = await step('load-manifest', () =>
+      loadEvalManifest(sdkClient, {
+        ...(input.evalManifestFileId ? { fileId: input.evalManifestFileId } : {}),
+        ...(input.evalManifestId ? { manifestId: input.evalManifestId } : {}),
+      }),
+    )
 
     if (input.evalManifestId && loadedManifestId && input.evalManifestId !== loadedManifestId) {
       throw new Error('The synchronized eval manifest does not match the loaded eval manifest.')
@@ -156,9 +116,15 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       throw new Error('No eval definitions matched the requested filter.')
     }
     validateHostedEvalDefinitions(filteredDefinitions)
-    const evalControl = development
-      ? new PlatformEvalControl({ apiUrl, token, runtimeBotId, workspaceId: workspaceId! })
-      : undefined
+    // Hosted evals always use per-operation durable checkpoints. Reject the
+    // complete selected suite before creating its externally visible run so a
+    // later unsupported effect cannot leave an earlier eval partially applied.
+    const durableEffects = new PlatformEvalEffects({ apiUrl, token, runtimeBotId })
+    const evalControl = development ? durableEffects : undefined
+    const controlsUsed = filteredDefinitions.some((definition) =>
+      definition.conversation.some((turn) => turn.control !== undefined)
+    )
+    validateDurableEvalDefinitions(filteredDefinitions, true, durableEffects)
     validateEvalControlCapabilities(filteredDefinitions, evalControl)
 
     const localSpanIngestUrl = process.env.ADK_SPAN_INGEST_URL
@@ -218,12 +184,14 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
     const config: EvalRunnerConfig = {
       client: evalSdkClient,
       botId,
+      runId: String(vortexRunId),
       definitions: filteredDefinitions,
       chatClient,
       ...(Object.keys(fixtures).length > 0
         ? { resolveFixture: createHostedFixtureResolver(fixtures, sdkClient) }
         : {}),
       ...(evalControl ? { evalControl } : {}),
+      durableEffects,
       createSpanSource,
       sourcePreflighted: true,
       evalOptions: {
@@ -239,13 +207,41 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       // progress. Failures are never swallowed: the final reconciliation can
       // replay identical writes, while the outer lifecycle safely terminalizes
       // an execution that cannot be reconciled.
-      onProgress: (event) => hostedLifecycle.onProgress(event),
+      onProgress: (event) => hostedLifecycle.onProgress(event, step),
       checkpointEval: async ({ definition, index, execute }) => {
         assertHostedEvalStartBudget(context.get('runtime').getRemainingExecutionTimeInMs())
         const report = await step(`run-eval-${index}-${definition.name}`, execute)
         hostedLifecycle.rememberCompletedReport(report)
         return report
       },
+      checkpointEvalOperation: ({ phase, turnIndex, effectIndex, execute }) =>
+        step(
+          phase === 'setup' && effectIndex !== undefined
+            ? `setup-effect-${effectIndex}`
+            : phase === 'dispatch' || phase === 'effect' || phase === 'turn' || phase === 'persist'
+            ? `${phase}-turn-${turnIndex}`
+            : phase,
+          async () => {
+            const remainingTimeMs = context.get('runtime').getRemainingExecutionTimeInMs()
+            if (phase === 'setup' || phase === 'dispatch' || phase === 'effect' || phase === 'turn') {
+              assertHostedEvalStartBudget(remainingTimeMs)
+            } else {
+              assertHostedEvalPersistenceBudget(remainingTimeMs)
+            }
+            return execute()
+          },
+          {
+            maxAttempts:
+              phase === 'setup' ||
+              phase === 'effect' ||
+              phase === 'persist' ||
+              phase === 'finalize' ||
+              phase === 'cleanup'
+                ? 5
+                : 1,
+          }
+        ),
+      isCheckpointYield: isStepSignal,
       signal,
     }
 
@@ -255,7 +251,20 @@ export const EvalRunnerWorkflow = new BaseWorkflow({
       assertHostedEvalExecutionActive(signal)
     } catch (error) {
       assertHostedEvalExecutionActive(signal)
-      return hostedLifecycle.terminalizeFailure(error, step)
+      let terminalError = error
+      if (!isStepSignal(error) && controlsUsed) {
+        try {
+          await step(
+            'cleanup-eval-controls',
+            () => durableEffects.clearFaults(`eval:${vortexRunId}:control:terminal-cleanup`),
+            { maxAttempts: 5 }
+          )
+        } catch (cleanupError) {
+          if (isStepSignal(cleanupError)) throw cleanupError
+          terminalError = new AggregateError([error, cleanupError], 'Eval execution and control cleanup failed')
+        }
+      }
+      return hostedLifecycle.terminalizeFailure(terminalError, step)
     }
 
     try {

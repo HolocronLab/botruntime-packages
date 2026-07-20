@@ -9,7 +9,7 @@ import type {
   TurnReport,
   GraderResult,
 } from '../types'
-import { EVAL_ERROR_CODES } from '../errors'
+import { EVAL_ERROR_CODES, isEvalControlErrorKind } from '../errors'
 import type {
   EvalStore,
   EvalSummary,
@@ -105,6 +105,8 @@ export const VORTEX_EVAL_ASSERTION_KINDS = [
   'delivered_to',
   'not_delivered_to',
   'conversation_mode',
+  'table_row_exists',
+  'table_row_count',
   'outcome',
   'unknown',
 ] as const
@@ -127,12 +129,21 @@ export type VortexEvalErrorKind = (typeof VORTEX_EVAL_ERROR_KINDS)[number]
 export class VortexEvalStoreError extends Error {
   readonly kind: VortexEvalErrorKind
   readonly status?: number
+  readonly operation?: string
+  readonly ambiguous: boolean
 
-  constructor(message: string, kind: VortexEvalErrorKind, status?: number) {
+  constructor(
+    message: string,
+    kind: VortexEvalErrorKind,
+    status?: number,
+    details: { operation?: string; ambiguous?: boolean } = {}
+  ) {
     super(message)
     this.name = 'VortexEvalStoreError'
     this.kind = kind
     if (status !== undefined) this.status = status
+    if (details.operation !== undefined) this.operation = details.operation
+    this.ambiguous = details.ambiguous ?? false
   }
 }
 
@@ -182,6 +193,9 @@ function validateDiagnostic(diagnostic?: EvalDiagnostic): void {
   if (diagnostic === undefined) return
   if (!EVAL_ERROR_CODE_SET.has(diagnostic.code)) configFailure('hosted eval error code is invalid')
   if (!EVAL_EXECUTION_PHASES.has(diagnostic.phase)) configFailure('hosted eval error phase is invalid')
+  if (diagnostic.errorKind !== undefined && !ERROR_KIND_SET.has(diagnostic.errorKind)) {
+    configFailure('hosted eval diagnostic error kind is invalid')
+  }
   if (
     diagnostic.turnIndex !== undefined &&
     (!Number.isInteger(diagnostic.turnIndex) || diagnostic.turnIndex < 0 || diagnostic.turnIndex >= MAX_TURNS_PER_EVAL)
@@ -491,6 +505,7 @@ function vortexEntryToEvalReport(entry: VortexEvalEntry): EvalReport {
           diagnostic: {
             code: entry.errorCode,
             phase: entry.errorPhase,
+            ...(isEvalControlErrorKind(entry.errorKind) ? { errorKind: entry.errorKind } : {}),
             ...(typeof entry.errorTurnIndex === 'number' ? { turnIndex: entry.errorTurnIndex } : {}),
             ...(entry.conversationId ? { conversationId: entry.conversationId } : {}),
             ...(entry.traceId ? { traceId: entry.traceId } : {}),
@@ -575,6 +590,8 @@ function assertionKindOf(assertion: string): VortexEvalAssertionKind {
   if (assertion.startsWith('delivered_to:')) return 'delivered_to'
   if (assertion.startsWith('not_delivered_to:')) return 'not_delivered_to'
   if (assertion.startsWith('conversation_mode:')) return 'conversation_mode'
+  if (assertion.startsWith('table ') && assertion.endsWith(' row_exists')) return 'table_row_exists'
+  if (assertion.startsWith('table ') && assertion.endsWith(' row_count')) return 'table_row_count'
   if (assertion === 'outcome') return 'outcome'
   return 'unknown'
 }
@@ -644,11 +661,13 @@ const CONFIGURATION_ERROR_CODES = new Set([
   'EVAL_RELATION_NOT_FOUND',
   'EVAL_RELATION_AMBIGUOUS',
   'EVAL_OBSERVATION_UNSUPPORTED',
+  'EVAL_DURABLE_EFFECT_UNSUPPORTED',
 ])
 const TRACE_READER_ERROR_CODES = new Set(['SSE_CONNECT_FAILED', 'SSE_NO_BODY'])
 const CHAT_ERROR_CODES = new Set([
   'CHAT_CLIENT_MISSING',
   'CHAT_NOT_CONNECTED',
+  'CHAT_SESSION_RESUME_FAILED',
   'CHAT_LISTENER_FAILED',
   'CHAT_INTEGRATION_MISSING',
   'CHAT_CHANNEL_UNBOUND',
@@ -663,6 +682,17 @@ function errorCodeOf(value: unknown): string | undefined {
 
 export function classifyVortexEvalError(error: unknown): VortexEvalErrorKind {
   if (error instanceof VortexEvalStoreError) return error.kind
+  if (error !== null && typeof error === 'object') {
+    const persistedName = (error as { name?: unknown }).name
+    const persistedKind = (error as { kind?: unknown }).kind
+    if (
+      (persistedName === 'VortexEvalStoreError' || persistedName === 'EvalProgressSinkError') &&
+      typeof persistedKind === 'string' &&
+      ERROR_KIND_SET.has(persistedKind)
+    ) {
+      return persistedKind as VortexEvalErrorKind
+    }
+  }
   const code = errorCodeOf(error)
   if (code && CONFIGURATION_ERROR_CODES.has(code)) return 'configuration'
   if (code && TRACE_READER_ERROR_CODES.has(code)) return 'trace_reader'
@@ -674,6 +704,7 @@ export function classifyVortexEvalError(error: unknown): VortexEvalErrorKind {
 
 export function classifyVortexEvalReport(report: EvalReport): VortexEvalErrorKind | undefined {
   if (report.error === undefined) return undefined
+  if (report.diagnostic?.errorKind) return report.diagnostic.errorKind
   if (report.errorCode === 'EVAL_ABORTED') return 'aborted'
   if (report.errorCode && CONFIGURATION_ERROR_CODES.has(report.errorCode)) return 'configuration'
   if (report.errorCode && TRACE_READER_ERROR_CODES.has(report.errorCode)) return 'trace_reader'
@@ -1287,18 +1318,32 @@ export class VortexEvalStore implements EvalStore {
     const headers = new Headers(init?.headers)
     headers.set('Authorization', `Bearer ${this.token}`)
     if (this.development) headers.set('x-bot-id', this.botId)
+    const operation = `${init?.method?.toUpperCase() ?? 'GET'} ${target.pathname}`
 
     let response: Response
     try {
       response = await globalThis.fetch(target, { ...init, headers })
     } catch {
-      throw new VortexEvalStoreError('Vortex eval store request failed before receiving a response', 'upstream')
+      throw new VortexEvalStoreError(
+        `Vortex eval store ${operation} failed before receiving a response`,
+        'upstream',
+        undefined,
+        { operation, ambiguous: true }
+      )
     }
     if (!response.ok) {
       throw new VortexEvalStoreError(
-        `Vortex eval store request failed (HTTP ${response.status})`,
+        `Vortex eval store ${operation} failed (HTTP ${response.status})`,
         httpErrorKind(response.status),
-        response.status
+        response.status,
+        {
+          operation,
+          ambiguous:
+            response.status === 408 ||
+            response.status === 425 ||
+            response.status === 429 ||
+            response.status >= 500,
+        }
       )
     }
     return response

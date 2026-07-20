@@ -13,6 +13,57 @@ The authoring contract also supports private file fixtures, synthetic actors
 routed to related conversations, delivery/mode assertions, same-target
 parallel turns, and isolated-development clock/fault controls.
 
+Durable table fixtures use the ordinary Tables API and are platform-owned:
+
+Hosted runners also provide a durable effect transport for table seeds,
+isolated controls, and native event turns. Every mutation carries a stable
+identity: replay returns the original committed result, while the same identity
+with a different payload fails loudly before another side effect is applied.
+The immutable eval report is checkpointed before hosted outcome and verdict
+writes. Those writes use independent durable checkpoints, so a lost response
+replays the same result coordinates and verdict; an already acknowledged write
+is not sent again. Store errors expose only safe `operation`, `status`, `kind`,
+and `ambiguous` diagnostics and never copy the response body. Network failures,
+HTTP `408`, `425`, `429`, and 5xx responses are ambiguous and may retry the immutable write;
+a `409` is definitive (`ambiguous: false`) and still fails loudly because the
+same identity was previously committed with different content.
+The workflow checkpoint persists this allowlisted envelope and one safe cause
+level across generations. A rehydrated `EvalProgressSinkError` also restores
+its `sinkCause`, preserving ownership diagnostics without persisting raw bodies.
+
+```ts
+const order = new Eval({
+  name: 'order-is-durable',
+  setup: {
+    tables: [{ table: 'OrderTable', rows: [{ externalId: 'eval-{{eval.id}}', status: 'pending' }] }],
+  },
+  conversation: [
+    {
+      message: 'Check the test order',
+      assert: {
+        tables: [{ table: 'OrderTable', row_exists: { externalId: { equals: 'eval-{{eval.id}}' } } }],
+      },
+    },
+  ],
+  outcome: {
+    tables: [
+      {
+        table: 'OrderTable',
+        row_count: { equals: 1 },
+        where: { externalId: { equals: 'eval-{{eval.id}}' } },
+      },
+    ],
+  },
+})
+```
+
+The runner creates setup rows before the first turn and deletes only their
+exact row IDs after grading. `{{eval.id}}` is one execution-scoped identity
+shared by setup values and table assertions. Reports contain match counts, not
+row contents. Partial creation or cleanup fails loudly with a stable error code.
+This is eval manifest schema v2; an older runtime rejects it rather than
+silently skipping durable setup.
+
 ## Install
 
 ```sh

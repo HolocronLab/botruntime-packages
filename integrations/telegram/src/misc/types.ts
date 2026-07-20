@@ -66,12 +66,13 @@ export type Client = {
     name?: string
     discriminateByTags?: string[]
   }): Promise<{ user: User }>
-  createMessage(x: {
+  getOrCreateMessage(x: {
     type: string
     payload: Record<string, unknown>
     userId: string
     conversationId: string
     tags: Record<string, string>
+    discriminateByTags: string[]
   }): Promise<{ message: Message }>
 }
 

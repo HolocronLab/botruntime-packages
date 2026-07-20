@@ -52,6 +52,8 @@ const LARGE_ATTRIBUTE_KEYS = new Set([
   'autonomous.tool.input',
   'autonomous.exit.value',
   'ai.instructions',
+  'ai.messages',
+  'ai.response',
   'ai.tools',
   'message.preview',
 ])

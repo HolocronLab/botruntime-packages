@@ -41,6 +41,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'dev',
     'integrations install',
     'integrations register',
+    'integrations upgrade',
     'link',
     'login',
     'logs',
@@ -56,19 +57,21 @@ const documentation: BrtDocsContract['documentation'] = {
   ],
   criticalOptions: {
     chat: ['chatApiUrl', 'protocol'],
-    deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'watch'],
+    deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'noTypecheck', 'watch'],
     dev: ['check', 'json', 'port', 'watch'],
     'integrations install': ['alias', 'configFile', 'configStdin', 'dev'],
     'integrations publish': ['apiUrl', 'dryRun', 'noBuild'],
     'integrations register': ['dev'],
+    'integrations upgrade': ['alias', 'dev', 'wait'],
     link: ['apiUrl', 'botId', 'keyStdin', 'workspaceId'],
     login: ['apiUrl', 'device', 'token', 'workspaceId'],
-    logs: ['botId', 'conversationId', 'follow', 'limit'],
+    logs: ['botId', 'conversationId', 'dev', 'follow', 'limit'],
     traces: [
       'action',
       'conversationId',
       'dev',
       'error',
+      'includeLlm',
       'limit',
       'name',
       'nextToken',
@@ -89,6 +92,7 @@ const documentation: BrtDocsContract['documentation'] = {
   },
   criticalUsages: {
     'integrations install': ['<name@version>'],
+    'integrations upgrade': ['<name@version>'],
     traces: ['[tokens..]'],
     'conversations list': ['[tokens..]'],
     'conversations show': ['<conversationId>'],
@@ -110,7 +114,7 @@ const documentation: BrtDocsContract['documentation'] = {
     {
       id: 'dev-production-link',
       assertion:
-        'brt dev links the isolated development runtime to the canonical production bot for console navigation without merging their data or histories',
+        'brt dev requires the canonical production link before creating a botruntime development target and never creates an orphan runtime',
       documents: ['overview', 'reference'],
     },
     {
@@ -126,7 +130,19 @@ const documentation: BrtDocsContract['documentation'] = {
     {
       id: 'explicit-integration-version',
       assertion:
-        'brt integrations install requires canonical exact SemVer in name@version or namespace/name@version form',
+        'brt integrations install and upgrade require canonical exact SemVer in name@version or namespace/name@version form',
+      documents: ['overview', 'reference'],
+    },
+    {
+      id: 'safe-integration-upgrade',
+      assertion:
+        'brt integrations upgrade resolves exactly one effective alias with explicit-alias priority and calls one atomic direct repoint without preflight, install, or register',
+      documents: ['overview', 'reference'],
+    },
+    {
+      id: 'integration-upgrade-recovery',
+      assertion:
+        'integration upgrade refreshes the selected target snapshot, requires brt deploy --adk for production, rejects unsupported wait before mutation, and distinguishes definitive 4xx rejection from outcome-unknown transport, malformed-response, and 5xx failures with inspect-first shell-safe recovery',
       documents: ['overview', 'reference'],
     },
     {
@@ -142,7 +158,7 @@ const documentation: BrtDocsContract['documentation'] = {
     {
       id: 'integration-lifecycle',
       documents: ['overview', 'reference'],
-      commandPaths: ['integrations install', 'integrations register'],
+      commandPaths: ['integrations install', 'integrations register', 'integrations upgrade'],
     },
     { id: 'target-repair', documents: ['overview', 'reference'], commandPaths: ['link'] },
     {
@@ -241,19 +257,23 @@ export const validateDocsCriticalRequirements = (tree: DefinitionTree): void => 
   }
 
   const integrations = tree.integrations
-  const install = integrations && 'subcommands' in integrations ? integrations.subcommands.install : undefined
-  const ref = install && 'schema' in install ? install.schema.ref : undefined
-  if (
-    !ref ||
-    ref.positional !== true ||
-    ref.demandOption !== true ||
-    ref.idx !== 0 ||
-    ref.description !== exactIntegrationRefDescription
-  ) {
-    throw new Error(
-      'explicit-integration-version requires integrations install ref to be the required first positional ' +
-        'with the exact name@version or namespace/name@version SemVer schema description'
-    )
+  const integrationSubcommands =
+    integrations && 'subcommands' in integrations ? integrations.subcommands : undefined
+  for (const commandName of ['install', 'upgrade'] as const) {
+    const command = integrationSubcommands?.[commandName]
+    const ref = command && 'schema' in command ? command.schema.ref : undefined
+    if (
+      !ref ||
+      ref.positional !== true ||
+      ref.demandOption !== true ||
+      ref.idx !== 0 ||
+      ref.description !== exactIntegrationRefDescription
+    ) {
+      throw new Error(
+        `explicit-integration-version requires integrations ${commandName} ref to be the required first positional ` +
+          'with the exact name@version or namespace/name@version SemVer schema description'
+      )
+    }
   }
 
   const requirementIds = new Set<string>()

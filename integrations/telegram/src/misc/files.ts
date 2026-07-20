@@ -1,3 +1,5 @@
+import { protectedDownloadError } from './delivery-outcome'
+
 // Inbound-media byte-ingest. DELIBERATE divergence from the donor, which returns Telegram
 // getFileLink() URLs that embed the bot token — forbidden by our invariant (CLAUDE.md ПДн/секреты:
 // "Telegram-токен не светить в URL'ах, отдаваемых вовне; медиа качаем сами и передаём байтами").
@@ -38,7 +40,7 @@ const MAX_PROTECTED_MEDIA_BYTES = 20 << 20
 // documents: Telegraf's sendPhoto/sendAudio/sendVideo URL path has the same authentication gap.
 // Every other URL remains a URL, so credentials can never reach another origin or an unrelated
 // Botruntime API route.
-export async function resolveTelegramMedia(fileUrl: string, title?: string): Promise<TelegramMedia> {
+export async function resolveTelegramMedia(fileUrl: string, title?: string, operation = 'sendDocument'): Promise<TelegramMedia> {
   const trustedBases = [process.env.BP_API_URL, process.env.CLOUDAPI_PUBLIC_BASE_URL]
   const trusted = trustedBases.some((base) => isBotruntimeFileDownload(fileUrl, base))
   if (!trusted) return fileUrl
@@ -47,18 +49,30 @@ export async function resolveTelegramMedia(fileUrl: string, title?: string): Pro
   const token = process.env.BP_TOKEN
   const botId = process.env.BP_BOT_ID
   if (!token || !botId) {
-    throw new Error('telegram: missing BP_TOKEN/BP_BOT_ID for protected file delivery')
+    throw protectedDownloadError(undefined, operation, 'PROTECTED_DOWNLOAD_AUTH_MISSING')
   }
   headers.authorization = `Bearer ${token}`
   headers['x-bot-id'] = botId
 
-  const response = await fetch(fileUrl, { headers })
-  if (!response.ok) {
-    throw new Error(`telegram: protected file download -> ${response.status}`)
+  const publicUrl = new URL(fileUrl)
+  const internalUrl = new URL(`${publicUrl.pathname}${publicUrl.search}`, process.env.BP_API_URL).toString()
+  let response: Response
+  try {
+    response = await fetch(internalUrl, { headers, signal: AbortSignal.timeout(20_000) })
+  } catch (error) {
+    throw protectedDownloadError(error, operation, 'PROTECTED_DOWNLOAD_FAILED')
   }
-  const source = await readProtectedMediaCapped(response)
+  if (!response.ok) {
+    throw protectedDownloadError(undefined, operation, `PROTECTED_DOWNLOAD_HTTP_${response.status}`)
+  }
+  let source: Buffer
+  try {
+    source = await readProtectedMediaCapped(response)
+  } catch (error) {
+    throw protectedDownloadError(error, operation, 'PROTECTED_DOWNLOAD_INVALID_BODY')
+  }
   if (source.byteLength === 0) {
-    throw new Error('telegram: protected file download returned an empty document')
+    throw protectedDownloadError(undefined, operation, 'PROTECTED_DOWNLOAD_EMPTY')
   }
   return { source, filename: title?.trim() || filenameFromUrl(fileUrl) }
 }

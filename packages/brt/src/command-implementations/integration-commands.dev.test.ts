@@ -408,9 +408,6 @@ describe('integration install/register dev target routing', () => {
       workspaceId: DEV_WORKSPACE_ID,
       apiUrl: agentApiUrl,
     })
-    writeJson(path.join(botpressHome, 'bots.json'), {
-      default: { '7': { apiKey: 'agent_prod_bot_key' } },
-    })
     const originalAgentInfo = fs.readFileSync(agentInfoPath, 'utf8')
     const canonicalWriteSpy = vi.spyOn(agentLink, 'writeAgentInfo').mockImplementation(() => {
       throw new Error('metadata-only install must not rewrite agent.json')
@@ -419,16 +416,20 @@ describe('integration install/register dev target routing', () => {
     global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const call = { url: String(url), init: init ?? {} }
       calls.push(call)
-      if (call.init.method === 'POST' && call.url === `${agentApiUrl}/v1/admin/integrations/install`) {
+      if (
+        call.init.method === 'POST' &&
+        call.url === `${agentApiUrl}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations`
+      ) {
         return Response.json({
-          installationId: 7,
+          installationId: '7',
           webhookId: 'wh_agent_prod',
-          webhookSecret: 'agent_prod_webhook_secret',
+          status: 'pending',
         })
       }
       if (
         call.init.method === 'POST' &&
-        call.url === `${agentApiUrl}/v1/admin/integrations/wh_agent_prod/register`
+        call.url ===
+          `${agentApiUrl}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations/wh_agent_prod/register`
       ) {
         return Response.json({
           ok: true,
@@ -443,13 +444,15 @@ describe('integration install/register dev target routing', () => {
     await (registerCommand(botpressHome, workDir, 'wh_agent_prod', false) as any).run()
 
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['POST', `${agentApiUrl}/v1/admin/integrations/install`],
-      ['POST', `${agentApiUrl}/v1/admin/integrations/wh_agent_prod/register`],
+      ['POST', `${agentApiUrl}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations`],
+      [
+        'POST',
+        `${agentApiUrl}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations/wh_agent_prod/register`,
+      ],
     ])
     for (const call of calls) {
       expect(call.init.headers).toMatchObject({
-        authorization: 'Bearer agent_prod_bot_key',
-        'x-bot-id': '7',
+        authorization: `Bearer ${DEV_PAT}`,
       })
     }
     expect(fs.readFileSync(agentInfoPath, 'utf8')).toBe(originalAgentInfo)
@@ -462,28 +465,33 @@ describe('integration install/register dev target routing', () => {
     expect(JSON.parse(fs.readFileSync(botMetadataPath, 'utf8'))).not.toHaveProperty('apiUrl')
   })
 
-  it('keeps install/register without --dev on the production per-bot-key wire', async () => {
+  it('uses the owner/admin workspace PAT for production install/register without a per-bot key', async () => {
     const configFile = path.join(workDir, 'telegram.config.json')
     const linkPath = path.join(workDir, 'bot.json')
     const botsStorePath = path.join(botpressHome, 'bots.json')
     writeJson(configFile, { botToken: 'prod-sealed-config-value' })
     writeJson(linkPath, { botId: 7, apiUrl: DEV_API_URL })
-    writeJson(botsStorePath, { default: { '7': { apiKey: 'prod_bot_key' } } })
 
     global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const call = { url: String(url), init: init ?? {} }
       calls.push(call)
-      if (call.init.method === 'POST' && call.url === `${DEV_API_URL}/v1/admin/integrations/install`) {
+      if (
+        call.init.method === 'POST' &&
+        call.url === `${DEV_API_URL}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations`
+      ) {
         return new Response(
           JSON.stringify({
-            installationId: 7,
+            installationId: '7',
             webhookId: 'wh_prod',
-            webhookSecret: 'prod_webhook_secret',
+            status: 'pending',
           }),
           { status: 200 }
         )
       }
-      if (call.init.method === 'POST' && call.url === `${DEV_API_URL}/v1/admin/integrations/wh_prod/register`) {
+      if (
+        call.init.method === 'POST' &&
+        call.url === `${DEV_API_URL}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations/wh_prod/register`
+      ) {
         return new Response(
           JSON.stringify({
             ok: true,
@@ -500,25 +508,18 @@ describe('integration install/register dev target routing', () => {
     await (registerCommand(botpressHome, workDir, 'wh_prod', false) as any).run()
 
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['POST', `${DEV_API_URL}/v1/admin/integrations/install`],
-      ['POST', `${DEV_API_URL}/v1/admin/integrations/wh_prod/register`],
+      ['POST', `${DEV_API_URL}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations`],
+      ['POST', `${DEV_API_URL}/v1/admin/workspaces/${DEV_WORKSPACE_ID}/bots/7/integrations/wh_prod/register`],
     ])
     for (const call of calls) {
       expect(call.init.headers).toMatchObject({
-        authorization: 'Bearer prod_bot_key',
-        'x-bot-id': '7',
+        authorization: `Bearer ${DEV_PAT}`,
       })
-      expect(call.url).not.toContain('/workspaces/')
     }
     expect(JSON.parse(fs.readFileSync(linkPath, 'utf8'))).toMatchObject({
       botId: 7,
       integrations: [{ ref: 'telegram@0.0.1', alias: 'telegram', webhookId: 'wh_prod' }],
     })
-    expect(JSON.parse(fs.readFileSync(botsStorePath, 'utf8'))).toEqual({
-      default: {
-        '7': { apiKey: 'prod_bot_key', webhookSecret: 'prod_webhook_secret' },
-      },
-    })
-    expect(stdout.join('')).not.toContain('prod_webhook_secret')
+    expect(fs.existsSync(botsStorePath)).toBe(false)
   })
 })

@@ -8,6 +8,7 @@ import * as apiUtils from '../api'
 import { CloudapiClient } from '../api/cloudapi-client'
 import * as agentLink from '../adk-agent-link'
 import * as adkBundle from '../adk-bundle'
+import * as adkTypecheck from '../adk-typecheck'
 import * as botsStore from '../bots-store'
 import { cloudInfo, cloudWarn } from '../cloud-io'
 import * as cloudProfileResolve from '../cloud-profile-resolve'
@@ -16,6 +17,12 @@ import type commandDefinitions from '../command-definitions'
 import type { CommandArgv } from '../typings'
 import * as declaredCommands from '../declared-commands'
 import * as errors from '../errors'
+import {
+  assertPlatformToolchainCompatible,
+  inspectPlatformToolchain,
+  validatePlatformToolchainArtifact,
+  writePlatformToolchainContract,
+} from '../toolchain-contract'
 import { pendingIntegrationRegistrationCommands } from '../integration-guidance'
 import * as tableSync from '../adk-table-sync'
 import * as tables from '../tables'
@@ -222,6 +229,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
     this.logger.debug('Preparing integration request body...')
 
+      apiUtils.assertNetworkDeclared(integrationDef)
     const createBody = {
       ...(await this.prepareCreateIntegrationBody(integrationDef)),
       ...(await this.prepareIntegrationDependencies(integrationDef, api)),
@@ -743,6 +751,34 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
   // native BuildCommand (codegen + esbuild — the SAME pipeline as a Botpress-
   // shaped bot), and (c) normalizes the produced bundle to .brt/dist/index.cjs.
   // Nothing here spawns an external adk/bp binary.
+  // DEVLP-173: esbuild's own strip-only transpile (via BuildCommand) never
+  // runs the TypeScript checker, so a bot with a type error in a tool's props
+  // deployed clean and only failed at runtime. Called from _buildAdkBundle
+  // AFTER generateAgentBot (so it sees the freshly generated dir/.adk/*-
+  // types.d.ts) but BEFORE BuildCommand's esbuild bundling. --noTypecheck is a
+  // deliberate, logged escape hatch; a missing tsconfig.json is a logged
+  // warning, never a silent skip.
+  private _typecheckAdkProject(dir: string): void {
+    const outcome = adkTypecheck.runAdkTypecheck(dir, { skip: Boolean(this.argv.noTypecheck) })
+    switch (outcome.status) {
+      case 'skipped-explicit':
+        cloudWarn(
+          '--noTypecheck: skipping the pre-deploy TypeScript check. A bot with a type error can now deploy and fail at runtime instead.'
+        )
+        return
+      case 'skipped-no-tsconfig':
+        cloudWarn(`typecheck skipped: no ${adkTypecheck.TSCONFIG_FILE} found in ${dir}`)
+        return
+      case 'ok':
+        cloudInfo('typecheck passed')
+        return
+      case 'failed':
+        throw new errors.BotpressCLIError(
+          `TypeScript typecheck failed (${outcome.errorCount} error${outcome.errorCount === 1 ? '' : 's'}):\n${outcome.formatted}`
+        )
+    }
+  }
+
   private async _buildAdkBundle(
     dir: string,
     configTargetBotId: string,
@@ -783,6 +819,18 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       configTarget: { environment: 'prod', botId: configTargetBotId, credentials },
     })
 
+    // Typecheck AFTER generateAgentBot, not before: generateAgentBot is what
+    // (re)writes dir/.adk/*-types.d.ts (action/component/table/... — see
+    // botruntime-adk's generateLocalTypes and friends), the narrow types a
+    // tool/action call is actually checked against via this project's own
+    // tsconfig.json `paths` override. Typechecking any earlier would see only
+    // the runtime package's permissive `any` fallback (or a stale prior
+    // generation) and silently miss the exact tool-props error class this
+    // gate exists to catch. Still strictly before BuildCommand's esbuild
+    // bundling below, so a type error still blocks before any bytes are
+    // produced or uploaded.
+    this._typecheckAdkProject(dir)
+
     // Point a fresh BuildCommand at the generated bot dir. A fresh
     // ProjectDefinitionContext (its own esbuild context) is used and disposed,
     // so it never entangles with this deploy command's own project context
@@ -802,6 +850,11 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
   private async _deployAdkBundle(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
+    // Resolve the physical package graph before loading ADK code or touching
+    // Cloud state. A stale/hoisted platform package must fail here, not later
+    // as an unrelated runtime or eval error after provisioning.
+    const toolchainContract = inspectPlatformToolchain(dir)
+    assertPlatformToolchainCompatible(toolchainContract)
     // Load and validate recurring metadata before provisioning. The server
     // synchronizes these durable schedules atomically with the deployed bot.
     const recurringEvents = await adkBundle.loadAgentRecurringEvents(dir)
@@ -928,6 +981,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       ? (() => {
           const bundlePath = adkBundle.requireExistingBundle(dir)
           const verified = adkBundle.validateBundleProvenance(bundlePath, bundleTarget!)
+          validatePlatformToolchainArtifact(dir, toolchainContract, verified.sha256)
           return { path: bundlePath, code: verified.code, sha256: verified.sha256 }
         })()
       : undefined
@@ -948,8 +1002,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       // Persist the per-bot key BEFORE the link, atomically, so a crash leaves
       // a recoverable bot rather than an orphan with a lost key. The key is NOT
       // used to deploy (deploy is under the workspace PAT, below) — it is kept
-      // only for operations that still need a per-bot principal
-      // (`brt integrations install/register`, webhookSecret).
+      // only for operations that still need a per-bot principal.
       cloudInfo(`provision new bot on ${apiUrl} ...`)
       const machineClient = new CloudapiClient(apiUrl, profile.token)
       const prov = validateProvisionResponse(
@@ -985,7 +1038,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
 
       // No per-bot key is read here: an already-linked bot deploys under the
       // workspace PAT. bots.json remains the store for the per-bot principal
-      // that `brt integrations install/register` still needs.
+      // that legacy bot-scoped commands may still need.
     }
 
     const { migrateFromConfig } = await adkBundle.loadAdkMigrationTools()
@@ -1030,6 +1083,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       const code = await fs.promises.readFile(bundlePath, 'utf-8')
       const localHash = adkBundle.sha256(code)
       adkBundle.writeBundleProvenance(bundlePath, { apiUrl, workspaceId, botId }, code)
+      writePlatformToolchainContract(dir, toolchainContract, { bundleSha256: localHash })
       bundle = { path: bundlePath, code, sha256: localHash }
     }
     const { path: bundlePath, code, sha256: localHash } = bundle

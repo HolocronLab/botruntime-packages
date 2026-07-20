@@ -2,14 +2,16 @@ import type { Client as BpClient } from '@holocronlab/botruntime-client'
 import type { SignalListener, Signals } from '@holocronlab/botruntime-chat'
 import { CognitiveBeta } from '@holocronlab/botruntime-cognitive'
 import { describe, expect, it, vi } from 'vitest'
-import type { EvalDefinition, Span, SpanSource, SpanSourceCapabilities } from './types'
+import type { EvalDefinition, EvalRunnerConfig, Span, SpanSource, SpanSourceCapabilities } from './types'
 import type { ChatClient } from './types'
+import { DurableEvalEffectRetryError } from './errors'
 import {
   isPartialEvalSuiteAbort,
   runEval,
   runEvalSuite,
   validateEvalCapabilities,
   validateEvalControlCapabilities,
+  validateDurableEvalDefinitions,
 } from './runner'
 
 function completedHandler(): Span {
@@ -185,6 +187,58 @@ describe('eval observation capability preflight', () => {
     ).not.toThrow()
   })
 
+  it.each([
+    [{ name: 'event', conversation: [{ event: { payload: { type: 'wake' } } }] }],
+    [{ name: 'control', conversation: [{ control: { clearFaults: true } }] }],
+    [
+      {
+        name: 'table-seed',
+        setup: { tables: [{ table: 'Cases', rows: [{ key: 'value' }] }] },
+        conversation: [{ user: 'hello' }],
+      },
+    ],
+  ] as const)('fails loud before mutation when a durable host lacks target idempotency', async (definition) => {
+    const { chatClient } = chatHarness()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({ execute }) =>
+      execute()
+
+    await expect(
+      runEval(definition as unknown as EvalDefinition, { client: {} as BpClient, botId: 'bot' }, {
+        spanSource: spanSource(),
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+      })
+    ).rejects.toMatchObject({ code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED', expected: true })
+  })
+
+  it('accepts durable seeds, controls, and event inputs when the host owns idempotent effects', () => {
+    const durableEffects = {
+      createTableRows: vi.fn(),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    expect(() =>
+      validateDurableEvalDefinitions(
+        [
+          {
+            name: 'durable-effects',
+            setup: { tables: [{ table: 'CasesTable', rows: [{ id: 'fixture' }] }] },
+            conversation: [
+              { event: { payload: { type: 'hitl.approved' } } },
+              { control: { advanceClock: { milliseconds: 600_000 } } },
+            ],
+          },
+        ],
+        true,
+        durableEffects
+      )
+    ).not.toThrow()
+  })
+
   it('rejects virtual time, faults, and parallel input before side effects when the host has no eval control', () => {
     const definition: EvalDefinition = {
       name: 'controlled',
@@ -352,7 +406,7 @@ describe('eval observation capability preflight', () => {
     )
 
     expect(resolveFixture).toHaveBeenCalledWith('ddu-valid', expect.objectContaining({ botId: 'runtime-bot' }))
-    expect(authenticatedClient.createMessage).toHaveBeenCalledWith({
+    expect(authenticatedClient.createMessage).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'conv-1',
       payload: {
         type: 'bloc',
@@ -365,7 +419,7 @@ describe('eval observation capability preflight', () => {
           },
         ],
       },
-    })
+    }))
     expect(JSON.stringify({ report, progress: onProgress.mock.calls })).not.toContain('signed.example')
     expect(JSON.stringify({ report, progress: onProgress.mock.calls })).not.toContain('token=secret')
     expect(report.turns[0]?.userMessage).toContain('ddu-valid')
@@ -388,8 +442,8 @@ describe('eval observation capability preflight', () => {
           },
         ],
       }),
-      createUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
-      createMessage: vi.fn(async () => {
+      getOrCreateUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
+      getOrCreateMessage: vi.fn(async () => {
         messages.get('conv-1')!.push({
           id: 'relay-1',
           direction: 'outgoing',
@@ -439,7 +493,7 @@ describe('eval observation capability preflight', () => {
       target: 'hitl_thread',
       pass: true,
     })
-    expect(client.createMessage).toHaveBeenCalledWith(
+    expect(client.getOrCreateMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         origin: 'synthetic',
         conversationId: 'hitl-1',
@@ -493,6 +547,46 @@ describe('eval observation capability preflight', () => {
     expect(evalControl.clearFaults).toHaveBeenCalledOnce()
   })
 
+  it('returns a typed safe diagnostic when isolated eval control fails', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const onException = vi.fn()
+    const evalControl = {
+      advanceClock: vi.fn().mockRejectedValue({ kind: 'auth', message: 'upstream body with customer secret' }),
+      configureFaults: vi.fn().mockResolvedValue(undefined),
+      clearFaults: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const report = await runEval(
+      {
+        name: 'clock-failure',
+        conversation: [
+          {
+            message: 'continue',
+            control: { advanceClock: { milliseconds: 1_000, runDueWorkflows: true } },
+          },
+        ],
+      },
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      { spanSource: source, chatClient, chatWebhookId: 'webhook', evalControl, onException }
+    )
+
+    expect(report).toMatchObject({
+      pass: false,
+      error: 'Eval control operation advance_clock failed.',
+      errorCode: 'EVAL_CONTROL_FAILED',
+      diagnostic: {
+        code: 'EVAL_CONTROL_FAILED',
+        phase: 'dispatch',
+        errorKind: 'auth',
+        turnIndex: 0,
+        conversationId: 'conv-1',
+      },
+    })
+    expect(JSON.stringify(report)).not.toContain('customer secret')
+    expect(onException).not.toHaveBeenCalled()
+  })
+
   it('propagates turn-complete progress sink failures from both runEval and runEvalSuite', async () => {
     const sinkError = new Error('hosted persistence failed')
     const failTurnComplete = async (event: { type: string }) => {
@@ -533,6 +627,45 @@ describe('eval observation capability preflight', () => {
       })
     ).rejects.toBe(sinkError)
     expect(suiteSource.disconnect).toHaveBeenCalled()
+  })
+
+  it('preserves safe sink operation and status through the durable checkpoint boundary', async () => {
+    const sinkError = Object.assign(new Error('safe store failure'), {
+      operation: 'POST /v1/evals/runs/126/entries/1252/results',
+      status: 503,
+      kind: 'upstream',
+      ambiguous: true,
+    })
+    const { chatClient } = chatHarness()
+    let caught: unknown
+    try {
+      await runEval(
+        basicEval,
+        { client: {} as BpClient, botId: 'runtime-bot' },
+        {
+          spanSource: spanSource(),
+          chatClient,
+          chatWebhookId: 'webhook',
+          checkpointEvalOperation: async ({ execute }) => execute(),
+          onProgress: async (event) => {
+            if (event.type === 'turn_complete') throw sinkError
+          },
+        }
+      )
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      name: 'EvalProgressSinkError',
+      sinkCause: sinkError,
+      cause: sinkError,
+      operation: sinkError.operation,
+      status: 503,
+      kind: 'upstream',
+      ambiguous: true,
+    })
+    expect((caught as Error).message).toContain(`${sinkError.operation} (HTTP 503)`)
   })
 
   it('marks a mid-turn aborted eval explicitly, including when it is the last selected eval', async () => {
@@ -633,7 +766,7 @@ describe('eval observation capability preflight', () => {
     expect(authenticatedClient.createMessage).not.toHaveBeenCalled()
   })
 
-  it('lets a durable host checkpoint each complete eval including its progress side effects', async () => {
+  it('emits eval completion only after the durable report checkpoint has returned', async () => {
     vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
     const source = spanSource()
     const progress: string[] = []
@@ -671,7 +804,587 @@ describe('eval observation capability preflight', () => {
 
     expect(checkpointEval).toHaveBeenCalledOnce()
     expect(report).toMatchObject({ passed: 1, failed: 0, total: 1 })
-    expect(progress).toEqual(['suite_start', 'suite_complete'])
+    expect(progress).toEqual(['suite_start', 'eval_start', 'eval_complete', 'suite_complete'])
+  })
+
+  it('resumes a multi-turn eval from the first unfinished durable turn', async () => {
+    vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const definition: EvalDefinition = {
+      name: 'durable-turns',
+      conversation: [{ user: 'first' }, { user: 'second' }],
+    }
+    const cache = new Map<string, unknown>()
+    let invocation = 1
+    const persistedTurns: number[] = []
+
+    const checkpointEvalOperation = async <T>({
+      phase,
+      turnIndex,
+      execute,
+    }: {
+      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
+      turnIndex?: number
+      execute: () => Promise<T>
+    }): Promise<T> => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as T
+      if (invocation === 1 && phase === 'turn' && turnIndex === 1) {
+        throw new Error('durable-yield')
+      }
+      const value = await execute()
+      cache.set(key, value)
+      return value
+    }
+
+    await expect(
+      runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, {
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+        onProgress: (event) => {
+          if (event.type === 'turn_complete') persistedTurns.push(event.turnIndex)
+        },
+      })
+    ).rejects.toThrow('durable-yield')
+
+    invocation = 2
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, {
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      onProgress: (event) => {
+        if (event.type === 'turn_complete') persistedTurns.push(event.turnIndex)
+      },
+    })
+
+    expect(report.turns.map((turn) => turn.turnIndex)).toEqual([0, 1])
+    expect(persistedTurns).toEqual([0, 1])
+    expect(authenticatedClient.createConversation).toHaveBeenCalledOnce()
+    expect(authenticatedClient.createMessage).toHaveBeenCalledTimes(2)
+    expect(chatClient.connect).toHaveBeenNthCalledWith(2, expect.objectContaining({ userId: 'user-1' }))
+  })
+
+  it('keeps a nested checkpoint yield out of the enclosing durable step failure cache', async () => {
+    vi.spyOn(CognitiveBeta.prototype, 'listModels').mockResolvedValue([])
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const yieldSignal = { durableYield: true }
+    const cache = new Map<
+      string,
+      { ok: true; value: unknown } | { ok: false; error: Error }
+    >()
+    let yieldDispatch = true
+
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      effectIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}:${effectIndex ?? ''}`
+      const cached = cache.get(key)
+      if (cached) {
+        if (!cached.ok) throw cached.error
+        return cached.value as never
+      }
+
+      try {
+        if (phase === 'dispatch' && yieldDispatch) {
+          yieldDispatch = false
+          throw yieldSignal
+        }
+        const value = await execute()
+        cache.set(key, { ok: true, value })
+        return value
+      } catch (cause) {
+        // Mirror the workflow host: control signals are resumable, while an
+        // ordinary nested error becomes a cached failure of the enclosing step.
+        if (cause === yieldSignal) throw cause
+        const restored = new Error('cached enclosing checkpoint failure')
+        restored.name = cause instanceof Error ? cause.name : 'Error'
+        cache.set(key, { ok: false, error: restored })
+        throw cause
+      }
+    }
+    const definition: EvalDefinition = {
+      name: 'nested-checkpoint-yield',
+      conversation: [{ user: 'send once' }],
+    }
+    const options = {
+      executionId: 'run:nested-yield',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      isCheckpointYield: (cause: unknown) => cause === yieldSignal,
+    }
+
+    await expect(
+      runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+    ).rejects.toBe(yieldSignal)
+    expect(cache.has('turn:0:')).toBe(false)
+
+    const report = await runEval(
+      definition,
+      { client: {} as BpClient, botId: 'runtime-bot' },
+      options
+    )
+
+    expect(report.pass).toBe(true)
+    expect(authenticatedClient.createMessage).toHaveBeenCalledOnce()
+  })
+
+  it('reuses the original intent boundary when an idempotent effect loses its acknowledgement', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    const committedEffects = new Set<string>()
+    let committedSideEffects = 0
+    ;(authenticatedClient.createMessage as any).mockImplementation(async (input: { effectId?: string }) => {
+      const id = input.effectId ?? 'unkeyed'
+      if (!committedEffects.has(id)) {
+        committedEffects.add(id)
+        committedSideEffects++
+      }
+      return {}
+    })
+    let loseFirstEffectAck = true
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const value = await execute()
+      if (phase === 'effect' && loseFirstEffectAck) {
+        loseFirstEffectAck = false
+        throw new Error('effect-ack-lost')
+      }
+      cache.set(key, value)
+      return value
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-dispatch',
+      conversation: [{ user: 'send once', expectSilence: true }],
+    }
+    const options = {
+      executionId: 'run:0',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'effect-ack-lost'
+    )
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report.pass).toBe(true)
+    expect(authenticatedClient.createMessage).toHaveBeenCalledTimes(2)
+    expect(committedSideEffects).toBe(1)
+  })
+
+  it('does not cache an ambiguous durable effect acknowledgement as an eval verdict', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    const createEvent = vi
+      .fn()
+      .mockRejectedValueOnce(new DurableEvalEffectRetryError('acknowledgement unknown'))
+      .mockResolvedValue(undefined)
+    const durableEffects = {
+      createTableRows: vi.fn(),
+      createEvent,
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const value = await execute()
+      cache.set(key, value)
+      return value
+    }
+    const options = {
+      executionId: 'run:lost-ack',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      durableEffects,
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-event-lost-ack',
+      conversation: [{ event: { payload: { type: 'hitl.approved' } }, expectSilence: true }],
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'acknowledgement unknown'
+    )
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report.pass).toBe(true)
+    expect(createEvent).toHaveBeenCalledTimes(2)
+    expect(createEvent).toHaveBeenLastCalledWith({
+      type: 'eval:event',
+      userId: 'user-1',
+      conversationId: 'conv-1',
+      payload: { type: 'hitl.approved' },
+      effectId: 'eval:run:lost-ack:turn:0:event',
+    })
+  })
+
+  it('cleans acknowledged table effects when a later setup effect exhausts checkpoint retries', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const deleteTableRows = vi.fn().mockResolvedValue({ deletedRows: 1 })
+    const durableEffects = {
+      createTableRows: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ id: 301 }] })
+        .mockRejectedValueOnce(new DurableEvalEffectRetryError('second table acknowledgement unknown')),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({ execute }) =>
+      execute()
+    const definition: EvalDefinition = {
+      name: 'durable-table-terminal-cleanup',
+      setup: {
+        tables: [
+          { table: 'CasesTable', rows: [{ value: 'known' }] },
+          { table: 'DocumentsTable', rows: [{ value: 'ambiguous' }] },
+        ],
+      },
+      conversation: [{ user: 'never reached' }],
+    }
+
+    await expect(
+      runEval(definition, { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' }, {
+        executionId: 'run:table-cleanup',
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+        durableEffects,
+        isCheckpointYield: () => false,
+      })
+    ).rejects.toThrow('second table acknowledgement unknown')
+    expect(deleteTableRows).toHaveBeenCalledOnce()
+    expect(deleteTableRows).toHaveBeenCalledWith({ table: 'CasesTable', ids: [301] })
+  })
+
+  it('retries exact-row cleanup outside a failed finalization checkpoint', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const deleteTableRows = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('table cleanup unavailable'))
+      .mockRejectedValueOnce(new Error('table cleanup still unavailable'))
+      .mockResolvedValue({ deletedRows: 1 })
+    const durableEffects = {
+      createTableRows: vi.fn().mockResolvedValue({ rows: [{ id: 351 }] }),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const cache = new Map<string, unknown>()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      effectIndex,
+      execute,
+    }) => {
+      if (phase === 'cleanup') {
+        let lastError: unknown
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            return await execute()
+          } catch (error) {
+            lastError = error
+          }
+        }
+        throw lastError
+      }
+      const key = `${phase}:${effectIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const result = await execute()
+      cache.set(key, result)
+      return result
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-table-finalize-recovery',
+      setup: { tables: [{ table: 'CasesTable', rows: [{ value: 'known' }] }] },
+      conversation: [],
+    }
+
+    const report = await runEval(
+      definition,
+      { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' },
+      {
+        executionId: 'run:table-finalize-recovery',
+        spanSource: source,
+        chatClient,
+        chatWebhookId: 'webhook',
+        sourcePreflighted: true,
+        checkpointEvalOperation,
+        durableEffects,
+        isCheckpointYield: () => false,
+      }
+    )
+
+    expect(report.pass).toBe(false)
+    expect(report.error).toContain('Exact-row cleanup of eval table fixtures failed')
+    expect(deleteTableRows).toHaveBeenCalledTimes(3)
+    expect(deleteTableRows).toHaveBeenNthCalledWith(1, { table: 'CasesTable', ids: [351] })
+    expect(deleteTableRows).toHaveBeenNthCalledWith(2, { table: 'CasesTable', ids: [351] })
+    expect(deleteTableRows).toHaveBeenNthCalledWith(3, { table: 'CasesTable', ids: [351] })
+  })
+
+  it('propagates a cleanup yield and resumes exact-row cleanup on the next invocation', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const deleteTableRows = vi.fn().mockResolvedValue({ deletedRows: 1 })
+    const acknowledgementUnknown = () => new DurableEvalEffectRetryError('second table acknowledgement unknown')
+    const durableEffects = {
+      createTableRows: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ id: 401 }] })
+        .mockRejectedValueOnce(acknowledgementUnknown()),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn(),
+      clearFaults: vi.fn(),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const yieldSignal = { durableYield: true }
+    let yieldCleanup = true
+    const cache = new Map<string, { ok: true; value: unknown } | { ok: false; error: unknown }>()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      effectIndex,
+      execute,
+    }) => {
+      if (phase === 'cleanup' && yieldCleanup) {
+        yieldCleanup = false
+        throw yieldSignal
+      }
+      const key = `${phase}:${turnIndex ?? ''}:${effectIndex ?? ''}`
+      const cached = cache.get(key)
+      if (cached) {
+        if (!cached.ok) throw cached.error
+        return cached.value as never
+      }
+      try {
+        const value = await execute()
+        cache.set(key, { ok: true, value })
+        return value
+      } catch (error) {
+        if (phase === 'setup' && effectIndex === 1) cache.set(key, { ok: false, error })
+        throw error
+      }
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-table-cleanup-yield',
+      setup: {
+        tables: [
+          { table: 'CasesTable', rows: [{ value: 'known' }] },
+          { table: 'DocumentsTable', rows: [{ value: 'ambiguous' }] },
+        ],
+      },
+      conversation: [{ user: 'never reached' }],
+    }
+    const options = {
+      executionId: 'run:table-cleanup-yield',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      durableEffects,
+      isCheckpointYield: (cause: unknown) => cause === yieldSignal,
+    }
+
+    await expect(
+      runEval(definition, { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' }, options)
+    ).rejects.toBe(yieldSignal)
+    expect(deleteTableRows).not.toHaveBeenCalled()
+
+    await expect(
+      runEval(definition, { client: { deleteTableRows } as unknown as BpClient, botId: 'runtime-bot' }, options)
+    ).rejects.toThrow('second table acknowledgement unknown')
+    expect(deleteTableRows).toHaveBeenCalledOnce()
+    expect(deleteTableRows).toHaveBeenCalledWith({ table: 'CasesTable', ids: [401] })
+    expect(durableEffects.createTableRows).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps configured faults across a durable yield and clears them once at terminal finalization', async () => {
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    let invocation = 1
+    const durableEffects = {
+      createTableRows: vi.fn(),
+      createEvent: vi.fn(),
+      advanceClock: vi.fn(),
+      configureFaults: vi.fn().mockResolvedValue(undefined),
+      clearFaults: vi.fn().mockResolvedValue(undefined),
+    } as NonNullable<EvalRunnerConfig['durableEffects']>
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      if (invocation === 1 && phase === 'turn' && turnIndex === 1) throw new Error('durable-yield')
+      const value = await execute()
+      cache.set(key, value)
+      return value
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-control-yield',
+      conversation: [
+        {
+          control: { faults: [{ point: 'workflow.after_dispatch', mode: 'lost_ack', times: 1 }] },
+          expectSilence: true,
+        },
+        { user: 'continue' },
+      ],
+    }
+    const options = {
+      executionId: 'run:control-yield',
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      durableEffects,
+      evalControl: durableEffects as unknown as NonNullable<EvalRunnerConfig['evalControl']>,
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'durable-yield'
+    )
+    expect(durableEffects.clearFaults).not.toHaveBeenCalled()
+
+    invocation = 2
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).resolves.toMatchObject({
+      pass: true,
+    })
+    expect(durableEffects.configureFaults).toHaveBeenCalledOnce()
+    expect(durableEffects.clearFaults).toHaveBeenCalledOnce()
+    expect(durableEffects.clearFaults).toHaveBeenCalledWith('eval:run:control-yield:control:cleanup')
+  })
+
+  it('rehydrates a cached typed turn failure without changing its durable verdict', async () => {
+    const cache = new Map<string, unknown>()
+    let loseFirstTurnAck = true
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({
+      phase,
+      turnIndex,
+      execute,
+    }) => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as never
+      const value = await execute()
+      cache.set(key, value)
+      if (phase === 'turn' && loseFirstTurnAck) {
+        loseFirstTurnAck = false
+        throw new Error('turn-ack-lost')
+      }
+      return value
+    }
+    const definition: EvalDefinition = {
+      name: 'durable-typed-error',
+      conversation: [{ user: 'one alias', message: 'second alias' }],
+    }
+    const source = spanSource()
+    const { chatClient } = chatHarness()
+    const options = {
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+    }
+
+    await expect(runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'turn-ack-lost'
+    )
+    const report = await runEval(definition, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report).toMatchObject({
+      pass: false,
+      errorCode: 'EVAL_TURN_CONFIG_INVALID',
+      diagnostic: { code: 'EVAL_TURN_CONFIG_INVALID', phase: 'routing', turnIndex: 0 },
+    })
+  })
+
+  it('retries an ambiguous result write from the cached turn report without resending chat input', async () => {
+    const source = spanSource()
+    const { authenticatedClient, chatClient } = chatHarness()
+    const cache = new Map<string, unknown>()
+    const persistedReports: string[] = []
+    let loseFirstPersistenceAck = true
+    const checkpointEvalOperation = async <T>({
+      phase,
+      turnIndex,
+      execute,
+    }: {
+      phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
+      turnIndex?: number
+      execute: () => Promise<T>
+    }): Promise<T> => {
+      const key = `${phase}:${turnIndex ?? ''}`
+      if (cache.has(key)) return cache.get(key) as T
+      const value = await execute()
+      if (phase === 'persist' && loseFirstPersistenceAck) {
+        loseFirstPersistenceAck = false
+        throw new Error('persistence-ack-lost')
+      }
+      cache.set(key, value)
+      return value
+    }
+    const options = {
+      spanSource: source,
+      chatClient,
+      chatWebhookId: 'webhook',
+      sourcePreflighted: true,
+      checkpointEvalOperation,
+      onProgress: (event: Parameters<NonNullable<EvalRunnerConfig['onProgress']>>[0]) => {
+        if (event.type === 'turn_complete') persistedReports.push(JSON.stringify(event.turnReport))
+      },
+    }
+
+    await expect(runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, options)).rejects.toThrow(
+      'persistence-ack-lost'
+    )
+    const report = await runEval(basicEval, { client: {} as BpClient, botId: 'runtime-bot' }, options)
+
+    expect(report.pass).toBe(true)
+    expect(authenticatedClient.createMessage).toHaveBeenCalledOnce()
+    expect(persistedReports).toHaveLength(2)
+    expect(persistedReports[1]).toBe(persistedReports[0])
   })
 
   it('validates only filtered definitions before reader preflight', async () => {
@@ -717,6 +1430,37 @@ describe('eval observation capability preflight', () => {
     ).rejects.toMatchObject({ code: 'EVAL_OBSERVATION_UNSUPPORTED' })
 
     expect(source.assertReadable).not.toHaveBeenCalled()
+    expect(chatClient.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unsafe durable suite before an earlier safe eval can mutate the target', async () => {
+    const { chatClient } = chatHarness()
+    const createSpanSource = vi.fn(() => spanSource())
+    const onProgress = vi.fn()
+    const checkpointEvalOperation: NonNullable<EvalRunnerConfig['checkpointEvalOperation']> = async ({ execute }) =>
+      execute()
+    const unsafe: EvalDefinition = {
+      name: 'unsafe-event',
+      conversation: [{ event: { payload: { type: 'unsafe' } } }],
+    }
+
+    await expect(
+      runEvalSuite({
+        client: {} as BpClient,
+        botId: 'runtime-bot',
+        definitions: [basicEval, unsafe],
+        createSpanSource,
+        chatClient,
+        checkpointEvalOperation,
+        onProgress,
+      })
+    ).rejects.toMatchObject({
+      code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED',
+      details: { evalName: 'unsafe-event', turn: 1 },
+    })
+
+    expect(createSpanSource).not.toHaveBeenCalled()
+    expect(onProgress).not.toHaveBeenCalled()
     expect(chatClient.connect).not.toHaveBeenCalled()
   })
 

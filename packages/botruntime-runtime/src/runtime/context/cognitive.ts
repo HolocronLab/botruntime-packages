@@ -1,4 +1,5 @@
 import { Cognitive } from '@holocronlab/botruntime-cognitive'
+import stringify from 'fast-safe-stringify'
 import { span } from '../../telemetry/tracing'
 import { getActiveConversationId } from './context'
 
@@ -10,10 +11,7 @@ export class InstrumentedCognitive extends Cognitive {
   clone(): InstrumentedCognitive {
     return new InstrumentedCognitive({
       client: this.client,
-      __experimental_beta: this._useBeta,
-      maxRetries: this._maxRetries,
       timeout: this._timeoutMs,
-      provider: this._provider,
     })
   }
 
@@ -57,8 +55,8 @@ export class InstrumentedCognitive extends Cognitive {
         'ai.prompt_category': input.meta?.promptCategory,
         'ai.prompt_source': input.meta?.promptSource,
         'ai.instructions': input.systemPrompt,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- span attribute type mismatch
-        'ai.tools': input.tools as any,
+        'ai.messages': stringify(input.messages),
+        'ai.tools': stringify(input.tools),
         ...(conversationId ? { conversationId } : {}),
       },
       async (s) => {
@@ -75,6 +73,7 @@ export class InstrumentedCognitive extends Cognitive {
         // Update model info with the actual model used
         s.setAttribute('ai.model', result.meta.model.model)
         s.setAttribute('ai.provider', result.meta.model.integration)
+        s.setAttribute('ai.response', stringify(result.output))
 
         return result
       }

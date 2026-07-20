@@ -5,7 +5,7 @@
  * without importing any heavy dependencies or causing side effects.
  */
 
-export { TranscriptSchema } from './runtime/chat/transcript'
+export { TranscriptSchema, TranscriptStateSchema } from './runtime/chat/transcript'
 export { TrackedStateSchema } from './runtime/tracked-state-schema'
 export { BUILT_IN_STATES } from './runtime/tracked-state'
 export { BUILT_IN_TAGS } from './runtime/tracked-tags'

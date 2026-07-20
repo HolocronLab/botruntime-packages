@@ -8,7 +8,7 @@ import * as tree from './command-tree'
 import * as errors from './errors'
 import { Logger } from './logger'
 import { registerYargs } from './register-yargs'
-import { CLI_VERSION } from './cli-version'
+import { CLI_VERSION, CLI_VERSION_EPILOGUE } from './cli-version'
 
 const cli = yargs(hideBin(process.argv))
 
@@ -46,5 +46,6 @@ void cli
   .recommendCommands()
   .strict()
   .help()
+  .epilogue(CLI_VERSION_EPILOGUE)
   .fail(yargsFail)
   .parse()

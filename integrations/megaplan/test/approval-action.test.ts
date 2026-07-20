@@ -14,6 +14,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
   let attachedFileId = ''
+  let approverIds: string[] = []
 
   process.env.BP_API_URL = 'https://runtime.local'
   process.env.BP_TOKEN = 'bp-token'
@@ -37,7 +38,9 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     }
     if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
       const body = await request.json() as any
-      attachedFileId = body.negotiationItems[0].actualVersion.attache.id
+      attachedFileId = body.negotiationItems[0].versions[0].attache.id
+      approverIds = body.executors.map((executor: { id: string }) => executor.id)
+      expect(body.negotiationExecutors).toBeUndefined()
       return Response.json({
         meta: { status: 200, errors: [] },
         data: { contentType: 'Task', id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V1' } }] },
@@ -68,6 +71,7 @@ test('create negotiation action verifies bytes, uploads them and attaches the Me
     } as any)
     expect(output).toEqual({ taskId: 'T1', itemId: 'N1', versionId: 'V1' })
     expect(attachedFileId).toBe('F1')
+    expect(approverIds).toEqual(['E2'])
   } finally {
     globalThis.fetch = originalFetch
     process.env.BP_API_URL = originalApiUrl
@@ -184,6 +188,7 @@ test('an ambiguous Megaplan task creation failure keeps the approval claim until
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
   const releaseExpiries: number[] = []
+  let operationClaim: unknown
 
   process.env.BP_API_URL = 'https://runtime.local'
   process.env.BP_TOKEN = 'bp-token'
@@ -215,7 +220,12 @@ test('an ambiguous Megaplan task creation failure keeps the approval claim until
         materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256,
       },
       client: {
-        getOrSetState: getOrSetTokenOrClaim,
+        getOrSetState: async ({ name, payload }: { name: string; payload: unknown }) => {
+          if (name === 'megaplanAuth') return { state: { payload: { accessToken: 'megaplan-token' } } }
+          operationClaim ??= payload
+          return { state: { payload: operationClaim } }
+        },
+        getState: async () => ({ state: { payload: operationClaim } }),
         setState: async ({ name, expiry }: { name: string; expiry?: number }) => {
           if (name === 'approvalOperation' && expiry !== undefined) releaseExpiries.push(expiry)
           return {}
@@ -226,6 +236,77 @@ test('an ambiguous Megaplan task creation failure keeps the approval claim until
       },
     } as any)).rejects.toThrow(/HTTP 502/i)
     expect(releaseExpiries).toEqual([])
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalApiUrl === undefined) delete process.env.BP_API_URL
+    else process.env.BP_API_URL = originalApiUrl
+    if (originalToken === undefined) delete process.env.BP_TOKEN
+    else process.env.BP_TOKEN = originalToken
+    if (originalBotId === undefined) delete process.env.BP_BOT_ID
+    else process.env.BP_BOT_ID = originalBotId
+  }
+})
+
+test('a definitive Megaplan validation rejection expires the approval claim immediately', async () => {
+  const originalFetch = globalThis.fetch
+  const originalApiUrl = process.env.BP_API_URL
+  const originalToken = process.env.BP_TOKEN
+  const originalBotId = process.env.BP_BOT_ID
+  const bytes = new TextEncoder().encode('claim-v1')
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  const releaseExpiries: number[] = []
+  let operationClaim: unknown
+
+  process.env.BP_API_URL = 'https://runtime.local'
+  process.env.BP_TOKEN = 'bp-token'
+  process.env.BP_BOT_ID = 'bot-1'
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    const parsed = new URL(request.url)
+    if (parsed.pathname === '/api/v3/task' && request.method === 'GET') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [] })
+    }
+    if (parsed.pathname === '/v1/files/download') return new Response(bytes)
+    if (parsed.pathname === '/api/file') {
+      return Response.json({ meta: { status: 200, errors: [] }, data: [{ contentType: 'File', id: 'F1' }] })
+    }
+    if (parsed.pathname === '/api/v3/task' && request.method === 'POST') {
+      return Response.json({
+        meta: { status: 422, errors: [{ message: 'Negotiation item must be have file or text' }] },
+        data: null,
+      }, { status: 422 })
+    }
+    return new Response('unexpected', { status: 500 })
+  }) as typeof fetch
+
+  try {
+    await expect(createNegotiationTask({
+      ctx: {
+        integrationId: 'integration-1',
+        configuration: { baseUrl: 'https://account.megaplan.ru', username: 'u', password: 'p' },
+      },
+      input: {
+        name: 'Согласовать претензию', responsibleId: 'E1', approverIds: ['E2'], dealIds: ['D1'],
+        materialName: 'claim.docx', materialFileId: 'BF-source-1', materialSha256: sha256,
+      },
+      client: {
+        getOrSetState: async ({ name, payload }: { name: string; payload: unknown }) => {
+          if (name === 'megaplanAuth') return { state: { payload: { accessToken: 'megaplan-token' } } }
+          operationClaim ??= payload
+          return { state: { payload: operationClaim } }
+        },
+        getState: async () => ({ state: { payload: operationClaim } }),
+        setState: async ({ name, expiry }: { name: string; expiry?: number }) => {
+          if (name === 'approvalOperation' && expiry !== undefined) releaseExpiries.push(expiry)
+          return {}
+        },
+        getFile: async () => ({
+          file: { id: 'BF-source-1', url: 'https://runtime.local/v1/files/download?key=claim-v1' },
+        }),
+      },
+    } as any)).rejects.toThrow(/HTTP 422.*Negotiation item/i)
+    expect(releaseExpiries).toEqual([1])
   } finally {
     globalThis.fetch = originalFetch
     if (originalApiUrl === undefined) delete process.env.BP_API_URL
@@ -495,19 +576,21 @@ test('approved document is copied without leaking credentials and returns a stab
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
     const parsed = new URL(request.url)
-    if (parsed.pathname === '/api/v3/task/T1/negotiationItems') {
+    if (parsed.pathname === '/api/v3/task/T1') {
       return Response.json({
         meta: { status: 200, errors: [] },
-        data: [{
+        data: { id: 'T1', negotiationItems: [{
           id: 'N1',
-          actualVersion: {
+          actualVersion: { contentType: 'NegotiationItemVersion', id: 'V2' },
+          versions: [{
+            contentType: 'NegotiationItemVersion',
             id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/approved', name: 'approved.docx' },
             visas: [
               { id: 'Z1', status: 'ok', comment: { id: 'C1', content: 'Проверено' }, timeCreated: '2026-07-14T09:10:11+03:00', userCreated: { id: 'E2', name: 'Юрист 1' } },
               { id: 'Z2', status: 'ok', comment: { id: 'C2', content: 'Согласовано' }, timeCreated: '2026-07-14T10:11:12+03:00', userCreated: { id: 'E3', name: 'Юрист 2' } },
             ],
-          },
-        }],
+          }],
+        }] },
       })
     }
     if (parsed.pathname === '/api/file/approved') {
@@ -577,16 +660,16 @@ test('approved document authenticates a same-origin Botruntime upload URL', asyn
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
     const parsed = new URL(request.url)
-    if (parsed.pathname === '/api/v3/task/T1/negotiationItems') {
+    if (parsed.pathname === '/api/v3/task/T1') {
       return Response.json({
         meta: { status: 200, errors: [] },
-        data: [{
+        data: { id: 'T1', negotiationItems: [{
           id: 'N1',
           actualVersion: {
             id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/approved', name: 'approved.docx' },
             visas: [{ id: 'Z1', status: 'ok', userCreated: { id: 'E2', name: 'Юрист' } }],
           },
-        }],
+        }] },
       })
     }
     if (parsed.pathname === '/api/file/approved') return new Response('approved-v2')
@@ -627,10 +710,10 @@ test('approved document without an attached actual version fails loudly', async 
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
-    if (new URL(request.url).pathname === '/api/v3/task/T1/negotiationItems') {
+    if (new URL(request.url).pathname === '/api/v3/task/T1') {
       return Response.json({
         meta: { status: 200, errors: [] },
-        data: [{ id: 'N1', actualVersion: { id: 'V2', status: 'ok', visas: [{ status: 'ok', userCreated: { id: 'E2' } }] } }],
+        data: { id: 'T1', negotiationItems: [{ id: 'N1', actualVersion: { id: 'V2', status: 'ok', visas: [{ status: 'ok', userCreated: { id: 'E2' } }] } }] },
       })
     }
     return new Response('unexpected', { status: 500 })
@@ -655,16 +738,16 @@ test('approved document with an empty attachment fails before file-store publica
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
     const parsed = new URL(request.url)
-    if (parsed.pathname === '/api/v3/task/T1/negotiationItems') {
+    if (parsed.pathname === '/api/v3/task/T1') {
       return Response.json({
         meta: { status: 200, errors: [] },
-        data: [{
+        data: { id: 'T1', negotiationItems: [{
           id: 'N1',
           actualVersion: {
             id: 'V2', status: 'ok', attache: { id: 'MF1', path: '/api/file/empty', name: 'empty.docx' },
             visas: [{ status: 'ok', userCreated: { id: 'E2' } }],
           },
-        }],
+        }] },
       })
     }
     if (parsed.pathname === '/api/file/empty') return new Response(new Uint8Array())

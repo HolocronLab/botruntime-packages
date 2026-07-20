@@ -37,7 +37,22 @@ administrator with permission to manage topics.
 
 ## Protected media
 
-Version 1.1.6 delivers images, audio, video, documents, and card images from Botruntime's protected
+Version 1.1.7 delivers images, audio, video, documents, and card images from Botruntime's protected
 file store without exposing runtime credentials. The integration downloads the canonical file URL
 with the bot's credentials and uploads the bytes to Telegram; public third-party URLs keep using
 Telegram's normal URL delivery.
+
+## Service messages and transport errors
+
+Version 1.1.8 acknowledges Telegram service messages, such as membership changes, without turning
+them into user content or making Telegram retry the webhook. Telegram API network failures remain
+real JavaScript errors, preserving their original cause in the Bun integration host.
+
+## Webhook retries
+
+Version 1.1.9 identifies an inbound delivery by the installation webhook and Telegram `update_id`.
+Version 1.1.10 reports outbound delivery as `failed` only before provider acceptance or after a definitive provider rejection. A timeout after calling Telegram is `outcome_unknown`: the platform records it but never retries the non-idempotent send automatically. A successful Telegram response is acknowledged with provider message tags.
+
+Version 1.1.11 uploads protected documents with the runtime's native proxied `fetch` multipart transport. This keeps authenticated Botruntime file URLs private and makes binary uploads use the same egress gateway contract as other provider calls under Bun.
+Telegram retries are acknowledged without creating a second Botruntime message or running the bot
+twice; `message_id` remains the transport anchor for replies and reactions.

@@ -51,6 +51,54 @@ For an integration project (with `integration.definition.ts`), `brt build`
 produces a runnable `.botpress/dist/index.cjs` exporting `{ default, handler }`,
 and `brt deploy` publishes the integration.
 
+## Upgrade an installed integration
+
+`brt integrations install <name@version>` only creates a new connection. To
+move one existing ADK agent installation to another published exact version,
+use `upgrade`:
+
+```bash
+# Production target from agent.json; alias defaults to the integration name
+brt integrations upgrade telegram@1.2.0 --alias primary
+brt deploy --adk
+
+# Development target previously established by brt dev
+brt integrations upgrade telegram@1.2.0 --alias primary --dev
+
+# Explicit rollback is the same atomic operation targeting the former version
+brt integrations upgrade telegram@1.1.3 --alias primary
+```
+
+The command accepts only canonical exact SemVer refs. It lists the selected
+bot's installations and resolves exactly one current installation by effective
+alias. An explicit stored alias has priority. If the stored alias is empty, as
+with a default `install`, the canonical integration name or its unqualified last
+segment can select it. Missing and ambiguous matches fail before mutation. The
+command rejects an already-current ref, then sends one atomic direct repoint
+request. There is no separate preflight endpoint. Cloud validates catalog
+trust, publication, stored config/secrets, and webhook authentication
+compatibility inside the repoint transaction. Any non-2xx response leaves
+local project files unchanged.
+
+Cloud atomically repoints the existing installation: installation ID, alias,
+webhook ID, status, and credentials are preserved, and no second installation
+is created. The CLI never calls `register` automatically.
+
+After repoint, the selected dev or production dependency snapshot is refreshed.
+A running dev watcher picks up its dev snapshot; production always requires the
+next `brt deploy --adk`. `--wait` is retained in the command surface but rejected
+before target lookup or mutation: Cloud does not yet expose runtime-host
+readiness. A local refresh error after a successful repoint exits non-zero while
+stating that server-side repoint already completed and printing the symmetric
+rollback command.
+
+The repoint POST is non-idempotent. Only a Cloud `4xx` is a definitive rejection.
+If the connection drops, a successful response is malformed or inconsistent,
+or any `5xx` is returned, the CLI reports the outcome as unknown and leaves
+local files unchanged. Inspect the installation's current ref first; only if the
+target ref is active should you use the printed shell-safe rollback command. Do
+not create or register a second installation during recovery.
+
 ## Rebrand boundary (hard rule)
 
 brt is rebranded only on our user-facing surface (CLI name `brt`, help/banner
@@ -83,15 +131,27 @@ brt init my-bot && cd my-bot && brt build && brt deploy
 
 Requires **bun >= 1.3**.
 
+## Runtime logs
+
+`brt logs` reads the selected bot through the workspace profile. Production
+uses the canonical project link or a numeric `--bot-id` override. `--dev`
+resolves the cached opaque runtime target, or an opaque `--bot-id` override,
+and queries its attested numeric target bot. Passing an opaque runtime ID
+without `--dev` remains a production-target error.
+
+```bash
+brt logs --follow
+brt logs --conversation-id conv_123 --dev
+brt logs --since 2026-07-17T18:00:00Z --dev --local
+```
+
 ## Runtime traces
 
-`brt traces` reads the selected profile's trace API. It exposes bounded runtime
-exception diagnostics (`name`, `code`, `message`, and `stack`) so a developer
-can diagnose a failed handler after the live process or dev tunnel has stopped.
-Exception message and stack text is not redacted and may contain sensitive data.
-Prompts, model responses, tool input/output, and document content remain outside
-this API. The backend response is projected through a strict allowlist before
-either human or JSON output is written.
+`brt traces` reads the selected profile's trace API. It returns the complete
+stored span content, including attributes, platform payload, tool input/output
+and runtime exceptions. Trace content is not redacted: the bot developer owns
+the data sent by their bot and must delete traces when they are no longer needed.
+Access remains scoped to the selected workspace and bot.
 
 ```bash
 # Production target from agent.json (or bot.json for a classic project)
@@ -120,18 +180,28 @@ Supported compatibility tokens are `error`, `conversation=<id>`,
 `workflow=<name>`, `action=<name>`, `trace=<id>`, `since=<duration>`,
 `until=<duration>`, and `limit=<n>`. Relative durations such as `30s`, `5m`,
 and `1h` are converted once to absolute RFC3339 bounds. Equivalent named flags
-are available, together with `--status`, `--source`, and `--name`. A
-conversation is always required. `workflow` and `action` filter matching rows;
-use a returned `traceId` with `trace=<id>` to fetch its full tree.
+are available, together with `--status`, `--source`, and `--name`. A conversation
+is required unless `workflow`, `action`, or exact `trace` is provided; unscoped
+workflow/action queries also require `since`. Use a returned `traceId` with
+`trace=<id>` to fetch its full tree.
 
-Human output prints the exception code and message for failed spans; `--verbose`
-also prints the stack. JSON output always includes all available bounded error
-fields.
+Accepted `--source` values are `otlp`, `cognitive_v2`, `cognitive_action`,
+`integration_action`, and `observation`. Accepted `--name` values are the
+canonical span names: `request.incoming`, `handler.conversation`,
+`handler.event`, `handler.trigger`, `handler.workflow`, `autonomous.execution`,
+`autonomous.iteration`, `autonomous.tool`, `chat.sendMessage`,
+`state.saveAllDirty`, `state.save`, `cognitive.request`,
+`cognitive.generateText`, `cognitive.generateContent`, `integration.action`,
+and `observation`.
+
+Human output prints tool input/output plus the exception code and message for
+failed spans; `--verbose` also prints the stack and complete attributes/payload.
+JSON output always includes the complete stored span content.
 
 The cloud API deliberately does not provide unscoped listing or follow mode.
 `trigger` remains unavailable until the server exposes a bounded typed trigger
-name. `include-llm` is rejected because cloud output is metadata-only and has
-no content bypass.
+name. `include-llm` is unnecessary and rejected: hosted output already contains
+the attributes and payload stored by the platform.
 
 Production requires canonical positive-decimal `workspaceId` and `botId`
 coordinates matching the selected profile. Development requires an opaque,
@@ -145,8 +215,8 @@ trace output.
 `brt conversations` follows the current Botpress ADK CLI command shape with
 separate `list` and `show` operations, but reads the selected cloud target
 instead of a local SQLite trace store. Conversation tags and message content
-are never printed. `show` builds its timeline only from the same typed,
-metadata-only trace projection used by `brt traces`.
+are never printed. `show` builds a compact typed timeline; use `brt traces` for
+the complete stored span.
 
 ```bash
 # Production target from the canonical project link
@@ -174,9 +244,9 @@ responses, tool input/output, documents, message payloads, or conversation
 tags. Use `brt traces conversation=<id> trace=<traceId> --verbose` to inspect the
 full bounded exception diagnostics for a failed turn.
 
-The Botpress local-only `--include-llm` option is deliberately absent: the
-cloud privacy boundary has no content bypass. Production and development use
-the same fail-loud canonical target and profile-auth rules as `brt traces`.
+The Botpress local-only `--include-llm` option is absent because hosted
+`brt traces` already returns stored attributes/payload. Production and
+development use the same fail-loud canonical target and profile-auth rules.
 
 ## Hosted evals
 
@@ -207,17 +277,36 @@ brt eval runs --latest --json
 brt eval runs --limit 10 --next-token MTAw --json
 ```
 
-Production requires the canonical positive-decimal project link and the
-per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
+Production hosted eval requires the canonical positive-decimal project link and
+the per-bot key saved by `brt link --key-stdin` or provisioning. Development uses
 the selected profile PAT narrowed by the opaque runtime bot identity previously
 attested by `brt dev`. `--local` is accepted only together with `--dev`, so the
 two authority modes cannot be mixed implicitly.
 
 `brt eval run --dev` executes against the live tunnel bot. Keep `brt dev`
-running in another terminal for the run. A disconnected or not-yet-deployed
-tunnel fails loudly with this remediation. Eval messages use the platform's
-native `botruntime/eval` conversation transport: no Chat integration,
-provider account, or provider API key is provisioned.
+running in another terminal for the run. After a live tunnel disconnects, the
+CLI coalesces duplicate close/error signals and retries with bounded exponential
+backoff for up to 120 seconds. Exhausting that budget fails loudly.
+
+Interactive Chat uses the same explicit target model:
+
+```bash
+brt chat          # production target from the canonical link and workspace PAT
+brt chat --dev    # attested dev runtime and profile PAT
+```
+
+The CLI ensures the exact compatible first-party Chat integration in the
+selected environment. Production provisioning uses the workspace PAT with the
+canonical workspace/bot target; the conversation itself uses the Chat
+webhook/user identity. It does not require a copied per-bot key. `--local` is
+valid only together with `--dev`.
+
+Administrative configuration commands use the selected workspace profile in
+both environments. In production, `brt config set/list/rm` and
+`brt secret set` authenticate with the workspace PAT and the canonical
+workspace/bot coordinates; they do not require a copied per-bot key. Cloud
+rechecks workspace membership and the owner/admin role before writes. Secret
+values remain write-only and are accepted only through stdin or a value file.
 
 On botruntime cloud, `brt dev` links the isolated development runtime to the
 canonical production bot shown in the console. The link is also restored for

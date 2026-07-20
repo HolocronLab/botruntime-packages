@@ -102,6 +102,37 @@ describe('CloudapiClient', () => {
     expect(calls).toHaveLength(3)
   })
 
+  it('classifies exhausted idempotent 5xx as transient for bounded outer polling', async () => {
+    stubFetch(() => new Response('boom', { status: 503 }))
+    const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+    const error = await client.listConfigVars('42').catch((thrown) => thrown)
+    expect(error).toBeInstanceOf(errors.TransientRequestError)
+    expect(error).toMatchObject({ status: 503 })
+    expect(calls).toHaveLength(3)
+  })
+
+  it('bounds all idempotent retry attempts by the caller observation deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      stubFetch((call) =>
+        new Promise<Response>((_resolve, reject) => {
+          call.init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        })
+      )
+      const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+      const pending = client.getEvalWorkflow('workflow_1', undefined, Date.now() + 1_000).catch((thrown) => thrown)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.runAllTimersAsync()
+
+      expect(await pending).toBeInstanceOf(errors.TransientRequestError)
+      expect(calls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not retry a non-idempotent call on 5xx', async () => {
     stubFetch(() => new Response('boom', { status: 503 }))
     const client = new CloudapiClient('https://cloud.example', 'my-key')
@@ -215,6 +246,29 @@ describe('CloudapiClient', () => {
     expect(calls[0]!.init.method).toBe('GET')
   })
 
+  it('getDevConfigVariableValues sends workspace-PAT + x-workspace-id at the dev id path', async () => {
+    stubFetch(() => new Response(JSON.stringify({ config: { API_KEY: 'sk-secret' } }), { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    const response = await client.getDevConfigVariableValues('tunnel-opaque', 'ws_123')
+
+    expect(response.config).toEqual({ API_KEY: 'sk-secret' })
+    const [call] = calls
+    expect(call!.url).toBe('https://cloud.example/v1/admin/bots/tunnel-opaque/config-variables/values')
+    expect(call!.init.method).toBe('GET')
+    const headers = call!.init.headers as Record<string, string>
+    expect(headers['authorization']).toBe('Bearer brt_pat_xxx')
+    expect(headers['x-workspace-id']).toBe('ws_123')
+    expect(headers['x-bot-id']).toBeUndefined()
+  })
+
+  it('getDevConfigVariableValues surfaces a non-404 failure as an HTTPError (fail-loud)', async () => {
+    stubFetch(() => new Response('forbidden', { status: 403 }))
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await expect(client.getDevConfigVariableValues('tunnel-opaque', 'ws_123')).rejects.toThrow(errors.HTTPError)
+  })
+
   it('workspace config methods use the nested human route and never x-bot-id', async () => {
     stubFetch((call) => {
       if (call.init.method === 'GET') return new Response(JSON.stringify({ variables: [] }), { status: 200 })
@@ -313,6 +367,73 @@ describe('CloudapiClient', () => {
     })
     expect(calls[0]?.url).toBe('https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations')
     expect(calls[0]?.init.method).toBe('GET')
+  })
+
+  it('atomically repoints one workspace installation without sending config or credentials', async () => {
+    stubFetch(() =>
+      Response.json({
+        ok: true,
+        installationId: '7',
+        integrationId: '12',
+        ref: 'telegram@1.2.0',
+      })
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_private')
+
+    await client.repointWorkspaceIntegration('ws_123', '42', '7', 'telegram', '1.2.0')
+
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
+      ['POST', 'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations/7/repoint'],
+    ])
+    for (const call of calls) {
+      expect(call.init.headers).toMatchObject({ authorization: 'Bearer brt_pat_private' })
+      expect(call.init.headers).not.toHaveProperty('x-bot-id')
+      expect(JSON.parse(String(call.init.body))).toEqual({ name: 'telegram', version: '1.2.0' })
+      expect(String(call.init.body)).not.toMatch(/secret|token|credential/i)
+    }
+  })
+
+  it('prints the Botforge repoint 409 message including the incompatible config field', async () => {
+    stubFetch(() =>
+      Response.json(
+        {
+          id: 'err_409',
+          code: 409,
+          type: 'ConflictError',
+          message: 'integration: stored config is incompatible with target version: required field "region" is missing',
+          secretValue: 'must-never-reach-the-error',
+        },
+        { status: 409 }
+      )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_private')
+
+    const error = (await client
+      .repointWorkspaceIntegration('ws_123', '42', '7', 'telegram', '1.2.0')
+      .catch((thrown) => thrown as Error)) as Error
+
+    expect(error).toBeInstanceOf(errors.HTTPError)
+    expect(error.message).toMatch(/409.*required field "region" is missing/i)
+    expect(error.message).not.toContain('must-never-reach-the-error')
+    expect(calls).toHaveLength(1)
+  })
+
+  it('surfaces a target-version 404 from direct repoint without a second request', async () => {
+    stubFetch(() =>
+      Response.json(
+        {
+          message: 'target integration version not found',
+          secretValue: 'must-not-leak',
+        },
+        { status: 404 }
+      )
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_private')
+
+    await expect(
+      client.repointWorkspaceIntegration('ws_123', '42', '7', 'telegram', '9.9.9')
+    ).rejects.toThrow(/404.*target integration version not found/i)
+    expect(calls).toHaveLength(1)
   })
 
   it('listTables/createTable send x-workspace-id + x-bot-id under a workspace PAT', async () => {

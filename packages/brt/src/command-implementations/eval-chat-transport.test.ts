@@ -137,7 +137,9 @@ describe('hosted eval chat transport', () => {
         botId: '23',
         development: true,
       }),
-    ).rejects.toThrow(/run `brt dev` in another terminal/i)
+    ).rejects.toThrow(
+      'run `brt dev` in another terminal and keep it connected while retrying this command',
+    )
 
     expect(client.uninstallWorkspaceIntegration).toHaveBeenCalledWith('2', '23', '92')
   })
@@ -166,13 +168,13 @@ describe('hosted eval chat transport', () => {
     ).rejects.toThrow(/0\.0\.9.*0\.7\.6/)
   })
 
-  it('uses bot-scoped install and register outside development', async () => {
+  it('uses workspace-scoped install and register outside development', async () => {
     const client = {
-      getDevBotTarget: vi.fn().mockResolvedValue({ bot: { integrations: {} } }),
-      installIntegration: vi
+      listWorkspaceIntegrations: vi.fn().mockResolvedValue({ installations: [] }),
+      installWorkspaceIntegration: vi
         .fn()
         .mockResolvedValue({ webhookId: 'wh_prod', status: 'installed' }),
-      registerIntegration: vi
+      registerWorkspaceIntegration: vi
         .fn()
         .mockResolvedValue({ ok: true, status: 'registered' }),
     }
@@ -185,12 +187,13 @@ describe('hosted eval chat transport', () => {
         development: false,
       }),
     ).resolves.toEqual({ webhookId: 'wh_prod', provisioned: true })
-    expect(client.installIntegration).toHaveBeenCalledWith(
+    expect(client.installWorkspaceIntegration).toHaveBeenCalledWith(
+      '2',
       '3',
       'botruntime/chat',
       '0.7.6',
       expect.any(Object),
     )
-    expect(client.registerIntegration).toHaveBeenCalledWith('3', 'wh_prod')
+    expect(client.registerWorkspaceIntegration).toHaveBeenCalledWith('2', '3', 'wh_prod')
   })
 })

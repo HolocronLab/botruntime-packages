@@ -11,6 +11,41 @@ import { EventEmitter } from './event-emitter'
 // retry is the correctness floor either way.)
 const INITIAL_CONNECT_RETRY_MS = 30_000
 const INITIAL_CONNECT_RETRY_INTERVAL_MS = 1_000
+const RECONNECT_RETRY_MS = 120_000
+const RECONNECT_INITIAL_DELAY_MS = 250
+const RECONNECT_MAX_DELAY_MS = 5_000
+
+type BackoffOptions = {
+  timeoutMs: number
+  initialDelayMs: number
+  maxDelayMs: number
+  sleep?: (milliseconds: number) => Promise<void>
+  now?: () => number
+  onRetry?: (input: { attempt: number; delayMs: number; error: Error }) => void
+}
+
+const wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+
+/** Retry a transient connection with exponential delays capped by one total time budget. */
+export async function connectWithBackoff<T>(connect: () => Promise<T>, options: BackoffOptions): Promise<T> {
+  const sleep = options.sleep ?? wait
+  const now = options.now ?? Date.now
+  const deadline = now() + options.timeoutMs
+  let attempt = 0
+
+  for (;;) {
+    try {
+      return await connect()
+    } catch (thrown) {
+      const error = BotpressCLIError.map(thrown)
+      const delayMs = Math.min(options.initialDelayMs * 2 ** attempt, options.maxDelayMs)
+      if (now() + delayMs > deadline) throw error
+      attempt++
+      options.onRetry?.({ attempt, delayMs, error })
+      await sleep(delayMs)
+    }
+  }
+}
 
 export type ReconnectionTriggerEvent =
   | {
@@ -59,6 +94,7 @@ export class TunnelSupervisor {
   private _tunnel?: TunnelTail
   private _closed = false
   private _started = false
+  private _reconnecting?: Promise<void>
 
   public readonly events = new EventEmitter<{
     connectionFailed: { ev: ReconnectionTriggerEvent; cause: Error }
@@ -122,15 +158,25 @@ export class TunnelSupervisor {
   }
 
   private _reconnectSync(ev: ReconnectionTriggerEvent): void {
-    void this._reconnect(ev)
+    if (this._closed || this._reconnecting) return
+    const reconnecting = this._reconnect(ev)
       .then((t) => {
+        if (this._closed) {
+          t.close()
+          return
+        }
         this._tunnel = t
       })
       .catch((thrown) => {
+        if (this._closed) return
         // carry the real failure as the cause; the dev server then tears down and the single
         // "running the dev server" error surfaces this reason (avoids a duplicate log line here)
         this.events.emit('connectionFailed', { ev, cause: BotpressCLIError.map(thrown) })
       })
+      .finally(() => {
+        if (this._reconnecting === reconnecting) this._reconnecting = undefined
+      })
+    this._reconnecting = reconnecting
   }
 
   private async _reconnect(ev: ReconnectionTriggerEvent): Promise<TunnelTail> {
@@ -147,10 +193,24 @@ export class TunnelSupervisor {
 
     const line = this._logger.line()
     line.started('Reconnecting tunnel...')
-    const tunnel = await newTunnel()
-    line.success('Reconnected')
-    line.commit()
-    return tunnel
+    try {
+      const tunnel = await connectWithBackoff(newTunnel, {
+        timeoutMs: RECONNECT_RETRY_MS,
+        initialDelayMs: RECONNECT_INITIAL_DELAY_MS,
+        maxDelayMs: RECONNECT_MAX_DELAY_MS,
+        onRetry: ({ attempt, delayMs, error }) => {
+          line.started(`Reconnecting tunnel (attempt ${attempt + 1} in ${delayMs}ms: ${error.message})...`)
+        },
+      })
+      line.success('Reconnected')
+      line.commit()
+      return tunnel
+    } catch (thrown) {
+      const error = BotpressCLIError.map(thrown)
+      line.error(`Tunnel reconnection failed: ${error.message}`)
+      line.commit()
+      throw error
+    }
   }
 
   // Bounded retry for the very first tunnel connect only. Reconnects after a

@@ -23,6 +23,10 @@ export default {
     get: commandImplementations.bots.subcommands.get,
     delete: commandImplementations.bots.subcommands.delete,
     list: commandImplementations.bots.subcommands.list,
+    versions: {
+      list: commandImplementations.bots.subcommands.versions.subcommands.list,
+      deploy: commandImplementations.bots.subcommands.versions.subcommands.deploy,
+    },
   },
   integrations: {
     get: commandImplementations.integrations.subcommands.get,
@@ -30,6 +34,7 @@ export default {
     delete: commandImplementations.integrations.subcommands.delete,
     install: commandImplementations.integrations.subcommands.install,
     register: commandImplementations.integrations.subcommands.register,
+    upgrade: commandImplementations.integrations.subcommands.upgrade,
     publish: commandImplementations.integrations.subcommands.publish,
   },
   interfaces: {

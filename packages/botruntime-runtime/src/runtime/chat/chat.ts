@@ -1,6 +1,7 @@
 import { Chat as _llmzChat, isAnyComponent, RenderedComponent, Transcript } from '@holocronlab/botruntime-llmz'
 
-import { TranscriptItem } from './transcript'
+import { TranscriptItem, TranscriptState } from './transcript'
+import { advanceTranscriptCursor, messagesAfterTranscriptCursor, TranscriptCursor } from './transcript-sync'
 import { truncateTranscript } from './truncate-transcript'
 
 import { AnyIncomingEvent, AnyIncomingMessage } from '@holocronlab/botruntime-sdk/dist/bot'
@@ -69,6 +70,7 @@ export type ComponentRegistration<T extends Autonomous.Component = Autonomous.Co
 
 export class Chat extends _llmzChat {
   private _transcript: TranscriptItem[] | undefined
+  private _cursor: TranscriptCursor | undefined
 
   private client: BotContext['client']
   private conversation: NonNullable<BotContext['conversation']>
@@ -183,39 +185,53 @@ export class Chat extends _llmzChat {
         conversationId: this.conversation.id,
       },
       async () => {
-        const since = this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] || ''
+        const { state } = await this.client.getOrSetState({
+          id: this.conversation.id,
+          type: 'conversation',
+          name: 'conversation',
+          payload: { transcript: [] },
+        })
+        const payload = state.payload as TranscriptState
+        this._transcript = payload.transcript ?? []
+        this._cursor = payload.cursor
+
+        // Migration fallback for transcript states written before the cursor
+        // lived atomically beside the snapshot.
+        const legacySince = this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] || ''
+        if (!this._cursor && legacySince) this._cursor = { createdAt: legacySince }
 
         const fetchUnseenMessages = async () => {
           return this.client._inner.list
             .messages({
               conversationId: this.conversation.id,
-              afterDate: since ? new Date(since).toISOString() : undefined,
+              afterDate:
+                !this._cursor?.messageId && this._cursor?.createdAt
+                  ? new Date(this._cursor.createdAt).toISOString()
+                  : undefined,
               beforeDate: '',
             })
             .collect({ limit: 250 })
-            .then((res) => (since ? res.filter((m) => new Date(m.createdAt) > new Date(since)) : res))
-            .then((res) => res.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()))
+            .then((res) => messagesAfterTranscriptCursor(res, this._cursor))
         }
 
-        const fetchTranscriptMessages = async () => {
-          const { state } = await this.client.getOrSetState({
-            id: this.conversation.id,
-            type: 'conversation',
-            name: 'conversation',
-            payload: { transcript: [] },
-          })
+        const unseenMessagesNewestFirst = await fetchUnseenMessages()
 
-          this._transcript = state.payload.transcript as TranscriptItem[]
-        }
-
-        const [unseenMessages] = await Promise.all([fetchUnseenMessages(), fetchTranscriptMessages()])
-
-        if (unseenMessages.length > 0) {
-          await Promise.allSettled(
-            unseenMessages.map(async (msg) => {
-              await this.addMessage(msg)
+        if (unseenMessagesNewestFirst.length > 0) {
+          const settled = await Promise.allSettled(
+            unseenMessagesNewestFirst.map(async (msg) => {
+              await this.addMessage(msg, { advanceCursor: false })
             })
           )
+
+          // A cursor is a contiguous acknowledgement, not a best-effort high
+          // watermark. If any transform failed, retain the previous cursor so
+          // the next turn retries that gap; already transformed messages are
+          // harmlessly de-duplicated by stable message ID.
+          if (settled.every((result) => result.status === 'fulfilled')) {
+            this._cursor = advanceTranscriptCursor(this._cursor, unseenMessagesNewestFirst[0]!)
+            this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] =
+              this._cursor.createdAt
+          }
         }
 
         return this._transcript!
@@ -317,7 +333,7 @@ export class Chat extends _llmzChat {
           id: this.conversation.id,
           type: 'conversation',
           name: 'conversation',
-          payload: { transcript: truncated },
+          payload: { transcript: truncated, cursor: this._cursor },
         })
       }
     )
@@ -522,7 +538,6 @@ export class Chat extends _llmzChat {
         index: false,
         accessPolicies: ['public_content'],
         publicContentImmediatelyAccessible: true,
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 1 day
       })
 
       clone.payload.imageUrl = file.url
@@ -556,7 +571,7 @@ export class Chat extends _llmzChat {
   }
 
   // oxlint-disable-next-line no-explicit-any -- SDK generic param requires any for AnyIncomingMessage
-  async addMessage(message: AnyIncomingMessage<any>) {
+  async addMessage(message: AnyIncomingMessage<any>, options: { advanceCursor?: boolean } = {}) {
     if (!isMessage(message)) {
       return
     }
@@ -579,6 +594,9 @@ export class Chat extends _llmzChat {
       item
     )
 
-    this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] = this._transcript!.at(-1)!.createdAt
+    if (options.advanceCursor !== false) {
+      this._cursor = advanceTranscriptCursor(this._cursor, message)
+      this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] = this._cursor.createdAt
+    }
   }
 }

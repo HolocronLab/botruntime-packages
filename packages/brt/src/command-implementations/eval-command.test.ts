@@ -8,9 +8,21 @@ import { Logger } from '../logger'
 import { EvalRunCommand, EvalRunsCommand } from './eval-command'
 
 const prepareHostedEvalManifest = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ manifestFileId: 'manifest_1', evals: 1, fixtures: 0 })
+  vi.fn().mockResolvedValue({
+    manifestId: 'sha256:manifest_1',
+    manifestFileId: 'manifest_file_1',
+    evals: 1,
+    fixtures: 0,
+  })
 )
 vi.mock('../eval-manifest-prepare', () => ({ prepareHostedEvalManifest }))
+
+const inspectPlatformToolchain = vi.hoisted(() => vi.fn(() => ({ compatible: true })))
+const assertPlatformToolchainCompatible = vi.hoisted(() => vi.fn())
+vi.mock('../toolchain-contract', () => ({
+  inspectPlatformToolchain,
+  assertPlatformToolchainCompatible,
+}))
 
 vi.mock('../public-package-version', () => ({
   fetchLatestPublicVersion: vi.fn(async () => '0.6.10'),
@@ -108,7 +120,8 @@ describe('brt eval public contract', () => {
     stderr = ''
     originalFetch = globalThis.fetch
     prepareHostedEvalManifest.mockReset().mockResolvedValue({
-      manifestFileId: 'manifest_1',
+      manifestId: 'sha256:manifest_1',
+      manifestFileId: 'manifest_file_1',
       evals: 1,
       fixtures: 0,
     })
@@ -430,6 +443,16 @@ describe('brt eval public contract', () => {
                       botDurationMs: 100.125,
                       graderDurationMs: 5.75,
                     }),
+                    result({
+                      id: '302',
+                      resultIndex: 1,
+                      assertionKind: 'table_row_exists',
+                    }),
+                    result({
+                      id: '303',
+                      resultIndex: 2,
+                      assertionKind: 'table_row_count',
+                    }),
                   ],
                 }),
               ],
@@ -473,6 +496,32 @@ describe('brt eval public contract', () => {
           graderDurationMs: 5.75,
           createdAt: '2026-07-10T10:00:01.000Z',
         },
+        {
+          id: '302',
+          evalEntryId: '201',
+          turnIndex: 0,
+          resultIndex: 1,
+          assertionKind: 'table_row_exists',
+          passed: true,
+          skipped: false,
+          score: null,
+          botDurationMs: 100,
+          graderDurationMs: 5,
+          createdAt: '2026-07-10T10:00:01.000Z',
+        },
+        {
+          id: '303',
+          evalEntryId: '201',
+          turnIndex: 0,
+          resultIndex: 2,
+          assertionKind: 'table_row_count',
+          passed: true,
+          skipped: false,
+          score: null,
+          botDurationMs: 100,
+          graderDurationMs: 5,
+          createdAt: '2026-07-10T10:00:01.000Z',
+        },
       ],
     })
     expect(stdout + stderr).not.toMatch(
@@ -490,40 +539,53 @@ describe('brt eval public contract', () => {
   })
 
   it('prints execution diagnostics with an exact trace lookup command', async () => {
-    stubFetch(async () =>
-      json(
-        detail({
-          entries: [
-            entry({
-              passed: false,
-              errorKind: 'chat',
-              errorCode: 'CHAT_PAYLOAD_INVALID',
-              errorPhase: 'observation',
-              errorTurnIndex: 0,
-              conversationId: 'conv_eval_1',
-              traceId: '0123456789abcdef0123456789abcdef',
-              results: [
-                result({
+    writeDevTarget()
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({
+            bot: {
+              id: DEV_RUNTIME_BOT_ID,
+              dev: true,
+              tags: { 'botruntime.devTargetBotId': DEV_TARGET_BOT_ID },
+            },
+          })
+        : json(
+            detail({
+              entries: [
+                entry({
                   passed: false,
+                  errorKind: 'chat',
+                  errorCode: 'CHAT_PAYLOAD_INVALID',
+                  errorPhase: 'observation',
+                  errorTurnIndex: 0,
                   conversationId: 'conv_eval_1',
                   traceId: '0123456789abcdef0123456789abcdef',
+                  results: [
+                    result({
+                      passed: false,
+                      conversationId: 'conv_eval_1',
+                      traceId: '0123456789abcdef0123456789abcdef',
+                    }),
+                  ],
                 }),
               ],
-            }),
-          ],
-        })
-      )
+            })
+          )
     )
 
     const response = await runsCommand({
+      dev: true,
       runId: '101',
       verbose: true,
     }).handler()
 
     expect(response.exitCode).toBe(0)
-    expect(stdout).toMatch(/CHAT_PAYLOAD_INVALID.*observation.*turn=0/i)
-    expect(stdout).toContain('brt traces --conversation-id conv_eval_1')
-    expect(stdout).toContain('0123456789abcdef0123456789abcdef')
+    expect(stdout).toMatch(/CHAT_PAYLOAD_INVALID.*kind=chat.*observation.*turn=0/i)
+    expect(stdout).toContain(
+      'brt traces --dev --trace-id 0123456789abcdef0123456789abcdef --conversation-id conv_eval_1'
+    )
+    expect(stdout).toMatch(/message payload.*brt.*botruntime-evals.*rebuild the agent/i)
+    expect(stdout).not.toContain('traceId=')
   })
 
   it('starts the hosted workflow with real Botpress-compatible filters and returns the persisted result', async () => {
@@ -541,7 +603,8 @@ describe('brt eval public contract', () => {
             },
             runType: 'manual',
             judgeModel: 'openai:gpt-4o',
-            evalManifestId: 'manifest_1',
+            evalManifestId: 'sha256:manifest_1',
+            evalManifestFileId: 'manifest_file_1',
           },
           timeoutAt: expect.any(String),
         })
@@ -581,6 +644,62 @@ describe('brt eval public contract', () => {
     ])
     expect(calls.every((call) => headers(call).authorization === 'Bearer bot_key')).toBe(true)
     expect(JSON.parse(stdout).run.id).toBe('101')
+  })
+
+  it('continues bounded terminal polling after one idempotent GET exhausts transient retries', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      stubFetch(async (_url, index) => {
+        if (index === 0) return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        if (index <= 3) throw new TypeError('network request failed')
+        if (index === 4) {
+          return json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'completed',
+              output: { runId: '101', passed: 1, failed: 0, total: 1, duration: 1000 },
+            },
+          })
+        }
+        return json(detail())
+      })
+
+      const pending = runCommand({ json: true }).handler()
+      for (let index = 0; index < 10 && calls.length < 6; index++) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        await vi.runOnlyPendingTimersAsync()
+      }
+      expect(calls.length).toBeGreaterThanOrEqual(6)
+      const response = await pending
+
+      expect(response.exitCode).toBe(0)
+      expect(JSON.parse(stdout).run.id).toBe('101')
+      expect(calls.filter((call) => call.url.includes('/v1/chat/workflows/workflow_1'))).toHaveLength(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns the exact linked terminal EvalRun when the workflow fails', async () => {
+    stubFetch(async (_url, index) => {
+      if (index === 0) return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+      if (index === 1) return json({ workflow: { id: 'workflow_1', status: 'failed', output: {} } })
+      if (index === 2) return json({ runs: [run({ status: 'failed', errorKind: 'internal' })] })
+      return json(
+        detail({
+          status: 'failed',
+          errorKind: 'internal',
+          entries: [entry({ passed: false, errorKind: 'internal' })],
+        })
+      )
+    })
+
+    const response = await runCommand({ json: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(JSON.parse(stdout).run).toEqual(expect.objectContaining({ id: '101', status: 'failed' }))
+    expect(stderr).toMatch(/eval suite failed/i)
+    expect(stderr).not.toMatch(/redeploy the bot/i)
   })
 
   it('runs against dev only through the PAT-scoped opaque target', async () => {
@@ -761,6 +880,63 @@ describe('brt eval public contract', () => {
     expect(stdout + stderr).not.toContain('customer secret')
   })
 
+  it.each([
+    ['EVAL_MANIFEST_MISSING', 'The requested eval manifest is unavailable'],
+    ['EVAL_MANIFEST_SCHEMA_INCOMPATIBLE', 'The eval manifest schema is incompatible with this runtime'],
+    ['EVAL_MANIFEST_HASH_MISMATCH', 'The eval manifest content failed integrity verification'],
+  ])('shows sanitized workflow diagnostic %s in verbose mode', async (code, safeReason) => {
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        : json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'failed',
+              output: {},
+              failureReason: `${code}: raw prompt and customer secret`,
+            },
+          })
+    )
+
+    const response = await runCommand({ verbose: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(stderr).toContain(code)
+    expect(stderr).toContain(safeReason)
+    expect(stdout + stderr).not.toContain('customer secret')
+  })
+
+  it('emits a sanitized stable workflow failure object in json mode', async () => {
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        : json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'failed',
+              output: {},
+              failureReason: 'EVAL_MANIFEST_HASH_MISMATCH: raw prompt and customer secret',
+            },
+          })
+    )
+
+    const response = await runCommand({ json: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(JSON.parse(stdout)).toMatchObject({
+      schemaVersion: 1,
+      workflow: {
+        id: 'workflow_1',
+        status: 'failed',
+        failure: {
+          code: 'EVAL_MANIFEST_HASH_MISMATCH',
+          reason: 'The eval manifest content failed integrity verification',
+        },
+      },
+    })
+    expect(stdout + stderr).not.toContain('customer secret')
+  })
+
   it('turns the allowlisted delivery failure into dev-tunnel remediation', async () => {
     writeDevTarget()
     stubFetch(async (_url, index) =>
@@ -813,6 +989,20 @@ describe('brt eval public contract', () => {
     expect(calls).toEqual([])
     expect(stderr).toMatch(expected)
     expect(stdout + stderr).not.toContain('raw prompt')
+  })
+
+  it('rejects an incompatible physical toolchain before resolving the cloud target', async () => {
+    assertPlatformToolchainCompatible.mockImplementationOnce(() => {
+      throw new Error('TOOLCHAIN_CAPABILITY_MISMATCH: runtime evalManifest=1, required=2')
+    })
+    stubFetch(async () => json({}))
+
+    const response = await runCommand().handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(calls).toEqual([])
+    expect(prepareHostedEvalManifest).not.toHaveBeenCalled()
+    expect(stderr).toContain('TOOLCHAIN_CAPABILITY_MISMATCH')
   })
 
   it('fails loudly on a malformed workflow completion without reflecting extra output', async () => {

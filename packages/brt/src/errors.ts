@@ -170,6 +170,20 @@ export class HTTPError extends BotpressCLIError {
   }
 }
 
+/**
+ * An idempotent read exhausted its request-local retries but may still succeed
+ * while the command's wider observation deadline remains open.
+ */
+export class TransientRequestError extends BotpressCLIError {
+  public constructor(
+    public readonly status: number | undefined,
+    message: string,
+    opts?: { cause?: Error }
+  ) {
+    super(message, opts ?? {})
+  }
+}
+
 export class NoBundleFoundError extends BotpressCLIError {
   public constructor() {
     const message = 'No bundle found. Please run `brt bundle` first.'
@@ -229,5 +243,18 @@ export class ProjectDefinitionNotFoundError extends BotpressCLIError {
 export class AbortedOperationError extends BotpressCLIError {
   public constructor() {
     super('Aborted')
+  }
+}
+
+export class MissingNetworkDeclarationError extends BotpressCLIError {
+  public constructor(integrationName: string) {
+    const message = [
+      `Integration "${integrationName}" does not declare a network policy.`,
+      'Add a `network.providerHosts` array to the integration definition:',
+      '  network: { providerHosts: [] }        // makes no outbound calls',
+      '  network: { providerHosts: ["api.example.com"] }  // calls these hosts',
+      'The server uses this declaration to build the production egress allowlist, so it must be explicit before publish.',
+    ].join('\n')
+    super(message)
   }
 }

@@ -23,10 +23,31 @@ const safeErrorFrom = (err: unknown): errors.ApiError => {
   }
 }
 
+const preserveWireCode = (apiError: errors.ApiError, envelope: unknown): errors.ApiError => {
+  if (
+    typeof envelope === 'object'
+    && envelope !== null
+    && 'code' in envelope
+    && typeof envelope.code === 'number'
+    && apiError.code !== envelope.code
+  ) {
+    // Generated Botpress classes use their canonical status (for example,
+    // InternalError=500), while an owned gateway may legitimately return the
+    // same type with HTTP 502. The received envelope is authoritative for
+    // retry/telemetry, so retain its exact code instead of silently rewriting it.
+    Object.defineProperty(apiError, 'code', { value: envelope.code, enumerable: true })
+  }
+  return apiError
+}
+
 // UnknownError's `error` field is typed as Error — wrap non-Error causes (e.g. the circular
 // object itself) via the native `cause` option so the original value stays reachable at
 // `.error.cause` instead of being discarded, without widening the field's type.
-const toErrorCause = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err), { cause: err }))
+const toErrorCause = (err: unknown): Error => {
+  if (err instanceof Error) return err
+  if (typeof err === 'object' && err !== null && 'cause' in err && err.cause instanceof Error) return err.cause
+  return new Error(String(err), { cause: err })
+}
 
 // A transport failure (ECONNRESET/ETIMEDOUT/DNS/socket-closed/...) never reaches the server, so
 // err.response is absent — branch on err.response, not err.response.data: an egress-gateway
@@ -39,7 +60,7 @@ export const toApiError = (err: unknown): Error => {
   if (axios.isAxiosError(err)) {
     if (err.response) {
       if (err.response.data) {
-        return safeErrorFrom(err.response.data)
+        return preserveWireCode(safeErrorFrom(err.response.data), err.response.data)
       }
       return new errors.UnknownError(`Request failed with status ${err.response.status} and empty body`, err)
     }

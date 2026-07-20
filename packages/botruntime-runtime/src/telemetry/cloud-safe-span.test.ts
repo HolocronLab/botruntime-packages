@@ -4,7 +4,6 @@ import type { SpanExporter } from '@opentelemetry/sdk-trace-base'
 import { describe, expect, it, vi } from 'vitest'
 import {
   CloudSafeSpanExporter,
-  CLOUD_SAFE_ATTRIBUTE_KEYS,
   cloudTraceHeaders,
   resolveCloudTraceEnvironment,
   sanitizeCloudSpan,
@@ -13,7 +12,7 @@ import { unsafeReadableSpan } from './cloud-safe-span.fixture'
 import { registerSpanOmittedPayloads } from './trace-payloads'
 
 describe('cloud-safe spans', () => {
-  it('normalizes identifiers and exports only validated safe metadata', () => {
+  it('normalizes identifiers and exports the canonical span payload', () => {
     const safe = sanitizeCloudSpan(unsafeReadableSpan())
 
     expect(safe).not.toBeNull()
@@ -28,8 +27,10 @@ describe('cloud-safe spans', () => {
       'ai.messages_count': 4,
       'ai.input_tokens': 100,
       'ai.cost': 0.25,
-      'action.type': 'generateContent',
-      'ai.latency_ms': 125,
+      'ai.instructions': 'private system prompt',
+      'ai.messages': '[{"role":"user","content":"developer trace message"}]',
+      'ai.response': '{"text":"developer trace response"}',
+      'ai.tools': '[{"name":"lookup_account"}]',
       conversationId: 'conv-safe_123',
       'error.kind': 'internal',
       'error.name': 'TypeError',
@@ -41,8 +42,9 @@ describe('cloud-safe spans', () => {
     expect(safe!.events).toEqual([])
     expect(safe!.links).toEqual([])
     expect(safe!.status).toEqual({ code: SpanStatusCode.ERROR })
-    expect(safe!.instrumentationScope).toEqual({ name: 'brt.cloud-safe' })
-    expect(JSON.stringify(safe)).not.toContain('secret')
+    expect(safe!.instrumentationScope).toEqual({ name: 'brt.cloud' })
+    expect(safe!.attributes).not.toHaveProperty('userId')
+    expect(safe!.attributes).not.toHaveProperty('messageId')
   })
 
   it('projects standard exception events and status messages at the export boundary', () => {
@@ -86,7 +88,7 @@ describe('cloud-safe spans', () => {
     })
   })
 
-  it('drops unsupported span names, invalid ids, values outside bounds, and raw-looking strings', () => {
+  it('keeps the canonical span schema while rejecting invalid transport structure', () => {
     expect(sanitizeCloudSpan(unsafeReadableSpan({ name: 'user.supplied.span' }))).toBeNull()
     expect(
       sanitizeCloudSpan(
@@ -165,11 +167,15 @@ describe('cloud-safe spans', () => {
       })
     )
 
-    expect(safe!.attributes).toEqual({ 'autonomous.tool.status': 'success' })
+    expect(safe!.attributes).toEqual({
+      'ai.model': 'model with spaces',
+      'ai.messages_count': 1_000_000_001,
+      'ai.cost': -1,
+      'error.kind': 'raw upstream error',
+    })
   })
 
-  it('keeps only validated conversation correlation as transport-only data', () => {
-    expect(CLOUD_SAFE_ATTRIBUTE_KEYS.has('conversationId')).toBe(false)
+  it('validates canonical correlation identifiers', () => {
     const valid = sanitizeCloudSpan(
       unsafeReadableSpan({
         attributes: {
@@ -191,10 +197,67 @@ describe('cloud-safe spans', () => {
     }
   })
 
+  it('keeps canonical handler correlation fields while dropping undeclared resource-like attributes', () => {
+    const safe = sanitizeCloudSpan(
+      unsafeReadableSpan({
+        name: 'handler.conversation',
+        attributes: {
+          botId: 'bot_1',
+          conversationId: 'conv_1',
+          eventId: 'event_1',
+          integration: 'telegram',
+          channel: 'channel_1',
+          'event.type': 'message_created',
+          userId: 'user_1',
+          messageId: 'message_1',
+          'session.id': 'undeclared-session',
+          'process.env': 'undeclared-environment',
+        },
+        status: { code: SpanStatusCode.OK },
+      })
+    )
+
+    expect(safe!.attributes).toEqual({
+      botId: 'bot_1',
+      conversationId: 'conv_1',
+      eventId: 'event_1',
+      integration: 'telegram',
+      channel: 'channel_1',
+      'event.type': 'message_created',
+      userId: 'user_1',
+      messageId: 'message_1',
+    })
+  })
+
+  it('keeps canonical tool input and output', () => {
+    const safe = sanitizeCloudSpan(
+      unsafeReadableSpan({
+        name: 'autonomous.tool',
+        attributes: {
+          conversationId: 'conv_1',
+          'autonomous.tool.name': 'lookup',
+          'autonomous.tool.status': 'success',
+          'autonomous.tool.input': '{"query":"customer"}',
+          'autonomous.tool.output': '{"found":true}',
+          'ai.instructions': 'not part of a tool span',
+        },
+        status: { code: SpanStatusCode.OK },
+      })
+    )
+
+    expect(safe!.attributes).toEqual({
+      conversationId: 'conv_1',
+      'autonomous.tool.name': 'lookup',
+      'autonomous.tool.status': 'success',
+      'autonomous.tool.input': '{"query":"customer"}',
+      'autonomous.tool.output': '{"found":true}',
+    })
+  })
+
   it('sanitizes every span before delegating to the OTLP exporter', async () => {
     const exportSpy = vi.fn<SpanExporter['export']>((spans, done) => {
       expect(spans).toHaveLength(1)
-      expect(spans[0]!.attributes).not.toHaveProperty('ai.instructions')
+      expect(spans[0]!.attributes).toHaveProperty('ai.instructions', 'private system prompt')
       expect(spans[0]!.resource.attributes).toEqual({})
       done({ code: ExportResultCode.SUCCESS })
     })

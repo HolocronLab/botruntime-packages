@@ -1,6 +1,6 @@
 {
   "name": "@botruntime/telegram",
-  "version": "1.1.6",
+  "version": "1.1.11",
   "private": true,
   "type": "module",
   "description": "Telegram integration for Botruntime with forum topics, request_contact, setMyCommands, and cloudapi routing.",
@@ -10,8 +10,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@holocronlab/botruntime-client": "^1.46.0",
-    "@holocronlab/botruntime-sdk": "^6.13.3",
+    "@holocronlab/botruntime-client": "^1.46.6",
+    "@holocronlab/botruntime-sdk": "^6.13.6",
     "@holocronlab/botruntime-zui": "^2.3.0",
     "https-proxy-agent": "^9.1.0",
     "lodash": "^4.17.21",
@@ -27,5 +27,8 @@
     "@types/markdown-it": "^14.1.2",
     "@types/sanitize-html": "^2.16.0",
     "typescript": "^5.9.3"
+  },
+  "patchedDependencies": {
+    "node-fetch@2.7.0": "patches/node-fetch@2.7.0.patch"
   }
 }

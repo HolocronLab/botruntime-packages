@@ -6,7 +6,7 @@
  */
 
 import type { ConversationTurn as _ConversationTurn, EvalDefinition as _EvalDefinition } from './definition'
-import type { EvalErrorCode } from './errors'
+import type { EvalControlErrorKind, EvalErrorCode } from './errors'
 
 export {
   Eval,
@@ -17,6 +17,8 @@ export {
   type ConversationTurn,
   type TurnAssertions,
   type OutcomeAssertions,
+  type EvalTableSeed,
+  type TableAssertion,
   type ResponseAssertion,
   type ToolAssertion,
   type StateAssertion,
@@ -91,6 +93,7 @@ export type EvalExecutionPhase = 'setup' | 'routing' | 'dispatch' | 'observation
 export interface EvalDiagnostic {
   code: EvalErrorCode
   phase: EvalExecutionPhase
+  errorKind?: EvalControlErrorKind
   turnIndex?: number
   conversationId?: string
   traceId?: string
@@ -239,7 +242,11 @@ export interface EvalRunnerConfig {
    * still performed; only the duplicate reader-auth probe is skipped.
    */
   sourcePreflighted?: boolean
-  /** Externally-provided run ID. When set, the runner uses this instead of generating its own. */
+  /**
+   * Externally-provided run ID. Durable hosts must reuse the same value on every
+   * replay: it scopes get-or-create identities for eval resources and messages,
+   * so changing it would repeat external effects.
+   */
   runId?: string
   /** Pre-resolved chat integration webhook ID. Skips the getBot() discovery call when provided. */
   chatWebhookId?: string
@@ -251,15 +258,41 @@ export interface EvalRunnerConfig {
     context: { botId: string; evalName: string; turnIndex: number }
   ) => Promise<import('./attachments').ResolvedEvalFixture>
   evalControl?: EvalControl
+  /** Host transport for mutations that must survive replay after a lost acknowledgement. */
+  durableEffects?: DurableEvalEffects
   /**
-   * Durable hosts can checkpoint one whole eval, including its progress writes.
-   * Replaying a checkpoint returns the cached report without repeating chat or persistence side effects.
+   * Durable hosts checkpoint the immutable report produced by one eval. The
+   * `eval_complete` progress event is emitted only after this checkpoint
+   * returns, so hosted sinks can persist outcome and verdict in separate
+   * idempotent activities without recomputing the report.
    */
   checkpointEval?: (input: {
     definition: _EvalDefinition
     index: number
     execute: () => Promise<EvalReport>
   }) => Promise<EvalReport>
+  /**
+   * Durable hosts use this boundary to persist setup, each complete turn,
+   * result persistence, finalization, and failure cleanup inside the enclosing eval. `dispatch`
+   * records the observation timestamp and delivery baseline before mutation;
+   * `effect` performs the actual external message mutation. A stable
+   * `(phase, turnIndex, effectIndex)` is one operation identity: after completion the host
+   * must return the cached success or serialized failure without invoking
+   * `execute` again. Host/checkpoint failures and idempotent `cleanup` failures
+   * must propagate so the host can retry them; they are not eval verdicts.
+   */
+  checkpointEvalOperation?: <T>(input: {
+    phase: 'setup' | 'dispatch' | 'effect' | 'turn' | 'persist' | 'finalize' | 'cleanup'
+    turnIndex?: number
+    effectIndex?: number
+    execute: () => Promise<T>
+  }) => Promise<T>
+  /**
+   * Host classifier that distinguishes a durable workflow yield from an exhausted checkpoint failure.
+   * The runner applies it at every nested checkpoint boundary so a resumable control signal cannot be
+   * serialized or cached as the failure of an enclosing operation.
+   */
+  isCheckpointYield?: (cause: unknown) => boolean
 }
 
 export interface EvalControl {
@@ -269,6 +302,30 @@ export interface EvalControl {
   }): Promise<{ virtualNow: string; releasedJobs: number }>
   configureFaults(faults: NonNullable<NonNullable<_ConversationTurn['control']>['faults']>): Promise<void>
   clearFaults(): Promise<void>
+}
+
+export interface DurableEvalEffects {
+  createTableRows(input: {
+    table: string
+    rows: Record<string, unknown>[]
+    effectId: string
+  }): Promise<{ rows: { id: number }[]; errors?: string[] }>
+  createEvent(input: {
+    type: string
+    userId: string
+    conversationId: string
+    payload: Record<string, unknown>
+    effectId: string
+  }): Promise<void>
+  advanceClock(
+    input: { milliseconds: number; runDueWorkflows?: boolean },
+    effectId: string
+  ): Promise<{ virtualNow: string; releasedJobs: number }>
+  configureFaults(
+    faults: NonNullable<NonNullable<_ConversationTurn['control']>['faults']>,
+    effectId: string
+  ): Promise<void>
+  clearFaults(effectId: string): Promise<void>
 }
 
 // --- Eval suite filter ---

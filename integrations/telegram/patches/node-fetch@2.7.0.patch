@@ -1,0 +1,108 @@
+diff --git a/lib/index.es.js b/lib/index.es.js
+index aae9799c1a8798d5899ffed6deda4c98b7007b48..0bf50a88c4473495ea1b88322a152957e6b07e9b 100644
+--- a/lib/index.es.js
++++ b/lib/index.es.js
+@@ -135,23 +135,17 @@ Object.defineProperty(Blob.prototype, Symbol.toStringTag, {
+  * @param   String      systemError  For Node.js system error
+  * @return  FetchError
+  */
+-function FetchError(message, type, systemError) {
+-  Error.call(this, message);
+-
+-  this.message = message;
+-  this.type = type;
++class FetchError extends Error {
++  constructor(message, type, systemError) {
++    super(message);
++    this.type = type;
+ 
+-  // when err.type is `system`, err.code contains system error code
++    // when err.type is `system`, err.code contains system error code
+-  if (systemError) {
+-    this.code = this.errno = systemError.code;
++    if (systemError) {
++      this.code = this.errno = systemError.code;
++    }
+   }
+-
+-  // hide custom error implementation details from end-users
+-  Error.captureStackTrace(this, this.constructor);
+ }
+-
+-FetchError.prototype = Object.create(Error.prototype);
+-FetchError.prototype.constructor = FetchError;
+ FetchError.prototype.name = 'FetchError';
+ 
+ let convert;
+diff --git a/lib/index.js b/lib/index.js
+index 567ff5da58e83683bec0ea9e86221041ddf9435f..f5e7fb134e295ce7848f52304ec1e4107b2b657a 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -139,23 +139,17 @@ Object.defineProperty(Blob.prototype, Symbol.toStringTag, {
+  * @param   String      systemError  For Node.js system error
+  * @return  FetchError
+  */
+-function FetchError(message, type, systemError) {
+-  Error.call(this, message);
+-
+-  this.message = message;
+-  this.type = type;
++class FetchError extends Error {
++  constructor(message, type, systemError) {
++    super(message);
++    this.type = type;
+ 
+-  // when err.type is `system`, err.code contains system error code
++    // when err.type is `system`, err.code contains system error code
+-  if (systemError) {
+-    this.code = this.errno = systemError.code;
++    if (systemError) {
++      this.code = this.errno = systemError.code;
++    }
+   }
+-
+-  // hide custom error implementation details from end-users
+-  Error.captureStackTrace(this, this.constructor);
+ }
+-
+-FetchError.prototype = Object.create(Error.prototype);
+-FetchError.prototype.constructor = FetchError;
+ FetchError.prototype.name = 'FetchError';
+ 
+ let convert;
+diff --git a/lib/index.mjs b/lib/index.mjs
+index 2863dd9c318754a77c6bfb57ec5e7db8759abd8b..12f88c742148a92c6d6266f9db480aad56529f80 100644
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -133,23 +133,17 @@ Object.defineProperty(Blob.prototype, Symbol.toStringTag, {
+  * @param   String      systemError  For Node.js system error
+  * @return  FetchError
+  */
+-function FetchError(message, type, systemError) {
+-  Error.call(this, message);
+-
+-  this.message = message;
+-  this.type = type;
++class FetchError extends Error {
++  constructor(message, type, systemError) {
++    super(message);
++    this.type = type;
+ 
+-  // when err.type is `system`, err.code contains system error code
++    // when err.type is `system`, err.code contains system error code
+-  if (systemError) {
+-    this.code = this.errno = systemError.code;
++    if (systemError) {
++      this.code = this.errno = systemError.code;
++    }
+   }
+-
+-  // hide custom error implementation details from end-users
+-  Error.captureStackTrace(this, this.constructor);
+ }
+-
+-FetchError.prototype = Object.create(Error.prototype);
+-FetchError.prototype.constructor = FetchError;
+ FetchError.prototype.name = 'FetchError';
+ 
+ let convert;

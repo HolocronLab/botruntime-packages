@@ -13,8 +13,8 @@ describe('multi-actor eval routing', () => {
           },
         ],
       }),
-      createUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
-      createMessage: vi.fn().mockResolvedValue({}),
+      getOrCreateUser: vi.fn().mockResolvedValue({ user: { id: 'operator-user' } }),
+      getOrCreateMessage: vi.fn().mockResolvedValue({}),
       listMessages: vi.fn().mockResolvedValue({ messages: [], meta: {} }),
       getConversation: vi.fn().mockResolvedValue({
         conversation: {
@@ -48,14 +48,80 @@ describe('multi-actor eval routing', () => {
       channel: 'channel',
       pageSize: 2,
     })
-    expect(client.createMessage).toHaveBeenCalledWith({
+    expect(client.getOrCreateMessage).toHaveBeenCalledWith({
       conversationId: 'hitl-1',
       userId: 'operator-user',
       type: 'text',
-      payload: { type: 'text', text: '/take' },
-      tags: {},
+      payload: { text: '/take' },
+      tags: { id: 'eval:client-1:actor:operator' },
+      discriminateByTags: ['id'],
       origin: 'synthetic',
     })
+  })
+
+  it('renders related-conversation responses from the platform message envelope', async () => {
+    const client = {
+      listConversations: vi.fn(),
+      getOrCreateUser: vi.fn(),
+      getOrCreateMessage: vi.fn(),
+      listMessages: vi.fn().mockResolvedValue({
+        messages: [
+          {
+            id: 'operator-ack',
+            direction: 'outgoing',
+            type: 'text',
+            payload: { text: 'Диалог перехвачен' },
+          },
+        ],
+        meta: {},
+      }),
+      getConversation: vi.fn(),
+    }
+    const router = new ActorRouter(client as any, {
+      primaryConversationId: 'client-1',
+      primaryUserId: 'client-user',
+      relations: {},
+    })
+
+    await router.startDeliveryObservation([])
+
+    await expect(router.responsesFor('client')).resolves.toEqual(['Диалог перехвачен'])
+  })
+
+  it('keeps actor identity and message effect identity stable across router reconstruction', async () => {
+    const getOrCreateUser = vi.fn().mockResolvedValue({ user: { id: 'operator-user' } })
+    const getOrCreateMessage = vi.fn().mockResolvedValue({})
+    const client = {
+      listConversations: vi.fn().mockResolvedValue({ conversations: [{ id: 'hitl-1', tags: { root: 'client-1' } }] }),
+      getOrCreateUser,
+      getOrCreateMessage,
+      listMessages: vi.fn().mockResolvedValue({ messages: [], meta: {} }),
+      getConversation: vi.fn(),
+    }
+    const context = {
+      primaryConversationId: 'client-1',
+      primaryUserId: 'client-user',
+      executionId: 'run:1',
+      relations: { hitl_thread: { tags: { root: '$conversationId' } } },
+    }
+
+    await new ActorRouter(client as any, context).send({
+      actor: 'operator',
+      relation: 'hitl_thread',
+      message: 'take',
+      effectId: 'eval:run:1:turn:0:message',
+    })
+    await new ActorRouter(client as any, context).send({
+      actor: 'operator',
+      relation: 'hitl_thread',
+      message: 'take',
+      effectId: 'eval:run:1:turn:0:message',
+    })
+
+    expect(getOrCreateUser).toHaveBeenCalledTimes(2)
+    expect(getOrCreateUser).toHaveBeenNthCalledWith(1, getOrCreateUser.mock.calls[1]?.[0])
+    expect(getOrCreateMessage).toHaveBeenCalledTimes(2)
+    expect(getOrCreateMessage).toHaveBeenNthCalledWith(1, getOrCreateMessage.mock.calls[1]?.[0])
   })
 
   it('grades delivery and mode using only post-turn platform records', async () => {
@@ -78,8 +144,8 @@ describe('multi-actor eval routing', () => {
       })
     const client = {
       listConversations: vi.fn(),
-      createUser: vi.fn(),
-      createMessage: vi.fn(),
+      getOrCreateUser: vi.fn(),
+      getOrCreateMessage: vi.fn(),
       listMessages,
       getConversation: vi.fn().mockResolvedValue({
         conversation: {
@@ -120,8 +186,8 @@ describe('multi-actor eval routing', () => {
         .mockResolvedValueOnce({
           conversations: [{ id: 'hitl-late', tags: { root: 'client-1' } }],
         }),
-      createUser: vi.fn(),
-      createMessage: vi.fn(),
+      getOrCreateUser: vi.fn(),
+      getOrCreateMessage: vi.fn(),
       listMessages: vi.fn(),
       getConversation: vi.fn(),
     }
@@ -142,8 +208,8 @@ describe('multi-actor eval routing', () => {
   it('returns typed relation diagnostics without exposing selector values', async () => {
     const client = {
       listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
-      createUser: vi.fn(),
-      createMessage: vi.fn(),
+      getOrCreateUser: vi.fn(),
+      getOrCreateMessage: vi.fn(),
       listMessages: vi.fn(),
       getConversation: vi.fn(),
     }

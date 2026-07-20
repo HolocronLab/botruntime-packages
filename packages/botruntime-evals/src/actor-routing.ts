@@ -2,7 +2,9 @@ import type { GraderResult } from './types'
 import type { ConversationRelationSelector } from './definition'
 import { chatPayloadToText } from './client'
 import type { Client as BotruntimeClient } from '@holocronlab/botruntime-client'
+import type { Message } from '@holocronlab/botruntime-chat'
 import { EvalRunnerError } from './errors'
+import { chatPayloadToPlatformMessage, platformMessageToChatPayload } from './message-codec'
 
 const DEFAULT_RESOLVE_TIMEOUT_MS = 5_000
 const DEFAULT_POLL_INTERVAL_MS = 100
@@ -15,11 +17,12 @@ type Conversation = {
 type PlatformMessage = {
   id: string
   direction: 'incoming' | 'outgoing'
+  type: string
   payload?: Record<string, unknown>
 }
 type ActorClient = Pick<
   BotruntimeClient,
-  'listConversations' | 'createUser' | 'createMessage' | 'listMessages' | 'getConversation'
+  'listConversations' | 'getOrCreateUser' | 'getOrCreateMessage' | 'listMessages' | 'getConversation'
 >
 
 type DeliveryAssertions = {
@@ -38,6 +41,7 @@ export class ActorRouter {
     private readonly context: {
       primaryConversationId: string
       primaryUserId: string
+      executionId?: string
       relations: Record<string, ConversationRelationSelector>
     },
     private readonly options: {
@@ -51,6 +55,7 @@ export class ActorRouter {
     relation: string
     message?: string
     payload?: Record<string, unknown> & { type: string }
+    effectId?: string
   }): Promise<void> {
     const conversationId = await this.resolveTarget(input.relation)
     const userId = await this.resolveActor(input.actor)
@@ -58,17 +63,20 @@ export class ActorRouter {
       type: 'text',
       text: input.message ?? '',
     }
-    await this.client.createMessage({
+    const encoded = chatPayloadToPlatformMessage(payload as Message['payload'])
+    const effectId = input.effectId ?? `eval:${this.context.executionId ?? this.context.primaryConversationId}:actor:${input.actor}`
+    await this.client.getOrCreateMessage({
       conversationId,
       userId,
-      type: payload.type,
-      payload,
-      tags: {},
+      type: encoded.type,
+      payload: encoded.payload,
+      tags: { id: effectId },
+      discriminateByTags: ['id'],
       origin: 'synthetic',
     })
   }
 
-  async startDeliveryObservation(targets: string[]): Promise<void> {
+  async startDeliveryObservation(targets: string[]): Promise<Record<string, string[]>> {
     this.deliveryBaseline.clear()
     await Promise.all(
       [...new Set(targets)].map(async (target) => {
@@ -76,6 +84,14 @@ export class ActorRouter {
         this.deliveryBaseline.set(target, new Set(messages.map((message) => message.id)))
       })
     )
+    return Object.fromEntries([...this.deliveryBaseline].map(([target, ids]) => [target, [...ids]]))
+  }
+
+  restoreDeliveryObservation(baseline: Record<string, string[]>): void {
+    this.deliveryBaseline.clear()
+    for (const [target, ids] of Object.entries(baseline)) {
+      this.deliveryBaseline.set(target, new Set(ids))
+    }
   }
 
   async gradeDelivery(assertions: DeliveryAssertions): Promise<GraderResult[]> {
@@ -120,15 +136,21 @@ export class ActorRouter {
     const messages = await this.listAllMessages(await this.resolveTarget(target))
     return messages
       .filter((message) => message.direction === 'outgoing' && !baseline.has(message.id) && message.payload)
-      .map((message) => chatPayloadToText(message.payload as any))
+      .map((message) =>
+        chatPayloadToText(
+          platformMessageToChatPayload(message as PlatformMessage & { payload: Record<string, unknown> })
+        )
+      )
   }
 
   private async resolveActor(actor: string): Promise<string> {
     if (actor === 'client') return this.context.primaryUserId
     const cached = this.actorUsers.get(actor)
     if (cached) return cached
-    const { user } = await this.client.createUser({
-      tags: {},
+    const id = `eval:${this.context.executionId ?? this.context.primaryConversationId}:actor:${actor}`
+    const { user } = await this.client.getOrCreateUser({
+      tags: { id },
+      discriminateByTags: ['id'],
       name: `eval:${actor}`,
     })
     this.actorUsers.set(actor, user.id)

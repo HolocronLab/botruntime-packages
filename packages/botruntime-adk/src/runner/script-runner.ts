@@ -383,11 +383,13 @@ export class ScriptRunner {
       const workspaceId = process.env.ADK_WORKSPACE_ID!
       const token = process.env.ADK_TOKEN!
       const apiUrl = process.env.ADK_API_URL || 'https://api.botpress.cloud'
-      const configuration = process.env.ADK_CONFIGURATION ? JSON.parse(process.env.ADK_CONFIGURATION) : {}
+      const configuration = process.env.BOTRUNTIME_CONFIGURATION
+        ? JSON.parse(process.env.BOTRUNTIME_CONFIGURATION)
+        : {}
 
       const vanillaClient = new Client({ token, apiUrl, workspaceId, botId })
       const client = new BotSpecificClient(vanillaClient as any)
-      const cognitive = new Cognitive({ client: client as any, __experimental_beta: true })
+      const cognitive = new Cognitive({ client: client as any })
       const logger = new BotLogger({})
 
       context.setDefaultContext({
@@ -502,9 +504,7 @@ export class ScriptRunner {
       })
       configuration = await manager.getAll()
     } catch {
-      // Proceed without ADK_CONFIGURATION (it's still resolvable during
-      // request handling). A real auth/network failure here leaves the script
-      // silently config-less.
+      // A real auth/network failure here leaves the script config-less.
       // TODO(ADK-638): warn via the injected logger once adk has one —
       // include the fetch error.
     }
@@ -520,7 +520,7 @@ export class ScriptRunner {
       ADK_SCRIPT_MODE: 'true',
       ADK_TOKEN: this.credentials.token,
       ADK_API_URL: this.credentials.apiUrl,
-      ...(configuration && { ADK_CONFIGURATION: JSON.stringify(configuration) }),
+      ...(configuration && { BOTRUNTIME_CONFIGURATION: JSON.stringify(configuration) }),
       ...options.env,
     }
 
@@ -566,7 +566,6 @@ export class ScriptRunner {
         const cognitive = new Cognitive({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK type mismatch
           client: client as any,
-          __experimental_beta: true,
         })
 
         const logger = new BotLogger({})
@@ -642,9 +641,7 @@ export class ScriptRunner {
       })
       configuration = await manager.getAll()
     } catch {
-      // Proceed without ADK_CONFIGURATION (it's still resolvable during
-      // request handling). A real auth/network failure here leaves the script
-      // silently config-less.
+      // A real auth/network failure here leaves the script config-less.
       // TODO(ADK-638): warn via the injected logger once adk has one —
       // include the fetch error.
     }
@@ -667,8 +664,8 @@ export class ScriptRunner {
       ADK_SCRIPT_PATH: absoluteScriptPath,
       ADK_TOKEN: this.credentials.token,
       ADK_API_URL: this.credentials.apiUrl,
-      // Inject configuration so it's available at module load time
-      ...(configuration && { ADK_CONFIGURATION: JSON.stringify(configuration) }),
+      // Bootstrap the script context; runtime configuration never reads env.
+      ...(configuration && { BOTRUNTIME_CONFIGURATION: JSON.stringify(configuration) }),
     }
 
     const child = spawn('bun', args, {

@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const templatesRoot = path.join(packageRoot, 'assets-static', 'templates')
 const generatorUrl = pathToFileURL(path.join(packageRoot, 'src', 'agent-init', 'agent-project-generator.ts')).href
+const brtVersion = (
+  JSON.parse(readFileSync(path.resolve(packageRoot, '../brt/package.json'), 'utf8')) as { version: string }
+).version
 const generatedProjects: string[] = []
 
 afterEach(() => {
@@ -27,6 +30,7 @@ describe('AgentProjectGenerator static templates', () => {
     const projectPath = mkdtempSync(path.join(packageRoot, `.template-smoke-${template}-`))
     generatedProjects.push(projectPath)
     const script = `
+      globalThis.__BP_CLI_VERSION__ = ${JSON.stringify(brtVersion)};
       const { AgentProjectGenerator } = await import(${JSON.stringify(generatorUrl)});
       AgentProjectGenerator.setTemplatesRoot(${JSON.stringify(templatesRoot)});
       await new AgentProjectGenerator(${JSON.stringify(projectPath)}, 'bun', ${JSON.stringify(template)}).generate();
@@ -50,7 +54,7 @@ describe('AgentProjectGenerator static templates', () => {
       deploy: 'brt deploy --adk',
     })
     expect(packageJson.dependencies).toHaveProperty('@holocronlab/botruntime-runtime')
-    expect(packageJson.devDependencies).toHaveProperty('@holocronlab/brt', '^0.6.0')
+    expect(packageJson.devDependencies).toHaveProperty('@holocronlab/brt', `^${brtVersion}`)
     expect(config).toMatch(/from ["']@holocronlab\/botruntime-runtime["']/)
     expect(readme).toContain('brt dev')
     expect(readme).toContain('brt deploy --adk')

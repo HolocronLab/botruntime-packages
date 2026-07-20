@@ -15,11 +15,6 @@ import * as errors from './errors'
 
 export interface BotCreds {
   apiKey: string
-  // webhookSecret is shown once by POST /v1/admin/integrations/install and
-  // stored here (never in bot.json — see cloud-project-link.ts) so a later
-  // `brt integrations register` on the same machine does not need to prompt
-  // for it again. Optional: absent until the bot has an integration installed.
-  webhookSecret?: string
 }
 
 // profile -> botId -> creds

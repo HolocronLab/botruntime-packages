@@ -13,7 +13,7 @@ describe('managed OTLP transport', () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve())
   })
 
-  it('keeps the standard JSON OTLP envelope while stripping unsafe span fields', async () => {
+  it('keeps the standard JSON OTLP envelope with canonical trace content', async () => {
     let received!: { url: string; headers: http.IncomingHttpHeaders; body: Buffer }
     const requestReceived = new Promise<void>((resolve) => {
       server = http.createServer((request, response) => {
@@ -54,9 +54,9 @@ describe('managed OTLP transport', () => {
     ])
     registerSpanPayloads(sourceSpan, [
       {
-        key: 'cloud-payload-must-not-cross',
+        key: 'ai.response',
         contentType: 'text/plain',
-        value: 'full cloud payload must not cross',
+        value: 'full canonical model response',
         sizeBytes: 33,
       },
     ])
@@ -94,11 +94,12 @@ describe('managed OTLP transport', () => {
     expect(span.status?.message).toBeUndefined()
     expect(JSON.stringify(envelope)).not.toContain('secret')
     expect(JSON.stringify(envelope)).not.toContain('private response preview')
+    expect(JSON.stringify(envelope)).toContain('developer trace message')
+    expect(JSON.stringify(envelope)).toContain('lookup_account')
     expect(JSON.stringify(envelope)).not.toContain('tool output')
     expect(JSON.stringify(envelope)).not.toContain('privateState')
     expect(JSON.stringify(envelope)).not.toContain('alias-must-not-anchor')
-    expect(JSON.stringify(envelope)).not.toContain('full cloud payload must not cross')
-    expect(JSON.stringify(envelope)).not.toContain('cloud-payload-must-not-cross')
+    expect(JSON.stringify(envelope)).toContain('full canonical model response')
     expect(span.attributes.some((attribute: { key: string }) => attribute.key === 'userId')).toBe(false)
     expect(span.attributes.some((attribute: { key: string }) => attribute.key === 'messageId')).toBe(false)
     expect(span.attributes.some((attribute: { key: string }) => attribute.key === 'session.id')).toBe(false)

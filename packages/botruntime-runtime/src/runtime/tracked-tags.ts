@@ -13,6 +13,11 @@ import { adk } from './adk'
  */
 export const BUILT_IN_TAGS = {
   conversation: {
+    /** Stable discriminator for durable hosted eval resources. */
+    id: {
+      title: 'Resource Identity',
+      description: 'Built-in: Stable resource discriminator used by platform-managed get-or-create operations.',
+    },
     /** Last synced message timestamp - automatically updated when messages are processed */
     adkSyncTs: {
       title: 'Runtime Sync Timestamp',
@@ -25,9 +30,20 @@ export const BUILT_IN_TAGS = {
       description: 'Built-in: Set to "true" when a conversation session expires via lifecycle management.',
     },
   },
-  user: {},
+  user: {
+    /** Stable discriminator for durable hosted eval resources. */
+    id: {
+      title: 'Resource Identity',
+      description: 'Built-in: Stable resource discriminator used by platform-managed get-or-create operations.',
+    },
+  },
   bot: {},
   message: {
+    /** Stable discriminator for durable hosted eval effects. */
+    id: {
+      title: 'Message Identity',
+      description: 'Built-in: Stable message discriminator used by platform-managed get-or-create operations.',
+    },
     /** Session ID for the message - groups messages by lifecycle session */
     sessionId: {
       title: 'Session ID',
@@ -39,7 +55,13 @@ export const BUILT_IN_TAGS = {
       description: 'Built-in: Session sequence number, increments each time the conversation session expires.',
     },
   },
-  workflow: {},
+  workflow: {
+    /** Stable discriminator for durable hosted eval resources. */
+    id: {
+      title: 'Workflow Identity',
+      description: 'Built-in: Stable workflow discriminator used by platform-managed get-or-create operations.',
+    },
+  },
 } as const
 
 /**

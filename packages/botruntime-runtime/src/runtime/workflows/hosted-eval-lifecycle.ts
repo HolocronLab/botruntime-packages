@@ -34,6 +34,7 @@ export class HostedEvalLifecycle {
   private readonly definitionByName: Map<string, EvalDefinition>
   private readonly entryIds = new Map<string, string>()
   private readonly completedReports = new Map<string, EvalReport>()
+  private readonly finalizedReports = new Set<string>()
 
   constructor(
     private readonly store: HostedEvalStore,
@@ -45,11 +46,17 @@ export class HostedEvalLifecycle {
     this.definitionByName = new Map(definitions.map((definition) => [definition.name, definition]))
   }
 
-  async onProgress(event: EvalProgressEvent): Promise<void> {
+  async onProgress(
+    event: EvalProgressEvent,
+    step: HostedEvalStep = async (_name, action) => action()
+  ): Promise<void> {
     if (event.type === 'eval_start') {
       const definition = this.definitionByName.get(event.evalName)
       if (!definition) throw new Error(`Hosted eval definition ${event.evalName} is missing`)
-      await this.startDefinition(definition)
+      const entryId = await step(`start-entry-${event.index}`, () => this.startDefinition(definition))
+      // A replayed step returns its cached id without running startDefinition,
+      // so every fresh workflow invocation must rehydrate the in-memory index.
+      this.entryIds.set(definition.name, entryId)
       return
     }
     if (event.type === 'turn_complete') {
@@ -60,21 +67,26 @@ export class HostedEvalLifecycle {
 
     // The sandbox signal is a durable-workflow yield boundary, not an eval
     // verdict. Persisting the engine's synthetic aborted report here would
-    // poison the hosted entry before the uncheckpointed eval step is replayed.
+    // poison the hosted entry instead of resuming the checkpointed report.
     if (this.signal?.aborted) throw createStepSignal()
 
     // Save the engine's exact report before persistence. A failure below must
     // reconcile this verdict, never replace a successful entry with internal.
     this.completedReports.set(event.evalName, event.report)
     const entryId = this.requireEntryId(event.evalName)
-    await this.store.appendOutcomeResults(this.runId, entryId, event.report.outcomeAssertions)
+    await step(`persist-outcome-${event.index}`, () =>
+      this.store.appendOutcomeResults(this.runId, entryId, event.report.outcomeAssertions)
+    )
     const errorKind = classifyVortexEvalReport(event.report)
-    await this.store.finalizeEntry(this.runId, entryId, {
-      passed: event.report.pass,
-      durationMs: event.report.duration,
-      ...(errorKind ? { errorKind } : {}),
-      ...(event.report.diagnostic ? { diagnostic: event.report.diagnostic } : {}),
-    })
+    await step(`finalize-entry-${event.index}`, () =>
+      this.store.finalizeEntry(this.runId, entryId, {
+        passed: event.report.pass,
+        durationMs: event.report.duration,
+        ...(errorKind ? { errorKind } : {}),
+        ...(event.report.diagnostic ? { diagnostic: event.report.diagnostic } : {}),
+      })
+    )
+    this.finalizedReports.add(event.evalName)
   }
 
   rememberCompletedReport(report: EvalReport): void {
@@ -106,6 +118,7 @@ export class HostedEvalLifecycle {
     try {
       await step('reconcile-failed-run', async () => {
         for (const report of this.completedReports.values()) {
+          if (this.finalizedReports.has(report.name)) continue
           await this.store.addRunResults(this.runId, report)
         }
         await this.finalizeMissingDefinitions(new Set(this.completedReports.keys()), errorKind)

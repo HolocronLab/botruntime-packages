@@ -13,6 +13,21 @@ import { DeployCommand } from './deploy-command'
 import { DevCommand } from './dev-command'
 import { ProjectCommand } from './project-command'
 
+const toolchainMocks = vi.hoisted(() => ({
+  inspect: vi.fn(() => ({
+    schemaVersion: 1 as const,
+    capabilities: { evalManifest: 2 },
+    packages: [],
+    issues: [],
+  })),
+  assert: vi.fn(),
+}))
+
+vi.mock('../toolchain-contract', () => ({
+  inspectPlatformToolchain: toolchainMocks.inspect,
+  assertPlatformToolchainCompatible: toolchainMocks.assert,
+}))
+
 function writeProfile(botpressHome: string): void {
   fs.writeFileSync(
     path.join(botpressHome, 'profiles.json'),
@@ -87,6 +102,10 @@ function devBot(runtimeBotId: string, devTargetBotId: string) {
 
 function writeAgentProject(workDir: string): void {
   fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
+  fs.writeFileSync(
+    path.join(workDir, 'agent.json'),
+    JSON.stringify({ botId: '3', workspaceId: 'ws_123', apiUrl: 'https://cloud.example' })
+  )
   fs.writeFileSync(path.join(workDir, 'agent.local.json'), JSON.stringify({ devId: 'dev_agent', devTargetBotId: '42' }))
 }
 
@@ -244,6 +263,17 @@ async function testReconcileDependencyReadiness({
 function authoritativeDevReadiness() {
   return {
     schemaVersion: 1,
+    runtimeContract: {
+      schemaVersion: 1,
+      authority: 'cloudapi',
+      source: 'bot-platform',
+      capabilities: {
+        evalManifest: 2,
+        tableFixtures: 1,
+        devTargetRouting: 1,
+        traceProtocol: 1,
+      },
+    },
     integrations: {
       authority: 'authoritative',
       source: 'integration_installation',
@@ -387,8 +417,54 @@ describe('DevCommand --check', () => {
     expect(result.exitCode).toBe(0)
     expect(out.read()).toContain('Dev bot: dev_abc')
     expect(out.read()).toContain('telegram: registered')
-    expect(out.read()).toContain('Eval transport: ready (botruntime/eval (native))')
+    expect(out.read()).toContain('Eval transport: ready (botruntime/eval (native), manifest schema 2)')
     expect(out.read()).not.toContain('provision chat')
+  })
+
+  it('reports a legacy server contract as unknown instead of claiming eval readiness', async () => {
+    const { runtimeContract: _runtimeContract, ...legacyReadiness } = authoritativeDevReadiness()
+    vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
+      bot: {
+        ...devBot('dev_abc', '42'),
+        integrations: { telegram: authoritativeIntegration() },
+        devReadiness: legacyReadiness,
+      },
+    })
+    const out = captureStream()
+    const err = captureStream()
+    const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
+
+    const result = await cmd.handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(out.read()).toContain('Eval transport: not ready')
+    expect(err.read()).toContain('legacy readiness contract')
+  })
+
+  it('fails loudly when local and server eval manifest capabilities differ', async () => {
+    vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
+      bot: {
+        ...devBot('dev_abc', '42'),
+        integrations: { telegram: authoritativeIntegration() },
+        devReadiness: {
+          ...authoritativeDevReadiness(),
+          runtimeContract: {
+            ...authoritativeDevReadiness().runtimeContract,
+            capabilities: {
+              ...authoritativeDevReadiness().runtimeContract.capabilities,
+              evalManifest: 3,
+            },
+          },
+        },
+      },
+    })
+    const err = captureStream()
+    const cmd = makeCommand(botpressHome, workDir, new Logger({ errStream: err.stream }))
+
+    const result = await cmd.handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(err.read()).toContain('eval manifest capability mismatch: local=2, server=3')
   })
 
   it('uses only authoritative read probes and leaves remote and local state unchanged', async () => {
@@ -427,20 +503,24 @@ describe('DevCommand --check', () => {
     expect(fs.existsSync(path.join(botpressHome, 'global.cache.json'))).toBe(false)
   })
 
-  it('fails readiness when the cached dev bot exists but its tunnel is disconnected', async () => {
-    vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady').mockRejectedValue(
-      new HTTPError(503, 'development tunnel is not connected')
-    )
-    const out = captureStream()
-    const err = captureStream()
-    const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
+  it.each([502, 503, 504])(
+    'fails readiness with an actionable tunnel recovery for upstream HTTP %s',
+    async (status) => {
+      vi.spyOn(CloudapiClient.prototype, 'requireEvalBotReady').mockRejectedValue(
+        new HTTPError(status, 'upstream tunnel unavailable')
+      )
+      const out = captureStream()
+      const err = captureStream()
+      const cmd = makeCommand(botpressHome, workDir, new Logger({ outStream: out.stream, errStream: err.stream }))
 
-    const result = await cmd.handler()
+      const result = await cmd.handler()
 
-    expect(result.exitCode).toBe(1)
-    expect(out.read()).not.toContain('Eval transport: ready')
-    expect(err.read()).toContain('development tunnel is not connected')
-  })
+      expect(result.exitCode).toBe(1)
+      expect(out.read()).not.toContain('Eval transport: ready')
+      expect(err.read()).toContain('development tunnel is not connected')
+      expect(err.read()).toContain('start or restart `brt dev`')
+    }
+  )
 
   it('agent dev --check uses an unscoped runtime only as a read-only hint and ignores its stale numeric target', async () => {
     writeAgentProject(workDir)
@@ -929,6 +1009,10 @@ describe('DevCommand --check', () => {
       bpModulesDir: path.join(workDir, '.adk', 'bot', 'bp_modules'),
       cloud: {
         botUpdatedAt: '2026-07-10T01:00:00.000Z',
+        runtimeContract: {
+          authority: 'authoritative',
+          capabilities: authoritativeDevReadiness().runtimeContract.capabilities,
+        },
         integrations: {
           ...authoritativeDevReadiness().integrations,
           items: {},
@@ -1271,6 +1355,7 @@ describe('DevCommand agent routing', () => {
       newClient: vi.fn().mockReturnValue({
         client: {
           getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
+          createBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
         },
       }),
     }
@@ -1393,7 +1478,7 @@ describe('DevCommand agent routing', () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
       JSON.stringify({
-        botId: 'prod_bot_must_not_be_used',
+        botId: '3',
         workspaceId: 'ws_123',
       })
     )
@@ -1418,6 +1503,7 @@ describe('DevCommand agent routing', () => {
       newClient: vi.fn().mockReturnValue({
         client: {
           getBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
+          createBot: vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') }),
         },
       }),
     }
@@ -1441,7 +1527,6 @@ describe('DevCommand agent routing', () => {
     expect(generateSpy).toHaveBeenCalledTimes(2)
     expect(generateSpy).toHaveBeenNthCalledWith(1, workDir, expect.any(Function), expectedTarget)
     expect(generateSpy).toHaveBeenNthCalledWith(2, workDir, expect.any(Function), expectedTarget)
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
     expect(close).toHaveBeenCalledOnce()
   })
 
@@ -1460,9 +1545,10 @@ describe('DevCommand agent routing', () => {
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
     const getBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
     const apiFactory = {
       newClient: vi.fn().mockImplementation(() => {
-        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot } }
+        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot, createBot } }
         throw new Error('nested credential probe complete')
       }),
     }
@@ -1526,9 +1612,10 @@ describe('DevCommand agent routing', () => {
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
     const getBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
     const apiFactory = {
       newClient: vi.fn().mockImplementation(() => {
-        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot } }
+        if (apiFactory.newClient.mock.calls.length === 1) return { client: { getBot, createBot } }
         throw new Error('nested credential probe complete')
       }),
     }
@@ -1554,7 +1641,7 @@ describe('DevCommand agent routing', () => {
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
       JSON.stringify({
-        botId: 'prod_bot_must_not_be_used',
+        botId: '3',
         workspaceId: 'ws_123',
       })
     )
@@ -1613,7 +1700,6 @@ describe('DevCommand agent routing', () => {
         },
       },
     })
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
   })
 
   it('provisions and persists the complete dev target before the first agent generation', async () => {
@@ -1678,7 +1764,7 @@ describe('DevCommand agent routing', () => {
     expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('"botId":"3"')
   })
 
-  it('reuses agent.local dev identities and retroactively links the runtime to production', async () => {
+  it('reuses agent.local dev identities and revalidates their production project', async () => {
     const runtimeBotId = 'dev_opaque'
     const devTargetBotId = '42'
     fs.writeFileSync(
@@ -1747,7 +1833,6 @@ describe('DevCommand agent routing', () => {
       },
       expect.any(Logger)
     )
-    expect(JSON.stringify(generateSpy.mock.calls)).not.toContain('prod_bot_must_not_be_used')
   })
 
   it('fails before dev target network work when --local lacks local stack coordinates', async () => {
@@ -1773,11 +1858,12 @@ describe('DevCommand agent routing', () => {
     vi.spyOn(adkDevId, 'restoreDevTunnelId').mockReturnValue(undefined)
     vi.spyOn(adkDevId, 'preserveDevId').mockReturnValue(undefined)
     const getBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
+    const createBot = vi.fn().mockResolvedValue({ bot: devBot('dev_agent', '42') })
     const apiClient = {
       url: 'https://cloud.example',
       token: 'brt_pat_xxx',
       workspaceId: 'ws_123',
-      client: { getBot },
+      client: { getBot, createBot },
     }
     const apiFactory = { newClient: vi.fn().mockReturnValue(apiClient) }
     const order: string[] = []
@@ -1875,6 +1961,22 @@ describe('DevCommand dev target routing', () => {
     fs.rmSync(botpressHome, { recursive: true, force: true })
     fs.rmSync(workDir, { recursive: true, force: true })
     vi.restoreAllMocks()
+  })
+
+  it('refuses to create an orphan botruntime Development target without a Production link', async () => {
+    const runtimeBotId = 'dev_orphan'
+    writeProjectCacheState(workDir, { tunnelId: runtimeBotId })
+    const createBot = vi.fn()
+    const api = { url: 'https://botruntime.ru', client: { createBot } }
+    const command = new DevCommand({} as any, {} as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir),
+      check: false,
+    } as any)
+
+    await expect(
+      (command as any)._deployDevBot(api, `https://botruntime.ru/${runtimeBotId}`, {})
+    ).rejects.toThrow(/Production.*brt link/i)
+    expect(createBot).not.toHaveBeenCalled()
   })
 
   it('persists the numeric target returned by create while registration and updates keep the opaque runtime id', async () => {
@@ -2132,5 +2234,106 @@ describe('DevCommand dev target routing', () => {
       devId: runtimeBotId,
       devTargetBotId: '42',
     })
+  })
+})
+
+describe('DevCommand dev secret resolution (Codex P1, DEVLP-124)', () => {
+  let botpressHome: string
+  let workDir: string
+
+  beforeEach(() => {
+    botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-home-'))
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-dev-secrets-'))
+    writeProfile(botpressHome)
+  })
+
+  afterEach(() => {
+    fs.rmSync(botpressHome, { recursive: true, force: true })
+    fs.rmSync(workDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  const api = { url: 'https://api.example', token: 'pat-secret', workspaceId: '9001' }
+
+  function makeSecretsCommand(promptPassword: ReturnType<typeof vi.fn>): DevCommand {
+    // Empty local cache (fresh checkout / --no-secret-caching): the project cache file
+    // does not exist yet in workDir, so `_readKnownSecretsFromCache` resolves to {}.
+    const command = new DevCommand({} as any, { password: promptPassword, confirm: vi.fn() } as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir),
+      check: false,
+    } as any)
+    ;(command as any)._initialDef = {
+      type: 'bot',
+      definition: { secrets: { API_KEY: { optional: false } } },
+    }
+    return command
+  }
+
+  it('counts a secret already set as a cloud config var as known, so an empty local cache does not block required-secret validation', async () => {
+    const promptPassword = vi.fn().mockResolvedValue(undefined) // unattended: no interactive answer
+    const command = makeSecretsCommand(promptPassword)
+    const fetchDevConfigVars = vi.fn().mockResolvedValue({ API_KEY: 'value-from-cloud' })
+    ;(command as any)._fetchDevConfigVars = fetchDevConfigVars
+
+    await expect((command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')).resolves.toBeDefined()
+
+    expect(fetchDevConfigVars).toHaveBeenCalledWith(api, 'dev_runtime')
+  })
+
+  it('ignores undeclared cloud keys: only definition.secrets names reach knownSecrets (stale/legacy vars never trigger the ineffective delete prompt)', async () => {
+    const promptPassword = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptPassword)
+    // Cloud carries the declared secret AND an undeclared legacy key; only the declared
+    // one may count as known — an undeclared key in knownSecrets would make promptSecrets
+    // offer a "delete" that only touches the local cache while the cloud value survives.
+    ;(command as any)._fetchDevConfigVars = vi
+      .fn()
+      .mockResolvedValue({ API_KEY: 'value-from-cloud', LEGACY_UNDECLARED: 'stale' })
+
+    const resolved = await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+
+    expect(resolved).toBeDefined()
+    const promptedAbout = promptPassword.mock.calls.map((call) => String(call[0]))
+    expect(promptedAbout.some((text) => text.includes('LEGACY_UNDECLARED'))).toBe(false)
+  })
+
+  it('still fails loud when a required secret is genuinely unset both locally and in the cloud', async () => {
+    const promptPassword = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptPassword)
+    ;(command as any)._fetchDevConfigVars = vi.fn().mockResolvedValue({})
+
+    await expect((command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')).rejects.toThrow(
+      /Secret "API_KEY" is required/
+    )
+  })
+
+  it('fetches the dev bot cloud config vars over the network at most once, shared between the secret pre-check and the later worker spawn', async () => {
+    const promptPassword = vi.fn().mockResolvedValue(undefined)
+    const command = makeSecretsCommand(promptPassword)
+    const fetchDevConfigVars = vi.fn().mockResolvedValue({ API_KEY: 'value-from-cloud' })
+    ;(command as any)._fetchDevConfigVars = fetchDevConfigVars
+
+    await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+    await (command as any)._resolveRemoteDevConfigVars(api, 'dev_runtime')
+
+    expect(fetchDevConfigVars).toHaveBeenCalledOnce()
+  })
+
+  it('does not consult cloud config vars for an integration project (no dev-tunnel worker fetch wired for that type)', async () => {
+    const promptPassword = vi.fn().mockResolvedValue(undefined)
+    const command = new DevCommand({} as any, { password: promptPassword, confirm: vi.fn() } as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir),
+      check: false,
+    } as any)
+    ;(command as any)._initialDef = {
+      type: 'integration',
+      definition: { secrets: { API_KEY: { optional: true } } },
+    }
+    const fetchDevConfigVars = vi.fn()
+    ;(command as any)._fetchDevConfigVars = fetchDevConfigVars
+
+    await (command as any)._resolveDevSecretEnvVariables(api, 'dev_runtime')
+
+    expect(fetchDevConfigVars).not.toHaveBeenCalled()
   })
 })

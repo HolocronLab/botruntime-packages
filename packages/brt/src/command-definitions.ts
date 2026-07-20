@@ -11,6 +11,20 @@ export default {
       get: { description: 'Get bot', schema: config.schemas.getBot },
       delete: { description: 'Delete bot', schema: config.schemas.deleteBot, alias: 'rm' },
       list: { description: 'List bots', schema: config.schemas.listBots, alias: 'ls' },
+      versions: {
+        description: "Bot deploy-version commands (what's live, and rollback)",
+        subcommands: {
+          list: {
+            description: "List the selected bot's deploy versions, marking which one is current",
+            schema: config.schemas.botVersionsList,
+            alias: 'ls',
+          },
+          deploy: {
+            description: 'Make an existing bot version current (deploy forward or roll back)',
+            schema: config.schemas.botVersionsDeploy,
+          },
+        },
+      },
     },
   },
   integrations: {
@@ -29,6 +43,10 @@ export default {
       register: {
         description: "Register an installed integration's webhook on the selected target",
         schema: config.schemas.cloudIntegrationRegister,
+      },
+      upgrade: {
+        description: 'Atomically upgrade one existing integration installation to an exact version',
+        schema: config.schemas.cloudIntegrationUpgrade,
       },
       publish: {
         description: 'Publish an integration project to the public workspace catalog',
@@ -100,7 +118,7 @@ export default {
     schema: config.schemas.logs,
   },
   traces: {
-    description: 'Fetch runtime trace diagnostics for a conversation on the selected target',
+    description: 'Fetch scoped runtime trace diagnostics on the selected target',
     schema: config.schemas.traces,
   },
   conversations: {

@@ -6,6 +6,16 @@ export default new IntegrationDefinition({
   version: '0.1.0',
   readme: 'hub.md',
   icon: 'icon.svg',
+  network: {
+    // The outbound host is the per-install `webhookUrl` config value, not a
+    // fixed provider host known at scaffold time. providerHosts lists the hosts
+    // that must be ROUTED THROUGH the platform egress gateway (geo-blocked
+    // providers); undeclared hosts are reached directly, so a dynamic webhook
+    // URL keeps working with an empty list. If your provider requires the
+    // gateway (or once the platform enforces a strict allowlist), list its
+    // host(s) here explicitly (e.g. ['api.example.com']).
+    providerHosts: [],
+  },
   configuration: {
     schema: z.object({
       webhookUrl: z.string().describe('The url to post the bot answers to.'),

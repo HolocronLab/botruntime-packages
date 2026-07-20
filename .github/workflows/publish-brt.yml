@@ -1,12 +1,21 @@
-# Publish brt CLI as a GitHub Release asset (.tgz) — no merge to main required.
-# Trigger: tag brt-v* or manual dispatch. Install for a developer:
+# Publish brt CLI as a GitHub Release asset after the registry train is coherent,
+# or directly for an explicit manual ref. Install for a developer:
 #   bun add -g <release-asset-url>   (or download the .tgz + bun link). Requires bun >=1.3.
 name: publish-brt
 
 on:
-  push:
-    tags:
-      - "brt-v*"
+  workflow_call:
+    inputs:
+      ref:
+        description: "branch, tag, or SHA to pack brt from"
+        required: false
+        type: string
+        default: ""
+      tag:
+        description: "release tag to create for a serialized package-train invocation"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       ref:
@@ -22,9 +31,18 @@ jobs:
   pack-and-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
+          ref: ${{ inputs.ref || github.ref }}
+
+      # DEVLP-174: публикация с неконсьюмленными changeset-заметками паковала бы
+      # новый source под СТАРЫМ иммутабельным npm-semver и молча съедала записи —
+      # релиз обязан начинаться с changeset-version.mjs. Только для
+      # СЕРИАЛИЗОВАННОГО релиза (workflow_call с tag): ручные dev-тарболы с
+      # фиче-веток (workflow_dispatch) — отдельные артефакты, не npm-релиз.
+      - name: No pending changesets
+        if: ${{ inputs.tag != '' }}
+        run: node scripts/changeset-lint.mjs --require-empty
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -58,7 +76,9 @@ jobs:
           # Release against the SHA actually checked out (inputs.ref on dispatch), not the
           # workflow's github.sha which may point at a different commit.
           SHA="$(git rev-parse HEAD)"
-          TAG="${{ github.event.inputs.ref || github.ref_name }}"
+          # Only the serialized catalog caller may provide a coherent brt-v* marker.
+          # Manual tarballs always get a dev tag, even when their ref names a release tag.
+          TAG="${{ inputs.tag }}"
           case "$TAG" in brt-v*) ;; *) TAG="brt-dev-${SHA:0:8}";; esac
           gh release create "$TAG" dist-brt/*.tgz \
             --prerelease --target "$SHA" \

@@ -26,49 +26,82 @@ const commandCases = [
     label: 'config set',
     Command: ConfigSetCommand,
     source: 'classic',
-    method: 'PUT',
-    suffix: '/FOO',
+    kind: 'config-set',
   },
   {
     label: 'config list',
     Command: ConfigListCommand,
     source: 'agent',
-    method: 'GET',
-    suffix: '',
+    kind: 'config-list',
   },
   {
     label: 'config rm',
     Command: ConfigRmCommand,
     source: 'classic',
-    method: 'DELETE',
-    suffix: '/FOO',
+    kind: 'config-rm',
   },
   {
     label: 'secret set',
     Command: SecretSetCommand,
     source: 'agent',
-    method: 'PUT',
-    suffix: '/FOO',
+    kind: 'secret-set',
   },
 ] as const satisfies ReadonlyArray<{
   label: string
   Command: new (...args: any[]) => { run(): Promise<void> }
   source: CacheSource
-  method: string
-  suffix: string
+  kind: 'config-set' | 'config-list' | 'config-rm' | 'secret-set'
 }>
+
+type CommandKind = (typeof commandCases)[number]['kind']
+
+function expectedDevCalls(
+  apiUrl: string,
+  workspaceId: string,
+  opaqueId: string,
+  kind: CommandKind
+): Array<[string, string]> {
+  const resolve: [string, string] = ['GET', `${apiUrl}/v1/admin/bots/${opaqueId}`]
+  const bot = `${apiUrl}/v1/admin/bots/${DEV_TARGET_BOT_ID}`
+  if (kind === 'secret-set') {
+    return [
+      resolve,
+      ['PUT', `${apiUrl}/v1/admin/workspaces/${workspaceId}/bots/${DEV_TARGET_BOT_ID}/config-variables/FOO`],
+    ]
+  }
+  if (kind === 'config-list') return [resolve, ['GET', bot]]
+  return [resolve, ['GET', bot], ['PUT', bot], ['GET', bot]]
+}
+
+function expectedWorkspaceAdminCalls(
+  apiUrl: string,
+  workspaceId: string,
+  botId: string,
+  kind: CommandKind
+): Array<[string, string]> {
+  if (kind === 'secret-set') {
+    return [['PUT', `${apiUrl}/v1/admin/workspaces/${workspaceId}/bots/${botId}/config-variables/FOO`]]
+  }
+  const bot = `${apiUrl}/v1/admin/bots/${botId}`
+  if (kind === 'config-list') return [['GET', bot]]
+  return [['GET', bot], ['PUT', bot], ['GET', bot]]
+}
 
 describe('cloud config and secret dev routing', () => {
   let botpressHome: string
   let workDir: string
   let valueFile: string
   let calls: FetchCall[]
+  let botConfigurations: Map<string, Record<string, unknown>>
+  let persistBotWrites: boolean
 
   beforeEach(() => {
     botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-config-dev-home-'))
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-config-dev-project-'))
     valueFile = path.join(workDir, 'value.txt')
     calls = []
+    botConfigurations = new Map()
+    persistBotWrites = true
 
     fs.writeFileSync(
       path.join(botpressHome, 'profiles.json'),
@@ -98,25 +131,41 @@ describe('cloud config and secret dev routing', () => {
 
         if (
           method === 'GET' &&
-          pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/logs`
+          (pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/logs` ||
+            pathname === `/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/logs`)
         ) {
           return Response.json({ logs: [] })
         }
 
-        if (method === 'GET' && pathname.startsWith('/v1/admin/bots/')) {
+        if ((method === 'GET' || method === 'PUT') && pathname.startsWith('/v1/admin/bots/')) {
           const opaqueId = decodeURIComponent(pathname.slice('/v1/admin/bots/'.length))
+          if (method === 'PUT') {
+            const body = JSON.parse(String(init.body)) as {
+              configuration?: { data?: Record<string, unknown> }
+            }
+            if (persistBotWrites) botConfigurations.set(opaqueId, body.configuration?.data ?? {})
+          }
           return Response.json({
             bot: {
-              id: opaqueId,
+              id: opaqueId === PROD_BOT_ID ? 'prod-runtime-opaque' : opaqueId,
               dev: true,
               tags: { [DEV_TARGET_TAG]: DEV_TARGET_BOT_ID },
+              configuration: {
+                data: botConfigurations.has(opaqueId) ? botConfigurations.get(opaqueId) : { FOO: 'old-value' },
+                schema: {
+                  type: 'object',
+                  properties: {
+                    FOO: { type: 'string' },
+                    maxRetries: { type: 'integer' },
+                    enabled: { type: 'boolean' },
+                  },
+                },
+              },
             },
           })
         }
 
-        const devConfigPath = new RegExp(
-          `^/v1/admin/workspaces/[^/]+/bots/${DEV_TARGET_BOT_ID}/config-variables(?:/FOO)?$`
-        )
+        const devConfigPath = /^\/v1\/admin\/workspaces\/[^/]+\/bots\/[^/]+\/config-variables(?:\/FOO)?$/
         if (devConfigPath.test(pathname)) {
           if (method === 'GET') {
             return Response.json({
@@ -158,30 +207,36 @@ describe('cloud config and secret dev routing', () => {
     }
   })
 
+  it('declares --dev on logs', () => {
+    expect(schemas.logs).toHaveProperty('dev', expect.objectContaining({ type: 'boolean' }))
+  })
+
   it.each(commandCases)(
-    '$label --dev resolves the cached $source opaque id through PAT and mutates the nested numeric target',
-    async ({ Command, source, method, suffix }) => {
+    '$label --dev resolves the cached $source opaque id through PAT and uses the canonical target store',
+    async ({ Command, source, kind }) => {
       const opaqueId = `${source}-opaque`
       writeDevCache(workDir, source, opaqueId)
       const command = new Command({} as any, {} as any, new Logger(), makeArgv(botpressHome, workDir, valueFile, true))
 
       await command.run()
 
-      expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-        ['GET', `${API_URL}/v1/admin/bots/${opaqueId}`],
-        [method, `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/config-variables${suffix}`],
-      ])
+      expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+        expectedDevCalls(API_URL, WORKSPACE_ID, opaqueId, kind)
+      )
       expect(headers(calls[0]!)).toMatchObject({
         authorization: 'Bearer brt_pat_xxx',
         'x-workspace-id': WORKSPACE_ID,
       })
       expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
-      expect(headers(calls[1]!).authorization).toBe('Bearer brt_pat_xxx')
-      expect(headers(calls[1]!)['x-bot-id']).toBeUndefined()
-      expect(headers(calls[1]!)['x-workspace-id']).toBeUndefined()
-      if (method === 'PUT') {
-        expect(JSON.parse(String(calls[1]!.init.body))).toEqual({
+      expect(calls.every((call) => headers(call).authorization === 'Bearer brt_pat_xxx')).toBe(true)
+      expect(calls.every((call) => headers(call)['x-bot-id'] === undefined)).toBe(true)
+      if (kind === 'secret-set') {
+        expect(JSON.parse(String(calls.at(-1)!.init.body))).toEqual({
           value: 'sealed-value',
+        })
+      } else if (kind === 'config-set') {
+        expect(JSON.parse(String(calls[2]!.init.body))).toEqual({
+          configuration: { data: { FOO: 'sealed-value' } },
         })
       }
       expect(fs.existsSync(path.join(workDir, 'bot.json'))).toBe(false)
@@ -189,6 +244,31 @@ describe('cloud config and secret dev routing', () => {
       expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
     }
   )
+
+  it('coerces schema-declared configuration types and verifies persistence', async () => {
+    writeDevCache(workDir, 'classic', 'classic-opaque')
+    fs.writeFileSync(valueFile, '50000\n')
+    const argv = { ...makeArgv(botpressHome, workDir, valueFile, true), name: 'maxRetries' }
+
+    await new ConfigSetCommand({} as any, {} as any, new Logger(), argv).run()
+
+    expect(JSON.parse(String(calls[2]!.init.body))).toEqual({
+      configuration: { data: { FOO: 'old-value', maxRetries: 50000 } },
+    })
+  })
+
+  it('fails loudly when updateBot returns success without persisting configuration', async () => {
+    writeDevCache(workDir, 'classic', 'classic-opaque')
+    persistBotWrites = false
+    const command = new ConfigSetCommand(
+      {} as any,
+      {} as any,
+      new Logger(),
+      makeArgv(botpressHome, workDir, valueFile, true)
+    )
+
+    await expect(command.run()).rejects.toThrow(/was not persisted/)
+  })
 
   it('treats --bot-id under --dev as an opaque override independent of the cached target', async () => {
     const cacheDir = path.join(workDir, '.botpress')
@@ -202,10 +282,9 @@ describe('cloud config and secret dev routing', () => {
 
     await command.run()
 
-    expect(calls.map((call) => call.url)).toEqual([
-      `${API_URL}/v1/admin/bots/new-opaque`,
-      `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/config-variables/FOO`,
-    ])
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+      expectedDevCalls(API_URL, WORKSPACE_ID, 'new-opaque', 'config-set')
+    )
   })
 
   it('uses only selected profile stack coordinates for non-local agent --dev commands', async () => {
@@ -228,13 +307,9 @@ describe('cloud config and secret dev routing', () => {
 
     await command.run()
 
-    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['GET', `${API_URL}/v1/admin/bots/agent-dev-opaque`],
-      [
-        'PUT',
-        `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/config-variables/FOO`,
-      ],
-    ])
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+      expectedDevCalls(API_URL, WORKSPACE_ID, 'agent-dev-opaque', 'config-set')
+    )
     expect(headers(calls[0]!)).toMatchObject({
       authorization: 'Bearer brt_pat_xxx',
       'x-workspace-id': WORKSPACE_ID,
@@ -322,7 +397,7 @@ describe('cloud config and secret dev routing', () => {
 
   it.each(commandCases)(
     '$label --dev --local uses only the $source local apiUrl and workspace metadata',
-    async ({ Command, source, method, suffix }) => {
+    async ({ Command, source, kind }) => {
       const opaqueId = `${source}-local-opaque`
       const localWorkspaceId = source === 'classic' ? LOCAL_CLASSIC_WORKSPACE_ID : LOCAL_AGENT_WORKSPACE_ID
       writeDevCache(workDir, source, opaqueId)
@@ -359,13 +434,9 @@ describe('cloud config and secret dev routing', () => {
 
       await command.run()
 
-      expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-        ['GET', `${LOCAL_API_URL}/v1/admin/bots/${opaqueId}`],
-        [
-          method,
-          `${LOCAL_API_URL}/v1/admin/workspaces/${localWorkspaceId}/bots/${DEV_TARGET_BOT_ID}/config-variables${suffix}`,
-        ],
-      ])
+      expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+        expectedDevCalls(LOCAL_API_URL, localWorkspaceId, opaqueId, kind)
+      )
       expect(calls.every((call) => !call.url.startsWith(API_URL))).toBe(true)
       expect(headers(calls[0]!)).toMatchObject({
         authorization: 'Bearer brt_pat_xxx',
@@ -452,8 +523,37 @@ describe('cloud config and secret dev routing', () => {
   })
 
   it.each(commandCases)(
-    '$label without --dev keeps the production per-bot-key route',
-    async ({ Command, method, suffix }) => {
+    '$label uses the owner/admin workspace PAT in production without a per-bot key',
+    async ({ Command, kind }) => {
+      fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
+      fs.writeFileSync(
+        path.join(workDir, 'agent.json'),
+        JSON.stringify({ botId: PROD_BOT_ID, workspaceId: WORKSPACE_ID, apiUrl: AGENT_PROD_API_URL })
+      )
+      const command = new Command(
+        {} as any,
+        {} as any,
+        new Logger(),
+        makeArgv(botpressHome, workDir, valueFile, false)
+      )
+
+      await command.run()
+
+      expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+        expectedWorkspaceAdminCalls(AGENT_PROD_API_URL, WORKSPACE_ID, PROD_BOT_ID, kind)
+      )
+      for (const call of calls) {
+        expect(headers(call).authorization).toBe('Bearer brt_pat_xxx')
+        expect(headers(call)['x-bot-id']).toBeUndefined()
+        expect(headers(call)['x-workspace-id']).toBe(kind === 'secret-set' ? undefined : WORKSPACE_ID)
+      }
+      expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
+    }
+  )
+
+  it.each(commandCases)(
+    '$label without --dev uses the production bot target',
+    async ({ Command, kind }) => {
       fs.writeFileSync(path.join(workDir, 'bot.json'), JSON.stringify({ botId: Number(PROD_BOT_ID), apiUrl: API_URL }))
       fs.writeFileSync(
         path.join(botpressHome, 'bots.json'),
@@ -465,20 +565,20 @@ describe('cloud config and secret dev routing', () => {
 
       await command.run()
 
-      expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-        [method, `${API_URL}/v1/admin/config-variables${suffix}`],
-      ])
+      expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+        expectedWorkspaceAdminCalls(API_URL, WORKSPACE_ID, PROD_BOT_ID, kind)
+      )
       expect(headers(calls[0]!)).toMatchObject({
-        authorization: 'Bearer prod_bot_key',
-        'x-bot-id': PROD_BOT_ID,
+        authorization: 'Bearer brt_pat_xxx',
       })
-      expect(headers(calls[0]!)['x-workspace-id']).toBeUndefined()
+      expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
+      expect(headers(calls[0]!)['x-workspace-id']).toBe(kind === 'secret-set' ? undefined : WORKSPACE_ID)
     }
   )
 
   it.each(commandCases)(
     '$label works in a fresh agent project and keeps agent.json authoritative over poisoned bot.json coordinates',
-    async ({ Command, method, suffix }) => {
+    async ({ Command, kind }) => {
       fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
       fs.writeFileSync(
         path.join(workDir, 'agent.json'),
@@ -504,14 +604,13 @@ describe('cloud config and secret dev routing', () => {
       ).run()
 
       expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-        [method, `${AGENT_PROD_API_URL}/v1/admin/config-variables${suffix}`],
-        [method, `${AGENT_PROD_API_URL}/v1/admin/config-variables${suffix}`],
+        ...expectedWorkspaceAdminCalls(AGENT_PROD_API_URL, WORKSPACE_ID, PROD_BOT_ID, kind),
+        ...expectedWorkspaceAdminCalls(AGENT_PROD_API_URL, WORKSPACE_ID, PROD_BOT_ID, kind),
       ])
       for (const call of calls) {
-        expect(headers(call)).toMatchObject({
-          authorization: 'Bearer agent_prod_bot_key',
-          'x-bot-id': PROD_BOT_ID,
-        })
+        expect(headers(call).authorization).toBe('Bearer brt_pat_xxx')
+        expect(headers(call)['x-bot-id']).toBeUndefined()
+        expect(headers(call)['x-workspace-id']).toBe(kind === 'secret-set' ? undefined : WORKSPACE_ID)
         expect(call.url).not.toContain('poisoned-bot-link')
       }
     }
@@ -544,13 +643,14 @@ describe('cloud config and secret dev routing', () => {
 
     await command.run()
 
-    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['PUT', `${AGENT_LOCAL_API_URL}/v1/admin/config-variables/FOO`],
-    ])
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+      expectedWorkspaceAdminCalls(AGENT_LOCAL_API_URL, LOCAL_AGENT_WORKSPACE_ID, '88', 'config-set')
+    )
     expect(headers(calls[0]!)).toMatchObject({
-      authorization: 'Bearer agent_local_bot_key',
-      'x-bot-id': '88',
+      authorization: 'Bearer brt_pat_xxx',
+      'x-workspace-id': LOCAL_AGENT_WORKSPACE_ID,
     })
+    expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(calls[0]!.url).not.toContain('poisoned-local-link')
     expect(calls[0]!.url).not.toContain('agent-prod')
   })
@@ -578,20 +678,21 @@ describe('cloud config and secret dev routing', () => {
 
     await command.run()
 
-    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['PUT', `${LOCAL_API_URL}/v1/admin/config-variables/FOO`],
-    ])
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual(
+      expectedWorkspaceAdminCalls(LOCAL_API_URL, LOCAL_CLASSIC_WORKSPACE_ID, '88', 'config-set')
+    )
     expect(headers(calls[0]!)).toMatchObject({
-      authorization: 'Bearer legacy_local_bot_key',
-      'x-bot-id': '88',
+      authorization: 'Bearer brt_pat_xxx',
+      'x-workspace-id': LOCAL_CLASSIC_WORKSPACE_ID,
     })
+    expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(JSON.parse(fs.readFileSync(path.join(workDir, 'agent.local.json'), 'utf8'))).toEqual({
       devId: 'dev_opaque',
       devTargetBotId: DEV_TARGET_BOT_ID,
     })
   })
 
-  it('rejects a production agent target that differs from the selected profile before reading the per-bot key onto the wire', async () => {
+  it('rejects a production agent target that differs from the selected profile before an admin request', async () => {
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
     fs.writeFileSync(
       path.join(workDir, 'agent.json'),
@@ -726,6 +827,33 @@ describe('cloud config and secret dev routing', () => {
     })
     expect(headers(calls[0]!)['x-bot-id']).toBeUndefined()
     expect(fs.existsSync(path.join(workDir, 'bot.json'))).toBe(false)
+  })
+
+  it('reads dev logs through the attested runtime target and canonical numeric bot route', async () => {
+    writeDevCache(workDir, 'agent', 'agent-dev-opaque')
+    const command = new LogsCommand({} as any, {} as any, new Logger(), {
+      ...makeArgv(botpressHome, workDir, valueFile, true),
+      since: '2026-07-09T00:00:00.000Z',
+      until: '2026-07-09T01:00:00.000Z',
+      follow: false,
+      level: undefined,
+      grep: undefined,
+      conversationId: undefined,
+      limit: undefined,
+    } as any)
+
+    await command.run()
+
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([
+      ['GET', `${API_URL}/v1/admin/bots/agent-dev-opaque`],
+      [
+        'GET',
+        `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${DEV_TARGET_BOT_ID}/logs?` +
+          'timeStart=2026-07-09T00%3A00%3A00.000Z&timeEnd=2026-07-09T01%3A00%3A00.000Z',
+      ],
+    ])
+    expect(calls.every((call) => headers(call).authorization === 'Bearer brt_pat_xxx')).toBe(true)
+    expect(calls.every((call) => headers(call)['x-bot-id'] === undefined)).toBe(true)
   })
 })
 

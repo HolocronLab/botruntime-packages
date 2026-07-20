@@ -130,7 +130,6 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
           const cognitive = new InstrumentedCognitive({
             client: client,
-            __experimental_beta: true,
           })
 
           const result = await context.run(
@@ -311,7 +310,11 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
         contextData.event = props.event
       }
 
-      return await context.run(contextData as BotContext, () => handler(props))
+      // Handlers commonly destructure props.client, so AsyncLocalStorage alone does
+      // not scope their direct SDK calls to the attested runtime target.
+      return await context.run(contextData as BotContext, () =>
+        handler({ ...props, client: scopedClient })
+      )
     }
 
     return wrapped

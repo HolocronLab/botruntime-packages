@@ -3,8 +3,10 @@ import { createStepSignal } from '../../primitives/workflow-signal'
 export const MAX_HOSTED_EVAL_IDLE_TIMEOUT_MS = 75_000
 const HOSTED_EVAL_PERSISTENCE_MARGIN_MS = 20_000
 const WORKFLOW_SANDBOX_YIELD_RESERVE_MS = 15_000
+export const MIN_HOSTED_EVAL_PERSISTENCE_BUDGET_MS =
+  HOSTED_EVAL_PERSISTENCE_MARGIN_MS + WORKFLOW_SANDBOX_YIELD_RESERVE_MS
 export const MIN_HOSTED_EVAL_START_BUDGET_MS =
-  MAX_HOSTED_EVAL_IDLE_TIMEOUT_MS + HOSTED_EVAL_PERSISTENCE_MARGIN_MS + WORKFLOW_SANDBOX_YIELD_RESERVE_MS
+  MAX_HOSTED_EVAL_IDLE_TIMEOUT_MS + MIN_HOSTED_EVAL_PERSISTENCE_BUDGET_MS
 
 export function resolveHostedEvalIdleTimeout(configured?: number): number {
   if (!Number.isFinite(configured) || configured === undefined || configured <= 0) {
@@ -32,6 +34,12 @@ export function assertHostedEvalExecutionActive(signal: AbortSignal): void {
  */
 export function assertHostedEvalStartBudget(remainingTimeMs: number): void {
   if (!Number.isFinite(remainingTimeMs) || remainingTimeMs < MIN_HOSTED_EVAL_START_BUDGET_MS) {
+    throw createStepSignal()
+  }
+}
+
+export function assertHostedEvalPersistenceBudget(remainingTimeMs: number): void {
+  if (!Number.isFinite(remainingTimeMs) || remainingTimeMs < MIN_HOSTED_EVAL_PERSISTENCE_BUDGET_MS) {
     throw createStepSignal()
   }
 }

@@ -9,8 +9,8 @@ describe('BRT compatibility contract', () => {
     expect(semver.satisfies(brtPackage.version, BRT_COMPATIBILITY_RANGE)).toBe(true)
   })
 
-  it('rejects the known incompatible 0.5.4 layout', () => {
-    expect(semver.satisfies('0.5.4', BRT_COMPATIBILITY_RANGE)).toBe(false)
+  it('rejects the pre-canonical-config 0.6 release line', () => {
+    expect(semver.satisfies('0.6.31', BRT_COMPATIBILITY_RANGE)).toBe(false)
   })
 
   it('does not create a runtime dependency cycle with the CLI that loads ADK', () => {

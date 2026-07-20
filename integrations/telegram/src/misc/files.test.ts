@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { DeliveryOutcomeError } from '@holocronlab/botruntime-sdk'
 import { resolveTelegramDocument } from './files'
 
 const originalFetch = globalThis.fetch
@@ -27,7 +28,7 @@ afterEach(() => {
 test('downloads a protected Botruntime document with runtime credentials before giving it to Telegram', async () => {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
-    expect(request.url).toBe('https://botruntime.example/v1/files/download?key=claim.docx')
+    expect(request.url).toBe('https://runtime.internal/v1/files/download?key=claim.docx')
     expect(request.headers.get('authorization')).toBe('Bearer runtime-token')
     expect(request.headers.get('x-bot-id')).toBe('42')
     return new Response('approved-claim')
@@ -86,9 +87,11 @@ test('rejects an oversized protected document before buffering it', async () => 
     headers: { 'content-length': String((20 << 20) + 1) },
   })) as unknown as typeof fetch
 
-  await expect(
-    resolveTelegramDocument('https://runtime.internal/v1/files/download?key=huge.docx', 'huge.docx'),
-  ).rejects.toThrow(/exceeds.*20 MiB/i)
+  const error = await resolveTelegramDocument(
+    'https://runtime.internal/v1/files/download?key=huge.docx', 'huge.docx',
+  ).catch((value) => value)
+  expect(error).toBeInstanceOf(DeliveryOutcomeError)
+  expect(error.code).toBe('PROTECTED_DOWNLOAD_INVALID_BODY')
 })
 
 test('stops a protected document stream when it crosses the byte cap', async () => {
@@ -100,15 +103,20 @@ test('stops a protected document stream when it crosses the byte cap', async () 
     },
   }))) as unknown as typeof fetch
 
-  await expect(
-    resolveTelegramDocument('https://runtime.internal/v1/files/download?key=stream.docx', 'stream.docx'),
-  ).rejects.toThrow(/exceeds.*20 MiB/i)
+  const error = await resolveTelegramDocument(
+    'https://runtime.internal/v1/files/download?key=stream.docx', 'stream.docx',
+  ).catch((value) => value)
+  expect(error).toBeInstanceOf(DeliveryOutcomeError)
+  expect(error.code).toBe('PROTECTED_DOWNLOAD_INVALID_BODY')
 })
 
 test('fails loudly when a protected Botruntime document cannot be authenticated', async () => {
   delete process.env.BP_TOKEN
 
-  await expect(
-    resolveTelegramDocument('https://runtime.internal/v1/files/download?key=claim.docx', 'approved.docx'),
-  ).rejects.toThrow(/missing BP_TOKEN\/BP_BOT_ID/i)
+  const error = await resolveTelegramDocument(
+    'https://runtime.internal/v1/files/download?key=claim.docx', 'approved.docx',
+  ).catch((value) => value)
+  expect(error).toBeInstanceOf(DeliveryOutcomeError)
+  expect(error.phase).toBe('protected_download')
+  expect(error.code).toBe('PROTECTED_DOWNLOAD_AUTH_MISSING')
 })

@@ -7,7 +7,6 @@ import { buildBrtDocsContract } from '../docs-contract'
 import { Logger } from '../logger'
 import { TracesCommand } from './traces-command'
 
-
 const API_URL = 'https://cloud.example'
 const WORKSPACE_ID = '42'
 const PROD_BOT_ID = '7'
@@ -33,6 +32,8 @@ const trace = (overrides: Record<string, unknown> = {}) => ({
     aiInputTokens: 10,
     workflowName: 'answer',
   },
+  attributes: {},
+  payload: {},
   ...overrides,
 })
 
@@ -66,7 +67,7 @@ describe('brt traces public contract', () => {
           workspaceId: WORKSPACE_ID,
           token: 'pat_secret',
         },
-      })
+      }),
     )
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}')
     fs.writeFileSync(
@@ -75,7 +76,7 @@ describe('brt traces public contract', () => {
         botId: PROD_BOT_ID,
         workspaceId: WORKSPACE_ID,
         apiUrl: API_URL,
-      })
+      }),
     )
 
     vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
@@ -104,15 +105,16 @@ describe('brt traces public contract', () => {
           conversationId: expect.objectContaining({ type: 'string' }),
           dev: expect.objectContaining({ type: 'boolean' }),
           error: expect.objectContaining({ type: 'boolean' }),
+          includeLlm: expect.objectContaining({ type: 'boolean', default: false }),
           limit: expect.objectContaining({ type: 'number' }),
           nextToken: expect.objectContaining({ type: 'string' }),
           status: expect.objectContaining({ type: 'string' }),
           traceId: expect.objectContaining({ type: 'string' }),
         }),
-      })
+      }),
     )
     expect(buildBrtDocsContract(commandDefinitions).commands).toContainEqual(
-      expect.objectContaining({ path: 'traces' })
+      expect.objectContaining({ path: 'traces' }),
     )
   })
 
@@ -124,7 +126,7 @@ describe('brt traces public contract', () => {
     expect(result.exitCode).toBe(0)
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe(
-      `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=20`
+      `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=20`,
     )
     expect(headers(calls[0]!)).toEqual({ authorization: 'Bearer pat_secret' })
   })
@@ -193,9 +195,28 @@ describe('brt traces public contract', () => {
     })
   })
 
+  it('queries workflow traces without a conversation when the scan is time-bounded', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-10T10:00:00.000Z'))
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await command({
+      conversationId: undefined,
+      tokens: ['workflow=builtin_eval_runner', 'since=10m'],
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(Object.fromEntries(new URL(calls[0]!.url).searchParams)).toEqual({
+      pageSize: '20',
+      workflow: 'builtin_eval_runner',
+      since: '2026-07-10T09:50:00.000Z',
+    })
+  })
+
   it.each([
     [{ conversationId: undefined, tokens: [] }, /conversation.*required/i],
-    [{ tokens: ['include-llm'] }, /include-llm.*privacy/i],
+    [{ conversationId: undefined, tokens: ['workflow=builtin_eval_runner'] }, /since.*required/i],
+    [{ conversationId: undefined, tokens: ['since=10m'] }, /workflow.*action.*trace/i],
+    [{ tokens: ['include-llm'] }, /--include-llm/i],
     [{ tokens: ['trigger=handler'] }, /trigger.*not supported/i],
     [{ tokens: ['follow'] }, /follow.*not supported/i],
     [{ tokens: ['wat=unknown'] }, /unknown trace filter/i],
@@ -225,7 +246,7 @@ describe('brt traces public contract', () => {
       JSON.stringify({
         devId: DEV_RUNTIME_BOT_ID,
         devTargetBotId: DEV_TARGET_BOT_ID,
-      })
+      }),
     )
     stubFetch(async (url) => {
       const parsed = new URL(url)
@@ -363,7 +384,7 @@ describe('brt traces public contract', () => {
             traces: [trace({ id: '3' }), trace({ id: '2' })],
             meta: { nextToken: '2' },
           })
-        : json({ traces: [trace({ id: '1' })], meta: { nextToken: '1' } })
+        : json({ traces: [trace({ id: '1' })], meta: { nextToken: '1' } }),
     )
 
     const result = await command({ json: true, limit: 3 }).handler()
@@ -387,7 +408,7 @@ describe('brt traces public contract', () => {
     expect(new URL(calls[0]!.url).searchParams.get('pageSize')).toBe('1000')
   })
 
-  it('prints a readable metadata-only line in human mode', async () => {
+  it('prints a readable trace line in human mode', async () => {
     stubFetch(async () =>
       json({
         traces: [
@@ -400,12 +421,13 @@ describe('brt traces public contract', () => {
               errorName: 'TypeError',
               errorCode: 'BLOC_ITEM_INVALID',
               errorMessage: "Cannot read properties of undefined (reading 'imageUrl')",
-              errorStack: 'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
+              errorStack:
+                'TypeError: invalid bloc item\n    at Chat.transformMessage (src/runtime/chat/chat.ts:381:52)',
             },
           }),
         ],
         meta: {},
-      })
+      }),
     )
 
     const result = await command().handler()
@@ -424,23 +446,90 @@ describe('brt traces public contract', () => {
     expect(stdout).toContain('chat.ts:381')
   })
 
-  it('prints a stable JSON envelope containing only allow-listed trace metadata', async () => {
-    const unsafe = trace({
-      prompt: 'raw prompt',
-      modelResponse: 'raw response',
-      toolInput: { password: 'tool secret' },
-      toolOutput: { document: 'document secret' },
-      error: 'raw error',
+  it('accepts and renders canonical hosted integration action traces', async () => {
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            source: 'integration_action',
+            name: 'integration.action',
+            kind: 'client',
+            metadata: { actionName: 'createPayment', integration: 'yookassa' },
+            attributes: { 'action.name': 'createPayment', integration: 'yookassa' },
+            payload: { input: { amount: '50000.00' }, output: { id: 'payment_1' } },
+          }),
+        ],
+        meta: {},
+      })
+    )
+
+    const result = await command().handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(stdout).toContain('integration.action')
+    expect(stdout).toContain('action=createPayment')
+  })
+
+  it('accepts canonical hosted integration delivery traces', async () => {
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            source: 'integration_delivery',
+            name: 'integration.delivery',
+            kind: 'producer',
+            status: 'unset',
+            messageId: 'm_1784432959538377308',
+            attributes: {
+              'job.id': '1a4b8714-771f-45bd-8966-e014acaddd99',
+              'delivery.status': 'outcome_unknown',
+              'delivery.phase': 'provider_send',
+              'delivery.operation': 'sendDocument',
+            },
+            payload: { error: { code: 'TELEGRAM_PROVIDER_TIMEOUT' } },
+          }),
+        ],
+        meta: {},
+      })
+    )
+
+    const result = await command({
+      json: true,
+      source: 'integration_delivery',
+      name: 'integration.delivery',
+      action: 'sendDocument',
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    const query = new URL(calls[0]!.url).searchParams
+    expect(query.get('source')).toBe('integration_delivery')
+    expect(query.get('name')).toBe('integration.delivery')
+    expect(query.get('action')).toBe('sendDocument')
+    expect(JSON.parse(stdout).traces[0]).toEqual(
+      expect.objectContaining({ source: 'integration_delivery', name: 'integration.delivery' })
+    )
+  })
+
+  it('preserves non-LLM trace content in JSON output', async () => {
+    const complete = trace({
+      conversationId: 'conv:1',
+      userId: 'user:1',
+      messageId: 'message:1',
+      attributes: {
+        prompt: 'raw prompt',
+        modelResponse: 'raw response',
+        'autonomous.tool.input': { password: 'tool secret' },
+        'autonomous.tool.output': { document: 'document secret' },
+        error: 'raw error',
+      },
+      payload: { state: { arbitrary: { secret: true } } },
       metadata: {
         aiModel: 'openai:gpt-5',
         aiInputTokens: 10,
         workflowName: 'answer',
-        prompt: 'metadata prompt',
-        rawError: 'metadata raw error',
-        arbitrary: { secret: true },
       },
     })
-    stubFetch(async () => json({ traces: [unsafe], meta: {} }))
+    stubFetch(async () => json({ traces: [complete], meta: {} }))
 
     const result = await command({ json: true }).handler()
     const output = JSON.parse(stdout)
@@ -454,10 +543,122 @@ describe('brt traces public contract', () => {
         botId: PROD_BOT_ID,
       },
       conversationId: 'conv:1',
-      traces: [trace()],
+      traces: [complete],
       nextToken: null,
     })
-    expect(stdout + stderr).not.toMatch(/raw prompt|raw response|tool secret|document secret|raw error|arbitrary/i)
+    expect(stdout).toMatch(/raw prompt|raw response|tool secret|document secret|raw error|arbitrary/i)
+  })
+
+  it('hides LLM request and response content by default without changing stored tool payloads', async () => {
+    const cognitive = trace({
+      name: 'cognitive.request',
+      attributes: {
+        'ai.model': 'openai:gpt-5',
+        'ai.instructions': 'system prompt',
+        'ai.messages': [{ role: 'user', content: 'customer question' }],
+        'ai.tools': [{ name: 'lookup' }],
+        'ai.response': { text: 'model answer' },
+      },
+      payload: {
+        request: { messages: [{ role: 'user', content: 'customer question' }] },
+        response: { text: 'model answer' },
+      },
+    })
+    const tool = trace({
+      name: 'autonomous.tool',
+      attributes: { 'autonomous.tool.name': 'lookup' },
+      payload: { input: { id: 42 }, output: { found: true } },
+    })
+    stubFetch(async () => json({ traces: [cognitive, tool], meta: {} }))
+
+    const result = await command({ json: true }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(output.traces[0].attributes).toEqual({ 'ai.model': 'openai:gpt-5' })
+    expect(output.traces[0].payload).toEqual({})
+    expect(output.traces[1].payload).toEqual({ input: { id: 42 }, output: { found: true } })
+    expect(stdout).not.toMatch(/system prompt|customer question|model answer/)
+  })
+
+  it('shows canonical LLM request and response content with --include-llm', async () => {
+    const cognitive = trace({
+      name: 'cognitive.request',
+      attributes: {
+        'ai.instructions': 'system prompt',
+        'ai.messages': [{ role: 'user', content: 'customer question' }],
+        'ai.response': { text: 'model answer' },
+      },
+      payload: {
+        request: { messages: [{ role: 'user', content: 'customer question' }] },
+        response: { text: 'model answer' },
+      },
+    })
+    stubFetch(async () => json({ traces: [cognitive], meta: {} }))
+
+    const result = await command({ includeLlm: true, json: true }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(output.traces).toEqual([cognitive])
+    expect(stdout).toMatch(/system prompt|customer question|model answer/)
+  })
+
+  it('prints canonical LLM request and response in human mode only with --include-llm', async () => {
+    const cognitive = trace({
+      name: 'cognitive.request',
+      attributes: {
+        'ai.instructions': 'system prompt',
+        'ai.messages': 'serialized message preview',
+        'ai.tools': 'serialized tool preview',
+        'ai.response': 'serialized response preview',
+      },
+      payload: {
+        request: { messages: [{ role: 'user', content: 'customer question' }], tools: [{ name: 'lookup' }] },
+        response: { text: 'model answer' },
+      },
+    })
+    stubFetch(async () => json({ traces: [cognitive], meta: {} }))
+
+    expect((await command().handler()).exitCode).toBe(0)
+    expect(stdout).not.toMatch(/system prompt|customer question|model answer/)
+
+    stdout = ''
+    expect((await command({ includeLlm: true }).handler()).exitCode).toBe(0)
+    expect(stdout).toMatch(/instructions:.*system prompt/)
+    expect(stdout).toMatch(/messages:.*customer question/)
+    expect(stdout).toMatch(/tools:.*lookup/)
+    expect(stdout).toMatch(/response:.*model answer/)
+    expect(stdout).not.toMatch(/serialized (message|tool|response) preview/)
+  })
+
+  it('prints tool input and output in human mode', async () => {
+    stubFetch(async () =>
+      json({
+        traces: [
+          trace({
+            name: 'autonomous.tool',
+            attributes: {
+              'autonomous.tool.input': '{"query":"escaped preview"}',
+              'autonomous.tool.output': '{"id":"escaped-preview"}',
+            },
+            payload: {
+              input: { query: 'customer order' },
+              output: { id: 'order-42' },
+            },
+          }),
+        ],
+        meta: {},
+      }),
+    )
+
+    const result = await command().handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(stdout).toContain('input: {"query":"customer order"}')
+    expect(stdout).toContain('output: {"id":"order-42"}')
+    expect(stdout).not.toContain('escaped preview')
+    expect(stdout).not.toContain('escaped-preview')
   })
 
   function command(overrides: Record<string, unknown> = {}): TracesCommand {
@@ -469,6 +670,7 @@ describe('brt traces public contract', () => {
       conversationId: 'conv:1',
       dev: false,
       error: undefined,
+      includeLlm: false,
       json: false,
       limit: 20,
       local: false,

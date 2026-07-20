@@ -32,7 +32,6 @@ export const getExtendedClient = (_client: unknown): ExtendedClient => {
 
   if (
     typeof client.constructor !== 'function' ||
-    typeof client.callAction !== 'function' ||
     !client.config ||
     typeof client.config !== 'object' ||
     !client.config.headers

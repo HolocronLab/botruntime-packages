@@ -26,6 +26,10 @@ export class LocalSpanSource implements SpanSource {
     this.collector.startTurn()
   }
 
+  resumeTurn(startedAt: number): void {
+    this.collector.resumeTurn(startedAt)
+  }
+
   async waitForTurnComplete(opts: TurnWaitOptions): Promise<void> {
     await this.collector.waitForTurnComplete(opts)
   }

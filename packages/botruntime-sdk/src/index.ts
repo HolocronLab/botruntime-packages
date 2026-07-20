@@ -39,6 +39,12 @@ export {
 } from './integration/server'
 
 export {
+  DeliveryOutcomeError,
+  deliveryOutcomeResponse,
+  isDeliveryOutcomeError,
+} from './integration/server/delivery-outcome'
+
+export {
   DefaultBot,
   BotDefinition,
   BotDefinitionProps,

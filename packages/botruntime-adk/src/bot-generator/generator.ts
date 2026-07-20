@@ -1353,7 +1353,7 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
       import {
       BUILT_IN_STATES,
       BUILT_IN_TAGS,
-      TranscriptSchema,
+      TranscriptStateSchema,
       TrackedStateSchema,
       WorkflowCallbackEvent,
       WorkflowScheduleEvent,
@@ -1512,7 +1512,7 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
           */
           conversation: {
             type: "conversation",
-            schema: z.object({ transcript: TranscriptSchema }),
+            schema: TranscriptStateSchema,
           },
 
           /**

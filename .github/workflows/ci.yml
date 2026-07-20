@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - main
-      - fork-botpress-deps
   pull_request:
 
 permissions:
@@ -18,7 +17,7 @@ jobs:
   integration-packages:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -47,29 +46,103 @@ jobs:
 
   runtime-package-registry-config:
     runs-on: ubuntu-latest
+    # The closure gate reads package versions from the event-specific base commit.
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          # The base commit must be locally available so the fail-closed gate can inspect it.
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
       - name: Test public registry configuration for the runtime release train
         run: |
+          node --test scripts/formatter-safety.test.mjs
           node --test scripts/runtime-package-registry-config.test.mjs
+          node --test scripts/package-release-contract.test.mjs
+          node --test scripts/release-version-closure.test.mjs
           node --test scripts/catalog-publication-decision.test.mjs
           node --test scripts/registry-release-readiness.test.mjs
+          node scripts/release-version-closure.mjs --base="$BASE_SHA"
+
+  # DEVLP-174: no CHANGELOG anywhere meant an updated brt/ADK shipped with no
+  # record of what changed or what could break. A PR that changes a published
+  # package's source (packages/*, excluding tests/dist/docs — see
+  # changeset-lint.mjs) must add a .changeset/*.md entry, or this fails closed.
+  changeset-gate:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The diff against the PR's base commit must be locally available.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check every changed published package has a changeset entry
+        run: |
+          node --test scripts/changeset-lint.test.mjs
+          node --test scripts/changeset-version.test.mjs
+          node --test scripts/changeset-parse.test.mjs
+          node scripts/changeset-lint.mjs --base="$BASE_SHA"
+
+  # DEVLP-175: brt/templates/* scaffolds real projects for external developers
+  # (`brt init`), and the vendored ADK skill docs teach coding agents how to
+  # write bot code — both are copy-paste sources. An @botpress/* import
+  # surviving in either hands a copier code that only resolves against the
+  # real Botpress packages this fork forbids depending on. See
+  # scripts/botpress-banlist.mjs for what does/doesn't count as a violation.
+  botpress-banlist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check templates/ and vendored ADK skills for @botpress/* imports
+        run: |
+          node --test scripts/botpress-banlist.test.mjs
+          node scripts/botpress-banlist.mjs
+
+  # DEVLP-159: patchedDependencies (bun's pnpm-compatible patch mechanism) is silent by
+  # construction — if the pinned "name@version" key stops matching what's actually resolved,
+  # the patch just doesn't apply, no error. That is exactly how botruntime-llmz's source-map-js
+  # patch went missing after the fork and only surfaced as a prod outage (52afff9). Static and
+  # fast, so it runs on every push/PR, not just the weekly upstream-watch cron.
+  patched-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check every patchedDependencies entry has its patch file and matches bun.lock
+        run: |
+          node --test scripts/check-patched-dependencies.test.mjs
+          node scripts/check-patched-dependencies.mjs
 
   codegen-extensions:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -86,7 +159,7 @@ jobs:
   check-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -104,13 +177,13 @@ jobs:
   docs-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
@@ -139,9 +212,8 @@ jobs:
           bun install --no-save --ignore-scripts
           bun run build
 
-      # Cognitive is bumped by the same release train; evals/runtime/adk depend
-      # on it, so the checkout copy must be built before its version exists in
-      # a registry.
+      # Cognitive is part of this breaking release train and is consumed by
+      # evals, llmz, runtime, and ADK before its immutable npm version exists.
       - name: Build the current botruntime-cognitive package
         run: |
           node scripts/prepare-package-publish.mjs --package=packages/botruntime-cognitive --exclude=@holocronlab/botruntime-client --write
@@ -150,20 +222,40 @@ jobs:
           bun install --no-save --ignore-scripts
           bun run build
 
+      - name: Build the current botruntime-zai package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-zai --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          mv packages/botruntime-zai/bun.lock "$RUNNER_TEMP/botruntime-zai.source.bun.lock"
+          cd packages/botruntime-zai
+          bun install --no-save --ignore-scripts
+          bun run build
+
+      - name: Build the current botruntime-llmz package
+        run: |
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-llmz --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          mv packages/botruntime-llmz/bun.lock "$RUNNER_TEMP/botruntime-llmz.source.bun.lock"
+          cd packages/botruntime-llmz
+          bun install --no-save --ignore-scripts
+          bun run build
+
       # Evals and runtime are part of the same release train. Build the
       # checkout copies so docs-contract CI never depends on versions that do
       # not exist in a registry until this PR has merged and published.
       - name: Build the current botruntime-evals package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-client --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-evals --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-zai --write
           mv packages/botruntime-evals/bun.lock "$RUNNER_TEMP/botruntime-evals.source.bun.lock"
           cd packages/botruntime-evals
           bun install --no-save --ignore-scripts
+          bun run check:type
+          bun run test
           bun run build
 
       - name: Build the current botruntime-runtime package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-sdk --write
+          ln -s ../botruntime-llmz/patches packages/botruntime-runtime/patches
+          trap 'unlink "$GITHUB_WORKSPACE/packages/botruntime-runtime/patches"' EXIT
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-llmz --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-zai --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
           cd packages/botruntime-runtime
           bun install --no-save --ignore-scripts
@@ -184,7 +276,9 @@ jobs:
 
       - name: Build the current botruntime-adk package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
+          ln -s ../botruntime-llmz/patches packages/botruntime-adk/patches
+          trap 'unlink "$GITHUB_WORKSPACE/packages/botruntime-adk/patches"' EXIT
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
           bun install --no-save --ignore-scripts
@@ -205,11 +299,16 @@ jobs:
         # build-time botruntime-api dependency). --no-save resolves that local
         # graph without mutating the checked-in lock; contract generation below
         # still fails on any command/schema drift.
-        run: bun install --no-save --ignore-scripts
+        run: |
+          ln -s ../botruntime-llmz/patches patches
+          trap 'unlink patches' EXIT
+          bun install --no-save --ignore-scripts
 
       - name: Verify contract matches the command tree and schemas
         working-directory: packages/brt
         run: |
+          bun run typecheck
+          bun run test
           bun run docs:contract:check
           bun run docs:contract:test
 
@@ -217,3 +316,176 @@ jobs:
       # checkout this public contract and validates Fumadocs against it. This
       # public repository workflow cannot read private botforge, and a
       # long-lived PAT/App secret is unnecessary for the same invariant.
+
+  # Arch audit 2026-07-17: forked packages' own test suites (~335 test files across
+  # brt, botruntime-adk/-sdk/-llmz/-zui/-runtime/-evals/-jex/-cognitive/-chat/-client)
+  # previously ran ONLY at publish time (publish-public-packages.yml), never on a PR.
+  # That let a fork silently diverge from upstream without any CI signal — the exact
+  # failure mode that shipped the lost source-map-js patch in botruntime-llmz and only
+  # surfaced as a prod outage. This discovers every packages/* with a "test" script so
+  # a newly-added test suite is never silently left off the PR gate.
+  fork-package-catalog:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.discover.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # Build order lives in scripts/package-order.mjs (DEVLP-162, single
+      # source of truth shared with the fork-package-tests matrix below and
+      # publish-public-packages.yml) instead of a copy pasted into this job's env.
+      - name: List fork packages with a test script, in dependency order
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages="$(node scripts/discover-fork-package-catalog.mjs)"
+          echo "Fork packages with a test script: $packages"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+
+  fork-package-tests:
+    needs: fork-package-catalog
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.fork-package-catalog.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # Single source of truth (DEVLP-162): scripts/package-order.mjs, shared
+      # with fork-package-catalog above and publish-public-packages.yml.
+      - name: Resolve packages/* build order
+        id: package-order
+        # Гард для исторических ref: workflow-файл берётся из ветки диспатча, а
+        # checkout — из inputs.ref; у ref старше DEVLP-162 файла нет, и без гарда
+        # это был бы малопонятный MODULE_NOT_FOUND.
+        run: |
+          if [ ! -f scripts/package-order.mjs ]; then
+            echo "::error::этот ref предшествует централизованному package-order (DEVLP-162). Для публикации исторического ref создайте временную ветку с него и cherry-pick'ните коммит с scripts/package-order.mjs, либо публикуйте актуальный main."
+            exit 1
+          fi
+          echo "list=$(node scripts/package-order.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Install this package's dependency chain, type-check, and test
+        env:
+          TARGET_PACKAGE: ${{ matrix.package }}
+          # Every package ahead of TARGET_PACKAGE in this list is built here
+          # first so its file: dependents can resolve the sibling's dist/.
+          PACKAGE_ORDER: ${{ steps.package-order.outputs.list }}
+          # Space-separated allowlist of packages whose test suite is known-red
+          # on main. A listed package's TEST failures are surfaced loudly (a build
+          # warning annotation) but do not fail the job; typecheck stays blocking
+          # regardless — this is a visible, explicit escape hatch scoped to tests
+          # only, never a silent continue-on-error. Empty as
+          # of 2026-07-17: every packages/* with a "test" script passes on
+          # main. Add an entry here only alongside a comment naming the
+          # tracking issue and why it can't be fixed immediately.
+          KNOWN_RED_PACKAGES: ""
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          run_script_if_present() {
+            local package_dir="$1"
+            local script="$2"
+            if node -e "const p=require('./${package_dir}/package.json'); process.exit(p.scripts?.['${script}'] ? 0 : 1)"; then
+              (cd "$package_dir" && bun run "$script")
+            else
+              return 0
+            fi
+          }
+
+          install_package_dependencies() {
+            local package_dir="$1"
+            local patches_path="$package_dir/patches"
+            local linked_patches=0
+
+            if [ ! -e "$patches_path" ] && [ ! -L "$patches_path" ]; then
+              ln -s ../botruntime-llmz/patches "$patches_path"
+              linked_patches=1
+            fi
+
+            local install_status=0
+            (cd "$package_dir" && bun install --ignore-scripts --no-save) || install_status=$?
+            if [ "$linked_patches" -eq 1 ]; then
+              unlink "$patches_path"
+            fi
+            return "$install_status"
+          }
+
+          is_known_red() {
+            local pkg="$1"
+            for red in $KNOWN_RED_PACKAGES; do
+              [ "$red" = "$pkg" ] && return 0
+            done
+            return 1
+          }
+
+          # Build every package that precedes TARGET_PACKAGE in dependency order so
+          # its file: links resolve against an already-built dist/, mirroring the
+          # publish workflow. Only `build` runs for these — their own check:type/test
+          # happen in their own matrix cell, so this never duplicates a failure signal.
+          # Install/build failures here MUST fail the cell (publish runs under set -e;
+          # without this a broken upstream build would leave a stale dist/ and the
+          # dependent's typecheck could pass against it — a green job over a red build).
+          for package in $PACKAGE_ORDER; do
+            if [ "$package" = "$TARGET_PACKAGE" ]; then
+              break
+            fi
+            package_dir="packages/$package"
+            if [ ! -f "$package_dir/package.json" ]; then
+              echo "::error::$package is listed in PACKAGE_ORDER but $package_dir/package.json does not exist — fix scripts/package-order.mjs"
+              exit 1
+            fi
+            echo "::group::Build dependency $package"
+            install_package_dependencies "$package_dir" || { echo "::error::dependency install failed for $package"; exit 1; }
+            run_script_if_present "$package_dir" build || { echo "::error::dependency build failed for $package"; exit 1; }
+            echo "::endgroup::"
+          done
+
+          package_dir="packages/$TARGET_PACKAGE"
+
+          if [ "$TARGET_PACKAGE" = "botruntime-client" ]; then
+            # botruntime-api is a build-time-only codegen seam (ADR-0005): never
+            # published and deliberately excluded from PACKAGE_ORDER. But
+            # botruntime-client/openapi.ts imports its types directly, and Bun's
+            # file: link only mirrors whatever sibling entries existed at install
+            # time — so botruntime-api's dist/ must exist BEFORE botruntime-client
+            # installs, or check:type fails on a module-not-found that has nothing
+            # to do with actual client code (reproduced locally 2026-07-17).
+            echo "::group::Build botruntime-api (botruntime-client build-time dependency)"
+            install_package_dependencies "packages/botruntime-api" || { echo "::error::install failed for botruntime-api"; exit 1; }
+            run_script_if_present "packages/botruntime-api" build || { echo "::error::build failed for botruntime-api"; exit 1; }
+            echo "::endgroup::"
+          fi
+
+          echo "::group::Install $TARGET_PACKAGE"
+          install_package_dependencies "$package_dir" || { echo "::error::install failed for $TARGET_PACKAGE"; exit 1; }
+          echo "::endgroup::"
+
+          # The target's own build must run in its own cell: several suites test the
+          # built artifact (zui imports its own dist/index.cjs), and the last package
+          # in PACKAGE_ORDER is never built as anyone's prefix dependency.
+          echo "::group::Build $TARGET_PACKAGE"
+          run_script_if_present "$package_dir" build || { echo "::error::build failed for $TARGET_PACKAGE"; exit 1; }
+          echo "::endgroup::"
+
+          # check:type/typecheck stay blocking even for known-red entries: the
+          # allowlist covers exactly what its name says — a red TEST suite — and
+          # must never quietly widen into skipping type safety.
+          run_script_if_present "$package_dir" check:type || { echo "::error::typecheck (check:type) failed for $TARGET_PACKAGE"; exit 1; }
+          run_script_if_present "$package_dir" typecheck || { echo "::error::typecheck failed for $TARGET_PACKAGE"; exit 1; }
+
+          if is_known_red "$TARGET_PACKAGE"; then
+            echo "::warning::$TARGET_PACKAGE is on the KNOWN_RED_PACKAGES allowlist in this workflow — its test suite runs non-blocking."
+            if ! run_script_if_present "$package_dir" test; then
+              echo "::warning::$TARGET_PACKAGE tests failed but the package is allowlisted as known-red; not failing the job. Fix the suite and remove it from KNOWN_RED_PACKAGES."
+            fi
+            exit 0
+          fi
+          run_script_if_present "$package_dir" test

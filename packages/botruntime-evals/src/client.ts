@@ -13,7 +13,7 @@ import type {
   SignalListener,
   Signals,
 } from '@holocronlab/botruntime-chat'
-import type { ChatClient, EvalLogger } from './types'
+import type { ChatClient, DurableEvalEffects, EvalLogger } from './types'
 import { defaultLogger } from './types'
 import { EvalRunnerError } from './errors'
 
@@ -91,10 +91,11 @@ export class ChatSession {
     private botId: string,
     private _chatWebhookId?: string,
     private _chatBaseUrl?: string,
-    private _chatClient?: ChatClient
+    private _chatClient?: ChatClient,
+    private _durableEffects?: DurableEvalEffects
   ) {}
 
-  async connect() {
+  async connect(resume: { userId?: string; conversationId?: string; effectId?: string } = {}) {
     const webhookId =
       this._chatWebhookId ?? (this._chatClient ? '' : await discoverWebhookId(this.bpClient, this.botId))
 
@@ -108,10 +109,20 @@ export class ChatSession {
     const ChatClientCtor =
       this._chatClient ?? (await import(/* webpackIgnore: true */ '@holocronlab/botruntime-chat' as string)).Client
 
-    this.client = await ChatClientCtor.connect({
+    const connectedClient = await ChatClientCtor.connect({
       webhookId,
       ...(this._chatBaseUrl ? { baseApiUrl: this._chatBaseUrl } : {}),
-    })
+      ...(resume.userId ? { userId: resume.userId } : {}),
+      ...(resume.effectId ? { effectId: resume.effectId } : {}),
+    } as Parameters<typeof ChatClientCtor.connect>[0])
+    this.client = connectedClient
+    if (resume.userId && connectedClient.user.id !== resume.userId) {
+      throw new EvalRunnerError({
+        code: 'CHAT_SESSION_RESUME_FAILED',
+        message: 'The eval chat transport did not resume the requested user.',
+      })
+    }
+    if (resume.conversationId) await this.setConversation(resume.conversationId)
   }
 
   /** Invariant guard — calling any session method before connect() is a runner bug. */
@@ -129,11 +140,21 @@ export class ChatSession {
     return this.assertConnected().user.id
   }
 
-  async ensureConversation(): Promise<string> {
+  get activeConversationId(): string | undefined {
+    this.assertConnected()
+    return this.conversationId ?? undefined
+  }
+
+  async useConversation(conversationId: string): Promise<void> {
+    if (this.conversationId === conversationId) return
+    await this.setConversation(conversationId)
+  }
+
+  async ensureConversation(effectId?: string): Promise<string> {
     const client = this.assertConnected()
 
     if (!this.conversationId) {
-      const conv = await client.createConversation({})
+      const conv = await client.createConversation(effectId ? ({ effectId } as never) : {})
       await this.setConversation(conv.conversation.id)
       return conv.conversation.id
     }
@@ -145,9 +166,9 @@ export class ChatSession {
    * Open a fresh conversation under the same user (the user is fixed at
    * connect()) and make it active. Returns the new conversation id.
    */
-  async newConversation(): Promise<string> {
+  async newConversation(effectId?: string): Promise<string> {
     const client = this.assertConnected()
-    const conv = await client.createConversation({})
+    const conv = await client.createConversation(effectId ? ({ effectId } as never) : {})
     await this.setConversation(conv.conversation.id)
     return conv.conversation.id
   }
@@ -156,6 +177,14 @@ export class ChatSession {
     this.assertConnected()
     this.assertListenerHealthy()
     this.turnResponseStart = this.responses.length
+  }
+
+  async resumeTurn(startedAt: number): Promise<void> {
+    this.assertConnected()
+    this.assertListenerHealthy()
+    const replay = (this.listener as SignalListener & { replayAfter?: (value: number) => Promise<void> } | null)
+      ?.replayAfter
+    if (replay) await replay.call(this.listener, startedAt)
   }
 
   getTurnResponses(): string[] {
@@ -192,19 +221,30 @@ export class ChatSession {
    * Send a user message. The already-attached conversation listener observes
    * bot responses; the span source independently observes completion/timing.
    */
-  async sendMessage(message: string): Promise<void> {
-    await this.sendPayload({ type: 'text', text: message })
+  async sendMessage(message: string, effectId?: string): Promise<void> {
+    await this.sendPayload({ type: 'text', text: message }, effectId)
   }
 
-  async sendPayload(payload: ChatPayload): Promise<void> {
+  async sendPayload(payload: ChatPayload, effectId?: string): Promise<void> {
     const client = this.assertConnected()
     const conversationId = await this.ensureConversation()
-    await client.createMessage({ conversationId, payload })
+    await client.createMessage({ conversationId, payload, ...(effectId ? { effectId } : {}) } as never)
   }
 
-  async sendEvent(payload: Record<string, unknown>): Promise<void> {
+  async sendEvent(payload: Record<string, unknown>, effectId?: string): Promise<void> {
     const client = this.assertConnected()
     const conversationId = await this.ensureConversation()
+    if (this._durableEffects) {
+      if (!effectId) throw new Error('Durable event dispatch requires a stable effect identity.')
+      await this._durableEffects.createEvent({
+        type: 'eval:event',
+        userId: this.userId,
+        payload,
+        conversationId,
+        effectId,
+      })
+      return
+    }
     await client.createEvent({ payload, conversationId })
   }
 

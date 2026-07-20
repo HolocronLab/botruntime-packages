@@ -170,7 +170,6 @@ describe('agent integration mutations refresh completed dependency snapshots', (
   it('refreshes the exact prod target after register through the profile PAT rather than the bot key', async () => {
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}\n')
     writeJson(path.join(workDir, 'agent.json'), { botId: '7', workspaceId: WORKSPACE_ID, apiUrl: API_URL })
-    writeJson(path.join(botpressHome, 'bots.json'), { default: { '7': { apiKey: 'bot_key' } } })
     writeJson(path.join(workDir, '.adk', 'dependencies', 'migration.json'), { version: 2 })
     const snapshot = mockSnapshotTools({
       refresh: async (args) => args.client.getBot({ id: args.target.botId }),
@@ -179,7 +178,10 @@ describe('agent integration mutations refresh completed dependency snapshots', (
     global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const call = { url: String(url), init: init ?? {} }
       calls.push(call)
-      if (call.init.method === 'POST' && call.url === `${API_URL}/v1/admin/integrations/wh_prod/register`) {
+      if (
+        call.init.method === 'POST' &&
+        call.url === `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/7/integrations/wh_prod/register`
+      ) {
         return Response.json({ ok: true, webhookId: 'wh_prod', webhookUrl: 'https://hooks.example/wh_prod' })
       }
       if (call.init.method === 'GET' && call.url === `${API_URL}/v1/admin/bots/7`) {
@@ -191,10 +193,12 @@ describe('agent integration mutations refresh completed dependency snapshots', (
     await registerCommand(botpressHome, workDir, 'wh_prod', false).run()
 
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['POST', `${API_URL}/v1/admin/integrations/wh_prod/register`],
+      ['POST', `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/7/integrations/wh_prod/register`],
       ['GET', `${API_URL}/v1/admin/bots/7`],
     ])
-    expect(calls[0]!.init.headers).toMatchObject({ authorization: 'Bearer bot_key', 'x-bot-id': '7' })
+    expect(calls[0]!.init.headers).toMatchObject({
+      authorization: `Bearer ${PAT}`,
+    })
     expect(calls[1]!.init.headers).toMatchObject({ authorization: `Bearer ${PAT}`, 'x-workspace-id': WORKSPACE_ID })
     expect(snapshot.refreshCompletedDependencySnapshot).toHaveBeenCalledWith(expect.objectContaining({
       projectPath: workDir,
@@ -259,7 +263,7 @@ describe('agent integration mutations refresh completed dependency snapshots', (
     )
 
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['POST', `${API_URL}/v1/admin/integrations/install`],
+      ['POST', `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/7/integrations`],
     ])
     expect(fs.readFileSync(snapshotPath, 'utf8')).toBe(prior)
   })

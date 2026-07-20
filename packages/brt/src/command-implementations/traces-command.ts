@@ -1,6 +1,7 @@
 import type { TraceListParams } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
+import { parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
 
 const POSITIVE_DECIMAL_ID = /^[1-9][0-9]*$/
@@ -16,7 +17,15 @@ const MAX_DURATION_MS = 86_400_000
 const MAX_COUNT = 1_000_000_000
 const MAX_COST = 1_000_000
 
-const TRACE_SOURCES = new Set(['otlp', 'cognitive_v2', 'cognitive_action', 'observation', 'unknown'])
+const TRACE_SOURCES = new Set([
+  'otlp',
+  'cognitive_v2',
+  'cognitive_action',
+  'integration_action',
+  'integration_delivery',
+  'observation',
+  'unknown',
+])
 const TRACE_NAMES = new Set([
   'request.incoming',
   'handler.conversation',
@@ -32,10 +41,19 @@ const TRACE_NAMES = new Set([
   'cognitive.request',
   'cognitive.generateText',
   'cognitive.generateContent',
+  'integration.action',
+  'integration.delivery',
   'observation',
   'unknown',
 ])
-const TRACE_FILTER_SOURCES = new Set(['otlp', 'cognitive_v2', 'cognitive_action', 'observation'])
+const TRACE_FILTER_SOURCES = new Set([
+  'otlp',
+  'cognitive_v2',
+  'cognitive_action',
+  'integration_action',
+  'integration_delivery',
+  'observation',
+])
 const TRACE_FILTER_NAMES = new Set([...TRACE_NAMES].filter((name) => name !== 'unknown'))
 const TRACE_KINDS = new Set(['internal', 'server', 'client', 'producer', 'consumer', 'observation'])
 const TRACE_STATUSES = new Set(['unset', 'ok', 'error'])
@@ -60,10 +78,13 @@ const ERROR_CODE_LIMIT = 128
 const ERROR_MESSAGE_LIMIT = 8_192
 const ERROR_STACK_LIMIT = 32_768
 const UTF8_ENCODER = new TextEncoder()
+const LLM_ATTRIBUTE_KEYS = new Set(['ai.instructions', 'ai.messages', 'ai.tools', 'ai.response'])
+const LLM_TRACE_NAMES = new Set(['cognitive.request', 'cognitive.generateText', 'cognitive.generateContent'])
 
 const METADATA_FIELDS = {
   endpoint: { kind: 'enum', values: ENDPOINTS },
   actionType: { kind: 'enum', values: ACTION_TYPES },
+  actionName: { kind: 'pattern', pattern: CODE_ID },
   aiRequestedModel: { kind: 'pattern', pattern: MODEL_ID },
   aiModel: { kind: 'pattern', pattern: MODEL_ID },
   aiProvider: { kind: 'pattern', pattern: CODE_ID },
@@ -107,8 +128,13 @@ export interface TraceEntry {
   traceId?: string
   spanId?: string
   parentSpanId?: string
+  conversationId?: string
+  userId?: string
+  messageId?: string
   durationMs: number
   metadata?: TraceMetadata
+  attributes: Record<string, unknown>
+  payload: Record<string, unknown>
 }
 
 type TracePage = { traces: TraceEntry[]; nextToken?: string }
@@ -134,7 +160,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       const raw = await target.fetchPage({ ...query, pageSize, nextToken }).catch((thrown) => {
         throw errors.BotpressCLIError.wrap(
           thrown,
-          'could not fetch runtime traces; check network connectivity, the API URL, and the selected target'
+          'could not fetch runtime traces; check network connectivity, the API URL, and the selected target',
         )
       })
       const page = parseTracePage(raw, pageSize)
@@ -159,11 +185,12 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       }
     }
 
+    const displayedTraces = this.argv.includeLlm ? traces : traces.map(withoutLlmContent)
     const output = {
       schemaVersion: 1,
       target: target.output,
       conversationId,
-      traces,
+      traces: displayedTraces,
       nextToken: nextToken ?? null,
     }
     if (this.argv.json) {
@@ -171,7 +198,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       return
     }
 
-    for (const entry of traces) this._printHuman(entry)
+    for (const entry of displayedTraces) this._printHuman(entry)
     if (nextToken) this.logger.log(`Next token: ${nextToken}`)
   }
 
@@ -207,10 +234,11 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     if (metadata.aiOutputTokens !== undefined) details.push(`outputTokens=${metadata.aiOutputTokens}`)
     if (metadata.workflowName !== undefined) details.push(`workflow=${metadata.workflowName}`)
     if (metadata.autonomousToolName !== undefined) details.push(`tool=${metadata.autonomousToolName}`)
+    if (metadata.actionName !== undefined) details.push(`action=${metadata.actionName}`)
     if (metadata.errorKind !== undefined) details.push(`errorKind=${metadata.errorKind}`)
     const suffix = details.length > 0 ? ` ${details.join(' ')}` : ''
     this.logger.log(
-      `${entry.createdAt} ${entry.status.toUpperCase()} ${entry.durationMs}ms ${entry.source}/${entry.name}${suffix}`
+      `${entry.createdAt} ${entry.status.toUpperCase()} ${entry.durationMs}ms ${entry.source}/${entry.name}${suffix}`,
     )
     const errorMessage = typeof metadata.errorMessage === 'string' ? metadata.errorMessage : undefined
     if (errorMessage !== undefined) {
@@ -226,7 +254,43 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     if (this.argv.verbose && errorStack !== undefined) {
       for (const line of errorStack.split('\n')) this.logger.log(`  ${line}`)
     }
+    const toolInput = firstTraceValue(entry, ['input', 'autonomous.tool.input', 'tool.input'])
+    const toolOutput = firstTraceValue(entry, ['output', 'autonomous.tool.output', 'tool.output'])
+    if (toolInput !== undefined) this.logger.log(`  input: ${formatTraceValue(toolInput)}`)
+    if (toolOutput !== undefined) this.logger.log(`  output: ${formatTraceValue(toolOutput)}`)
+    if (this.argv.includeLlm && LLM_TRACE_NAMES.has(entry.name)) {
+      for (const [label, value] of [
+        ['instructions', firstLlmValue(entry, 'ai.instructions', 'instructions')],
+        ['messages', firstLlmValue(entry, 'ai.messages', 'messages')],
+        ['tools', firstLlmValue(entry, 'ai.tools', 'tools')],
+        ['response', entry.payload.response ?? entry.attributes['ai.response']],
+      ] as const) {
+        if (value !== undefined) this.logger.log(`  ${label}: ${formatTraceValue(value)}`)
+      }
+    }
+    if (this.argv.verbose) {
+      this.logger.log(`  attributes: ${formatTraceValue(entry.attributes)}`)
+      this.logger.log(`  payload: ${formatTraceValue(entry.payload)}`)
+    }
   }
+}
+
+function firstLlmValue(entry: TraceEntry, attributeKey: string, requestKey: string): unknown {
+  const request = entry.payload.request
+  if (isRecord(request) && request[requestKey] !== undefined) return request[requestKey]
+  return entry.attributes[attributeKey]
+}
+
+function firstTraceValue(entry: TraceEntry, keys: string[]): unknown {
+  for (const key of keys) {
+    if (entry.attributes[key] !== undefined) return entry.attributes[key]
+    if (entry.payload[key] !== undefined) return entry.payload[key]
+  }
+  return undefined
+}
+
+function formatTraceValue(value: unknown): string {
+  return JSON.stringify(value) ?? String(value)
 }
 
 type TraceFilterInput = {
@@ -249,14 +313,9 @@ type TraceQuery = Omit<TraceListParams, 'pageSize' | 'nextToken'>
 function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: TraceQuery; limit: number } {
   const tokens = parseTraceTokens(input.tokens ?? [])
   const conversationId = mergedFilter(input.conversationId, tokens.get('conversation'), 'conversation')
-  if (conversationId === undefined) {
+  if (conversationId !== undefined && !CORRELATION_ID.test(conversationId)) {
     throw new errors.BotpressCLIError(
-      'conversation is required; pass --conversation-id <id> or the conversation=<id> filter token'
-    )
-  }
-  if (!CORRELATION_ID.test(conversationId)) {
-    throw new errors.BotpressCLIError(
-      '--conversation-id must be 1-128 characters using only letters, digits, dot, underscore, colon, or hyphen'
+      '--conversation-id must be 1-128 characters using only letters, digits, dot, underscore, colon, or hyphen',
     )
   }
 
@@ -290,17 +349,28 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
 
   const rawSince = mergedFilter(input.since, tokens.get('since'), 'since')
   const rawUntil = mergedFilter(input.until, tokens.get('until'), 'until')
-  const since = rawSince === undefined ? undefined : parseTraceTimeFilter(rawSince, '--since', nowMs)
-  const until = rawUntil === undefined ? undefined : parseTraceTimeFilter(rawUntil, '--until', nowMs)
+  const since = rawSince === undefined ? undefined : parseTimeFilter(rawSince, '--since', nowMs)
+  const until = rawUntil === undefined ? undefined : parseTimeFilter(rawUntil, '--until', nowMs)
   if (since !== undefined && until !== undefined && since.timeMs > until.timeMs) {
     throw new errors.BotpressCLIError('--since must not be after --until')
+  }
+
+  if (conversationId === undefined) {
+    if (workflow === undefined && action === undefined && rawTraceId === undefined) {
+      throw new errors.BotpressCLIError(
+        'conversation is required unless a workflow, action, or trace filter is provided',
+      )
+    }
+    if (rawTraceId === undefined && since === undefined) {
+      throw new errors.BotpressCLIError('--since is required when querying traces without a conversation')
+    }
   }
 
   const tokenError = tokens.has('error') ? true : undefined
   const error = mergedFilter(input.error, tokenError, 'error')
   return {
     query: {
-      conversationId,
+      ...(conversationId !== undefined ? { conversationId } : {}),
       ...(status !== undefined ? { status: status as TraceListParams['status'] } : {}),
       ...(error !== undefined ? { error } : {}),
       ...(source !== undefined ? { source } : {}),
@@ -319,7 +389,9 @@ function parseTraceTokens(tokens: string[]): Map<string, string> {
   const parsed = new Map<string, string>()
   for (const token of tokens) {
     if (token === 'include-llm') {
-      throw new errors.BotpressCLIError('include-llm is forbidden by the cloud metadata-only privacy boundary')
+      throw new errors.BotpressCLIError(
+        'use the --include-llm flag to include canonical LLM request and response content',
+      )
     }
     if (token === 'follow') {
       throw new errors.BotpressCLIError('follow is not supported by the cloud trace API')
@@ -343,6 +415,18 @@ function parseTraceTokens(tokens: string[]): Map<string, string> {
     addToken(parsed, key, value)
   }
   return parsed
+}
+
+function withoutLlmContent(entry: TraceEntry): TraceEntry {
+  const attributes = Object.fromEntries(
+    Object.entries(entry.attributes).filter(([key]) => !LLM_ATTRIBUTE_KEYS.has(key)),
+  )
+  if (!LLM_TRACE_NAMES.has(entry.name)) return { ...entry, attributes }
+
+  const payload = { ...entry.payload }
+  delete payload.request
+  delete payload.response
+  return { ...entry, attributes, payload }
 }
 
 function addToken(tokens: Map<string, string>, key: string, value: string): void {
@@ -371,70 +455,6 @@ function validateCodeFilter(value: string | undefined, flag: string): void {
   if (value !== undefined && !CODE_ID.test(value)) {
     throw new errors.BotpressCLIError(`${flag} must be a 1-64 character workflow/action identifier`)
   }
-}
-
-const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/
-const TRACE_DURATION = /^([0-9]+)(ms|s|m|h|d)$/
-const DURATION_MULTIPLIER = {
-  ms: 1,
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-} as const
-
-function parseTraceTimeFilter(
-  value: string,
-  flag: '--since' | '--until',
-  nowMs: number
-): {
-  wire: string
-  timeMs: number
-} {
-  const duration = TRACE_DURATION.exec(value)
-  if (duration) {
-    const amount = Number(duration[1])
-    const unit = duration[2] as keyof typeof DURATION_MULTIPLIER
-    const delta = amount * DURATION_MULTIPLIER[unit]
-    const timeMs = nowMs - delta
-    if (!Number.isSafeInteger(amount) || !Number.isFinite(timeMs) || timeMs < 0) {
-      throw new errors.BotpressCLIError(`${flag} duration is too large`)
-    }
-    return { wire: new Date(timeMs).toISOString(), timeMs }
-  }
-
-  const match = RFC3339.exec(value)
-  if (!match || !validTimestampParts(match)) {
-    throw new errors.BotpressCLIError(`${flag} must be RFC3339 or a duration such as 30s, 5m, or 1h`)
-  }
-  const timeMs = Date.parse(value)
-  if (!Number.isFinite(timeMs)) {
-    throw new errors.BotpressCLIError(`${flag} must be RFC3339 or a duration such as 30s, 5m, or 1h`)
-  }
-  return { wire: value, timeMs }
-}
-
-function validTimestampParts(match: RegExpExecArray): boolean {
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const hour = Number(match[4])
-  const minute = Number(match[5])
-  const second = Number(match[6])
-  const offsetHour = match[7] === undefined ? 0 : Number(match[7])
-  const offsetMinute = match[8] === undefined ? 0 : Number(match[8])
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  return (
-    month >= 1 &&
-    month <= 12 &&
-    day >= 1 &&
-    day <= daysInMonth &&
-    hour <= 23 &&
-    minute <= 59 &&
-    second <= 59 &&
-    offsetHour <= 23 &&
-    offsetMinute <= 59
-  )
 }
 
 export function parseTracePage(value: unknown, pageSize: number): TracePage {
@@ -475,8 +495,13 @@ function parseTraceEntry(value: unknown, index: number): TraceEntry {
   const traceId = optionalString(value.traceId, `${prefix}.traceId`, TRACE_ID)
   const spanId = optionalString(value.spanId, `${prefix}.spanId`, SPAN_ID)
   const parentSpanId = optionalNullableString(value.parentSpanId, `${prefix}.parentSpanId`, SPAN_ID)
+  const conversationId = optionalString(value.conversationId, `${prefix}.conversationId`, CORRELATION_ID)
+  const userId = optionalString(value.userId, `${prefix}.userId`, CORRELATION_ID)
+  const messageId = optionalString(value.messageId, `${prefix}.messageId`, CORRELATION_ID)
   const durationMs = requiredInteger(value.durationMs, `${prefix}.durationMs`, 0, MAX_DURATION_MS)
   const metadata = value.metadata === undefined ? undefined : parseMetadata(value.metadata, prefix)
+  const attributes = optionalRecord(value.attributes, `${prefix}.attributes`)
+  const payload = optionalRecord(value.payload, `${prefix}.payload`)
 
   return {
     id,
@@ -490,9 +515,20 @@ function parseTraceEntry(value: unknown, index: number): TraceEntry {
     ...(traceId !== undefined ? { traceId: traceId.toLowerCase() } : {}),
     ...(spanId !== undefined ? { spanId: spanId.toLowerCase() } : {}),
     ...(parentSpanId !== undefined ? { parentSpanId: parentSpanId.toLowerCase() } : {}),
+    ...(conversationId !== undefined ? { conversationId } : {}),
+    ...(userId !== undefined ? { userId } : {}),
+    ...(messageId !== undefined ? { messageId } : {}),
     durationMs,
     ...(metadata !== undefined ? { metadata } : {}),
+    attributes,
+    payload,
   }
+}
+
+function optionalRecord(value: unknown, field: string): Record<string, unknown> {
+  if (value === undefined) return {}
+  if (!isRecord(value)) throw new errors.BotpressCLIError(`${field} is malformed`)
+  return value
 }
 
 function parseMetadata(value: unknown, prefix: string): TraceMetadata {

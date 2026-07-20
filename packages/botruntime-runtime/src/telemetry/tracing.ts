@@ -16,6 +16,7 @@ import {
 import { shutdownLogging } from './logging'
 import { AsyncLocalStorageContextManager } from './context-manager'
 import { installHttpClientInstrumentation } from './instrument-http'
+import { tracePropagationOrigin } from './trace-propagation'
 import { Environment, getEnvironmentInfo } from '../environment'
 import { getSingleton } from '../runtime/singletons'
 
@@ -101,10 +102,10 @@ provider.register({
   propagator: new W3CTraceContextPropagator(),
 })
 
-// Only install HTTP instrumentation when NOT in command mode
 if (!Environment.isCommand()) {
   installHttpClientInstrumentation({
     injectTraceHeader: true,
+    tracePropagationOrigin: tracePropagationOrigin(bpApiUrl),
   })
 }
 

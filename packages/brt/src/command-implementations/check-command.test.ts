@@ -4,6 +4,10 @@ import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const adkMocks = vi.hoisted(() => ({ load: vi.fn(), buildRecurringEvents: vi.fn(() => ({})) }))
+const toolchainMocks = vi.hoisted(() => ({
+  inspect: vi.fn(() => ({ schemaVersion: 1, capabilities: {}, packages: [], issues: [] })),
+  assert: vi.fn(),
+}))
 
 vi.mock('../adk-bundle', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../adk-bundle')>()),
@@ -16,6 +20,11 @@ vi.mock('../adk-bundle', async (importOriginal) => ({
 
 vi.mock('../errors', () => ({
   BotpressCLIError: class BotpressCLIError extends Error {},
+}))
+
+vi.mock('../toolchain-contract', () => ({
+  inspectPlatformToolchain: toolchainMocks.inspect,
+  assertPlatformToolchainCompatible: toolchainMocks.assert,
 }))
 
 vi.mock('./global-command', () => ({
@@ -77,6 +86,23 @@ describe('brt check', () => {
 
     await expect(command.run()).rejects.toThrow(/dailyChats|primitive discovery/i)
     expect(adkMocks.load).toHaveBeenCalledWith(workDir, { offline: true, noCache: true })
+  })
+
+  it('fails on an incompatible physical toolchain before loading ADK code', async () => {
+    toolchainMocks.assert.mockImplementationOnce(() => {
+      throw new Error('TOOLCHAIN_INCOMPATIBLE: runtime -> evals')
+    })
+    const command = new CheckCommand({} as never, {} as never, { log: vi.fn(), success: vi.fn() } as never, {
+      workDir,
+      botpressHome: path.join(workDir, '.brt-home'),
+      verbose: false,
+      confirm: false,
+      json: false,
+    } as never)
+
+    await expect(command.run()).rejects.toThrow(/TOOLCHAIN_INCOMPATIBLE/)
+    expect(toolchainMocks.inspect).toHaveBeenCalledWith(workDir)
+    expect(adkMocks.load).not.toHaveBeenCalled()
   })
 
   it('fails when a non-empty src tree discovers no user primitives', async () => {

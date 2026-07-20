@@ -3,7 +3,7 @@ import { actions, events, states, configSchema } from './definitions'
 
 export default new IntegrationDefinition({
   name: 'megaplan',
-  version: '0.2.2',
+  version: '0.2.7',
 
   title: 'Megaplan',
   readme: 'hub.md',

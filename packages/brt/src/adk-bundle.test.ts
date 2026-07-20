@@ -77,6 +77,12 @@ describe('isAgentSourceChange', () => {
     adkBundle.AGENT_CONFIG_FILE,
     'package.json',
     'agent.json',
+    'bun.lock',
+    'bun.lockb',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'tsconfig.json',
     path.join('src', 'agent.ts'),
     path.join('src', 'knowledge', 'manual.md'),
     path.join('src', 'knowledge', 'terms.pdf'),
@@ -88,8 +94,6 @@ describe('isAgentSourceChange', () => {
 
   it.each([
     'agent.local.json',
-    'bun.lock',
-    'package-lock.json',
     'README.md',
     path.join('assets', 'logo.png'),
     path.join('tests', 'agent.test.ts'),
@@ -107,6 +111,55 @@ describe('isAgentSourceChange', () => {
     expect(
       adkBundle.isAgentSourceChange(dir, path.join(dir, '..', 'outside.ts'), { dependencyEnv: 'dev' })
     ).toBe(false)
+  })
+
+  it('rejects root feedback markdown', () => {
+    expect(
+      adkBundle.isAgentSourceChange(dir, path.join(dir, 'feedback.md'), { dependencyEnv: 'dev' })
+    ).toBe(false)
+  })
+})
+
+describe('agentDependencySnapshotBuildFingerprint', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-snapshot-fingerprint-'))
+    fs.mkdirSync(path.join(dir, '.adk', 'dependencies'), { recursive: true })
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  const writeSnapshot = (overrides: Record<string, unknown> = {}) => {
+    fs.writeFileSync(
+      path.join(dir, '.adk', 'dependencies', 'dev.json'),
+      JSON.stringify({
+        version: 2,
+        env: 'dev',
+        target: { apiUrl: 'https://cloud.example', workspaceId: 'ws_1', botId: '42' },
+        fetchedAt: '2030-01-01T00:00:00.000Z',
+        botUpdatedAt: '2030-01-01T00:00:00.000Z',
+        integrations: { chat: { name: 'botruntime/chat', version: '1.0.0', enabled: true } },
+        plugins: {},
+        ...overrides,
+      })
+    )
+  }
+
+  it('ignores refresh timestamps but changes when dependency bindings change', () => {
+    writeSnapshot()
+    const initial = adkBundle.agentDependencySnapshotBuildFingerprint(dir, 'dev')
+
+    writeSnapshot({
+      fetchedAt: '2030-01-02T00:00:00.000Z',
+      botUpdatedAt: '2030-01-02T00:00:00.000Z',
+    })
+    expect(adkBundle.agentDependencySnapshotBuildFingerprint(dir, 'dev')).toBe(initial)
+
+    writeSnapshot({ integrations: { chat: { name: 'botruntime/chat', version: '1.1.0', enabled: true } } })
+    expect(adkBundle.agentDependencySnapshotBuildFingerprint(dir, 'dev')).not.toBe(initial)
   })
 })
 

@@ -133,6 +133,9 @@ const VALID_INTEGRATION = {
       description: TRUTHY_STRING,
     },
   },
+  network: {
+    providerHosts: [],
+  },
 } as const satisfies IntegrationDefinitionProps
 
 const mockLogger = {

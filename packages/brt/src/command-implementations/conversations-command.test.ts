@@ -402,7 +402,7 @@ describe('brt conversations public contract', () => {
   })
 
   it.each([
-    [{ tokens: ['include-llm'] }, /include-llm.*privacy/i],
+    [{ tokens: ['include-llm'] }, /include-llm.*brt traces/i],
     [{ tokens: ['limit=2'], limit: 2 }, /limit.*more than once|conflict/i],
     [{ tokens: ['since=yesterday'] }, /since.*duration/i],
     [{ since: '2026-02-31T10:00:00Z' }, /since.*RFC3339/i],

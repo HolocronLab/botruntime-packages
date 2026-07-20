@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EvalDefinition } from '../definition'
 import type { EvalRunReport, TurnReport } from '../types'
-import { VortexEvalStore, validateHostedEvalDefinitions } from './vortex-eval-store'
+import {
+  classifyVortexEvalError,
+  classifyVortexEvalReport,
+  VortexEvalStore,
+  validateHostedEvalDefinitions,
+} from './vortex-eval-store'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -16,6 +21,36 @@ const basicDefinition: EvalDefinition = {
   tags: ['smoke'],
   conversation: [{ user: 'hello', assert: { response: [{ contains: 'hello' }] } }],
 }
+
+it('preserves the typed eval-control failure kind for hosted history', () => {
+  expect(
+    classifyVortexEvalReport({
+      name: 'clock-failure',
+      turns: [],
+      outcomeAssertions: [],
+      pass: false,
+      duration: 1,
+      error: 'Eval control operation advance_clock failed.',
+      errorCode: 'EVAL_CONTROL_FAILED',
+      diagnostic: { code: 'EVAL_CONTROL_FAILED', phase: 'dispatch', errorKind: 'auth' },
+    })
+  ).toBe('auth')
+})
+
+it('classifies a safely rehydrated hosted sink error without requiring prototype identity', () => {
+  expect(
+    classifyVortexEvalError(
+      Object.assign(new Error('persisted hosted sink failure'), {
+        name: 'EvalProgressSinkError',
+        operation: 'POST /v1/evals/runs/126/entries/1252/results',
+        status: 503,
+        kind: 'upstream',
+        ambiguous: true,
+      })
+    )
+  ).toBe('upstream')
+  expect(classifyVortexEvalError(Object.assign(new Error('application error'), { kind: 'auth' }))).toBe('internal')
+})
 
 function store(development = false, evalManifestId = 'file_1'): VortexEvalStore {
   return new VortexEvalStore({
@@ -197,6 +232,36 @@ describe('VortexEvalStore strict hosted contract', () => {
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
     expect(headers.get('Authorization')).toBe('Bearer runtime-token')
     expect(headers.get('x-bot-id')).toBe('dev_runtime:7')
+  })
+
+  it('preserves a safe operation, status, and ambiguity classification for sink diagnostics', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(json({ error: 'private upstream body' }, 503)))
+
+    let caught: unknown
+    try {
+      await store().finalizeEntry('10', '20', { passed: true, durationMs: 12 })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      name: 'VortexEvalStoreError',
+      kind: 'upstream',
+      status: 503,
+      operation: 'PATCH /v1/evals/runs/10/entries/20',
+      ambiguous: true,
+    })
+    expect(String(caught)).not.toContain('private upstream body')
+  })
+
+  it('keeps a strict conflict definitive instead of treating it as a successful replay', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(json({ error: 'different first write' }, 409)))
+
+    await expect(store().finalizeEntry('10', '20', { passed: false, durationMs: 13 })).rejects.toMatchObject({
+      status: 409,
+      operation: 'PATCH /v1/evals/runs/10/entries/20',
+      ambiguous: false,
+    })
   })
 
   it.each([
@@ -478,6 +543,42 @@ describe('VortexEvalStore strict hosted contract', () => {
     expect(fetchMock.mock.calls.map((call) => String(call[1]?.body)).join('\n')).not.toContain('CANARY')
   })
 
+  it('projects table assertions into explicit metadata-only kinds', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => json({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await store().appendTurnResults('1', '2', {
+      turnIndex: 0,
+      userMessage: '',
+      botResponse: '',
+      assertions: [
+        {
+          assertion: 'table DduTable row_exists',
+          pass: true,
+          expected: 'private expected',
+          actual: 'private actual',
+        },
+        {
+          assertion: 'table DocumentTable row_count',
+          pass: true,
+          expected: 'private expected',
+          actual: 'private actual',
+        },
+      ],
+      pass: true,
+      botDuration: 8,
+      evalDuration: 3,
+    })
+
+    expect(bodyOf(fetchMock.mock.calls[0]!)).toEqual({
+      results: [
+        expect.objectContaining({ assertionKind: 'table_row_exists', passed: true }),
+        expect.objectContaining({ assertionKind: 'table_row_count', passed: true }),
+      ],
+    })
+    expect(String(fetchMock.mock.calls[0]![1]?.body)).not.toMatch(/DduTable|DocumentTable|private/)
+  })
+
   it('performs the exact idempotent final reconciliation before completion', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
       const path = new URL(String(input)).pathname
@@ -601,6 +702,30 @@ describe('VortexEvalStore strict hosted contract', () => {
 
     expect(caught).toMatchObject({ kind: 'auth', status: 401 })
     expect((caught as Error).message).not.toContain('CANARY_RAW_SERVER_SECRET')
+  })
+
+  it('identifies the failed lifecycle operation without copying the response body', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(json({ error: 'CANARY_RAW_SERVER_SECRET' }, 409)))
+
+    let caught: unknown
+    try {
+      await store().finalizeEntry('10', '20', {
+        passed: false,
+        durationMs: 15,
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({ kind: 'internal', status: 409 })
+    expect((caught as Error).message).toContain('PATCH /v1/evals/runs/10/entries/20')
+    expect((caught as Error).message).toContain('HTTP 409')
+    expect((caught as Error).message).not.toContain('CANARY_RAW_SERVER_SECRET')
+  })
+
+  it('classifies durable contract and chat resume errors by their owning boundary', () => {
+    expect(classifyVortexEvalError({ code: 'EVAL_DURABLE_EFFECT_UNSUPPORTED' })).toBe('configuration')
+    expect(classifyVortexEvalError({ code: 'CHAT_SESSION_RESUME_FAILED' })).toBe('chat')
   })
 
   it('projects read responses to safe metadata even if a legacy server includes content fields', async () => {

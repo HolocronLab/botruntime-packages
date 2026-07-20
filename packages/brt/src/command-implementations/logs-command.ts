@@ -1,7 +1,8 @@
-import type { LogEntry } from '../api/cloudapi-client'
+import type { CloudapiClient, LogEntry } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import { cloudInfo } from '../cloud-io'
 import * as errors from '../errors'
+import { parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
 
 // brt logs — GET /v1/admin/workspaces/{workspaceId}/bots/{botId}/logs using the
@@ -14,11 +15,7 @@ const FOLLOW_POLL_MS = 5_000
 export type LogsCommandDefinition = typeof commandDefinitions.logs
 export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
   public async run(): Promise<void> {
-    const link = this.loadLinkIfPresent() ?? {}
-    const botId = this.requireBotId(link)
-    const { profile } = await this.resolveProfile()
-    const apiUrl = this.resolveApiUrl(profile, link)
-    const client = this.machineCloudapiClient(profile, apiUrl)
+    const { client, workspaceId, botId } = await this._resolveTarget()
 
     const level = this.argv.level
     const messageContains = this.argv.grep
@@ -34,7 +31,7 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
       let nextToken: string | undefined
       do {
         const res = await client
-          .getWorkspaceBotLogs(profile.workspaceId, botId, {
+          .getWorkspaceBotLogs(workspaceId, botId, {
             timeStart,
             timeEnd,
             level,
@@ -61,9 +58,18 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
     // cursor holds, so the next poll re-queries from the same point and cannot
     // skip a log written during the sleep interval before the first entry ever
     // arrives (the bug of jumping to a post-sleep `now` on an empty window).
-    let cursor = this.argv.since ?? new Date(Date.now() - ONE_HOUR_MS).toISOString()
-    await drain(cursor, this.argv.until)
+    const nowMs = Date.now()
+    const since = this.argv.since === undefined ? undefined : parseTimeFilter(this.argv.since, '--since', nowMs)
+    const until = this.argv.until === undefined ? undefined : parseTimeFilter(this.argv.until, '--until', nowMs)
+    if (since !== undefined && until !== undefined && since.timeMs > until.timeMs) {
+      throw new errors.BotpressCLIError('--since must not be after --until')
+    }
+
+    let cursor = since?.wire ?? new Date(nowMs - ONE_HOUR_MS).toISOString()
+    await drain(cursor, until?.wire)
     if (lastTimestamp) cursor = bumpMs(lastTimestamp, 1)
+
+    if (printed === 0) this._printDevHintIfEmpty()
 
     if (!this.argv.follow || (limit !== undefined && printed >= limit)) {
       return
@@ -81,6 +87,43 @@ export class LogsCommand extends CloudCommand<LogsCommandDefinition> {
   private _printEntry(entry: LogEntry): void {
     const conv = entry.conversationId ? ` conv=${entry.conversationId}` : ''
     process.stdout.write(`${entry.timestamp} ${entry.level.toUpperCase()} ${entry.message}${conv}\n`)
+  }
+
+  // `brt dev` prints worker output directly to its own terminal — it never
+  // forwards to the cloud log ingest, which only the production supervisor
+  // feeds. An empty `--dev` result therefore looks broken but usually isn't;
+  // `targetsDevBot` (the --dev flag) is known before any request, so the dev
+  // case gets the specific hint rather than a generic maybe-dev disclaimer.
+  private _printDevHintIfEmpty(): void {
+    if (!this.targetsDevBot) return
+    // --json обещает на stdout только сырой JSON — человекочитаемый хинт туда нельзя.
+    if (this.argv.json) return
+    cloudInfo(
+      'no logs found for this dev bot — `brt dev` prints worker output straight to its own ' +
+        'terminal and never forwards it here; the cloud log ingest is fed only by the ' +
+        'production supervisor. Check the `brt dev` terminal instead.'
+    )
+  }
+
+  private async _resolveTarget(): Promise<{
+    client: CloudapiClient
+    workspaceId: string
+    botId: string
+  }> {
+    if (this.targetsDevBot) {
+      const target = await this.devCloudapiTarget()
+      return { client: target.client, workspaceId: target.workspaceId, botId: target.targetBotId }
+    }
+
+    const link = this.loadLinkIfPresent() ?? {}
+    const botId = this.requireBotId(link)
+    const { profile } = await this.resolveProfile()
+    const apiUrl = this.resolveApiUrl(profile, link)
+    return {
+      client: this.machineCloudapiClient(profile, apiUrl),
+      workspaceId: profile.workspaceId,
+      botId,
+    }
   }
 }
 
