@@ -33,6 +33,11 @@ export type InputProps = Omit<GenerateContentInput, 'model'> & {
    */
   model?: InputModel | InputModel[]
   signal?: AbortSignal
+  /**
+   * Conversation this call belongs to. Forwarded to the cognitive gateway so
+   * provider prompt-cache sticky routing can pin the conversation to one endpoint.
+   */
+  conversationId?: string
 }
 
 export type Request = {

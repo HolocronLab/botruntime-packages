@@ -18,7 +18,9 @@ export class InstrumentedCognitive extends Cognitive {
   generateContent(
     input: Parameters<typeof Cognitive.prototype.generateContent>[0]
   ): ReturnType<typeof Cognitive.prototype.generateContent> {
-    const conversationId = getActiveConversationId()
+    // Один эффективный id для спана И запроса: расхождение ломает корреляцию
+    // трейса с cognitive-вызовом (гейтвей строит из него session_id провайдер-кэша).
+    const conversationId = input.conversationId ?? getActiveConversationId()
 
     // Parse model if it's in "provider:model" format
 
@@ -58,7 +60,7 @@ export class InstrumentedCognitive extends Cognitive {
         ...(conversationId ? { conversationId } : {}),
       },
       async (s) => {
-        const result = await super.generateContent(input)
+        const result = await super.generateContent({ ...input, conversationId })
 
         // Set output attributes
         s.setAttribute('ai.cached', !!result.meta.cached)

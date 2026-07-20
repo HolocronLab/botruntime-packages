@@ -66,6 +66,22 @@ describe('Cognitive v2-only routing', () => {
     }
   )
 
+  test('forwards conversationId (provider prompt-cache stickiness)', async () => {
+    const v2 = mockV2()
+    const client = new Cognitive({ client: bp })
+
+    await client.generateContent({
+      messages: [{ role: 'user', content: 'hi' }],
+      model: 'openai:gpt-5',
+      conversationId: 'conv-1',
+    })
+
+    expect(v2.generateText).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-1' }),
+      expect.anything()
+    )
+  })
+
   test('surfaces the primary v2 error and never invokes a legacy fallback', async () => {
     const primary = new Error('primary v2 failure')
     const v2 = mockV2({ generateText: vi.fn().mockRejectedValue(primary) })
