@@ -213,6 +213,7 @@ interface RequestOpts {
   internalToken?: string
   workspaceId?: string
   timeoutMs?: number
+  deadlineAtMs?: number
   idempotent?: boolean // retry on 5xx/network
   privacySensitive?: 'trace' | 'conversation' | 'eval' // never reflect response bodies or transport errors into CLI errors
   errorBodyPolicy?: 'integration-repoint' // only render Botforge's public message from the error envelope
@@ -261,8 +262,12 @@ export class CloudapiClient {
     let lastErr: Error | undefined
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      const remainingMs = opts.deadlineAtMs === undefined ? Number.POSITIVE_INFINITY : opts.deadlineAtMs - Date.now()
+      if (remainingMs <= 0) {
+        throw new errors.TransientRequestError(undefined, `${requestLabel(opts)}: observation deadline reached`)
+      }
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+      const timer = setTimeout(() => ctrl.abort(), Math.min(timeoutMs, remainingMs))
       try {
         const res = await fetch(url, {
           method: opts.method,
@@ -275,11 +280,12 @@ export class CloudapiClient {
         if (!res.ok) {
           // 4xx is never retried; 5xx is retried only for idempotent calls.
           if (res.status >= 500 && opts.idempotent && attempt < attempts) {
-            lastErr = new errors.BotpressCLIError(
-              `${requestLabel(opts)}: HTTP ${res.status} ${text}`,
-            )
-            await backoff(attempt)
+            lastErr = new errors.TransientRequestError(res.status, httpMessage(opts, res.status, text))
+            await backoff(attempt, opts.deadlineAtMs)
             continue
+          }
+          if (res.status >= 500 && opts.idempotent) {
+            throw new errors.TransientRequestError(res.status, httpMessage(opts, res.status, text))
           }
           throw new errors.HTTPError(
             res.status,
@@ -308,17 +314,25 @@ export class CloudapiClient {
           throw thrown
         lastErr = thrown as Error
         if (opts.idempotent && attempt < attempts) {
-          await backoff(attempt)
+          await backoff(attempt, opts.deadlineAtMs)
           continue
         }
         if (opts.privacySensitive) {
-          throw new errors.BotpressCLIError(
-            `${requestLabel(opts)}: network request failed; check connectivity and the selected API URL, then retry`,
+          throw new errors.TransientRequestError(
+            undefined,
+            `${requestLabel(opts)}: network request failed; check connectivity and the selected API URL, then retry`
           )
         }
         if (opts.errorBodyPolicy) {
           throw new errors.BotpressCLIError(
             `${requestLabel(opts)}: request outcome unavailable; check connectivity and the selected API URL`,
+          )
+        }
+        if (opts.idempotent) {
+          throw new errors.TransientRequestError(
+            undefined,
+            `${requestLabel(opts)}: ${(thrown as Error).message}`,
+            { cause: thrown as Error }
           )
         }
         throw new errors.BotpressCLIError(
@@ -779,6 +793,7 @@ export class CloudapiClient {
   public async getEvalWorkflow(
     workflowId: string,
     runtimeBotId?: string,
+    deadlineAtMs?: number,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -786,6 +801,7 @@ export class CloudapiClient {
       botId: runtimeBotId,
       idempotent: true,
       privacySensitive: 'eval',
+      deadlineAtMs,
     })
   }
 
@@ -793,6 +809,7 @@ export class CloudapiClient {
     selector: string,
     params: EvalRunListParams,
     runtimeBotId?: string,
+    deadlineAtMs?: number,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -803,12 +820,14 @@ export class CloudapiClient {
       botId: runtimeBotId,
       idempotent: true,
       privacySensitive: 'eval',
+      deadlineAtMs,
     })
   }
 
   public async getEvalRun(
     runId: string,
     runtimeBotId?: string,
+    deadlineAtMs?: number,
   ): Promise<unknown> {
     return this.raw({
       method: 'GET',
@@ -816,6 +835,7 @@ export class CloudapiClient {
       botId: runtimeBotId,
       idempotent: true,
       privacySensitive: 'eval',
+      deadlineAtMs,
     })
   }
 
@@ -853,8 +873,10 @@ export class CloudapiClient {
   }
 }
 
-async function backoff(attempt: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)))
+async function backoff(attempt: number, deadlineAtMs?: number): Promise<void> {
+  const delay = 250 * 2 ** (attempt - 1)
+  const remaining = deadlineAtMs === undefined ? delay : Math.max(0, deadlineAtMs - Date.now())
+  await new Promise((resolve) => setTimeout(resolve, Math.min(delay, remaining)))
 }
 
 function httpMessage(opts: RequestOpts, status: number, text: string): string {

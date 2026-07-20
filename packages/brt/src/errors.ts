@@ -170,6 +170,20 @@ export class HTTPError extends BotpressCLIError {
   }
 }
 
+/**
+ * An idempotent read exhausted its request-local retries but may still succeed
+ * while the command's wider observation deadline remains open.
+ */
+export class TransientRequestError extends BotpressCLIError {
+  public constructor(
+    public readonly status: number | undefined,
+    message: string,
+    opts?: { cause?: Error }
+  ) {
+    super(message, opts ?? {})
+  }
+}
+
 export class NoBundleFoundError extends BotpressCLIError {
   public constructor() {
     const message = 'No bundle found. Please run `brt bundle` first.'

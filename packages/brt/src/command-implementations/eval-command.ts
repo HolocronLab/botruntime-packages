@@ -373,45 +373,41 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
 
     const deadline = Date.now() + timeout
     while (Date.now() <= deadline) {
-      const current = parseWorkflowResponse(await target.client.getEvalWorkflow(created.id, target.runtimeHeader))
-      if (current.status === 'completed') {
-        const completion = parseWorkflowCompletion(current.output)
-        const detail = parseEvalRunDetail(await target.client.getEvalRun(completion.runId, target.runtimeHeader))
-        const passed = !(
-          completion.failed > 0 ||
-          detail.status === 'failed' ||
-          detail.entries.some((item) => item.passed === false)
+      try {
+        const current = parseWorkflowResponse(
+          await target.client.getEvalWorkflow(created.id, target.runtimeHeader, deadline)
         )
-        return {
-          completion,
-          detail,
-          summary: {
-            id: detail.id,
-            passed,
-            duration: completion.duration,
-            failedAssertions: detail.entries.flatMap((entry) =>
-              entry.results.filter((result) => !result.passed && !result.skipped).map((result) => result.assertionKind)
-            ),
-          },
+        if (current.status === 'completed') {
+          const completion = parseWorkflowCompletion(current.output)
+          const detail = parseEvalRunDetail(
+            await target.client.getEvalRun(completion.runId, target.runtimeHeader, deadline)
+          )
+          return buildEvalAttempt(detail, completion)
         }
-      }
-      if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
-        const failure = current.failure
-        if (this.argv.json) {
-          this.logger.json({
-            schemaVersion: 1,
-            target: target.output,
-            workflow: { id: current.id, status: current.status, failure },
-          })
-        }
-        if (failure.code === 'DELIVERY_UNAVAILABLE') {
+        if (current.status === 'failed' || current.status === 'timedout' || current.status === 'cancelled') {
+          const linked = await this.findLinkedEvalRun(target, created.id, deadline)
+          if (linked) return buildEvalAttempt(linked, completionFromDetail(linked))
+
+          const failure = current.failure
+          if (this.argv.json) {
+            this.logger.json({
+              schemaVersion: 1,
+              target: target.output,
+              workflow: { id: current.id, status: current.status, failure },
+            })
+          }
+          if (failure.code === 'DELIVERY_UNAVAILABLE') {
+            throw new errors.BotpressCLIError(
+              `${failure.code}: ${failure.reason}; verify that \`brt dev\` is still running and the development tunnel is connected, then retry`
+            )
+          }
           throw new errors.BotpressCLIError(
-            `${failure.code}: ${failure.reason}; verify that \`brt dev\` is still running and the development tunnel is connected, then retry`
+            `${failure.code}: ${failure.reason}; hosted eval workflow ${current.status}, inspect runtime traces and retry`
           )
         }
-        throw new errors.BotpressCLIError(
-          `${failure.code}: ${failure.reason}; hosted eval workflow ${current.status}, inspect runtime traces and retry`
-        )
+      } catch (thrown) {
+        if (!(thrown instanceof errors.TransientRequestError)) throw thrown
+        this.logger.debug(`Hosted eval terminal polling remains transiently unavailable: ${thrown.message}`)
       }
       await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
     }
@@ -419,6 +415,66 @@ export class EvalRunCommand extends EvalCloudCommand<EvalRunCommandDefinition> {
       `hosted eval workflow timed out after ${timeout}ms; inspect \`brt eval runs --latest\` and runtime traces before retrying`
     )
   }
+
+  private async findLinkedEvalRun(
+    target: EvalTarget,
+    workflowId: string,
+    deadline: number
+  ): Promise<EvalRunDetail | undefined> {
+    try {
+      const page = parseEvalRunPage(
+        await target.client.listEvalRuns(target.selector, { limit: MAX_RUNS }, target.runtimeHeader, deadline),
+        MAX_RUNS
+      )
+      const summary = page.runs.find((run) => run.workflowId === workflowId)
+      if (!summary) return undefined
+      return parseEvalRunDetail(await target.client.getEvalRun(summary.id, target.runtimeHeader, deadline))
+    } catch (thrown) {
+      if (thrown instanceof errors.TransientRequestError) throw thrown
+      // The linked-run lookup is recovery-only. Preserve the workflow's typed,
+      // sanitized terminal failure when an older server does not support it.
+      return undefined
+    }
+  }
+}
+
+function buildEvalAttempt(
+  detail: EvalRunDetail,
+  completion: ReturnType<typeof parseWorkflowCompletion>
+): {
+  completion: ReturnType<typeof parseWorkflowCompletion>
+  detail: EvalRunDetail
+  summary: RepeatedEvalAttempt
+} {
+  const passed = !(
+    completion.failed > 0 ||
+    detail.status === 'failed' ||
+    detail.entries.some((item) => item.passed === false)
+  )
+  return {
+    completion,
+    detail,
+    summary: {
+      id: detail.id,
+      passed,
+      duration: completion.duration,
+      failedAssertions: detail.entries.flatMap((entry) =>
+        entry.results.filter((result) => !result.passed && !result.skipped).map((result) => result.assertionKind)
+      ),
+    },
+  }
+}
+
+function completionFromDetail(detail: EvalRunDetail): ReturnType<typeof parseWorkflowCompletion> {
+  const passed = detail.entries.filter((entry) => entry.passed === true).length
+  const failed = detail.entries.filter((entry) => entry.passed === false).length
+  const startedAt = detail.startedAt ? Date.parse(detail.startedAt) : Number.NaN
+  const completedAt = detail.completedAt ? Date.parse(detail.completedAt) : Number.NaN
+  const duration =
+    Number.isFinite(startedAt) && Number.isFinite(completedAt)
+      ? Math.min(MAX_DURATION_MS, Math.max(0, completedAt - startedAt))
+      : 0
+  return { runId: detail.id, passed, failed, total: detail.entries.length, duration }
 }
 
 function parseEvalRunPage(value: unknown, limit: number): { runs: EvalRunSummary[]; nextToken?: string } {

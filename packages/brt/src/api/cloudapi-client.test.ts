@@ -102,6 +102,37 @@ describe('CloudapiClient', () => {
     expect(calls).toHaveLength(3)
   })
 
+  it('classifies exhausted idempotent 5xx as transient for bounded outer polling', async () => {
+    stubFetch(() => new Response('boom', { status: 503 }))
+    const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+    const error = await client.listConfigVars('42').catch((thrown) => thrown)
+    expect(error).toBeInstanceOf(errors.TransientRequestError)
+    expect(error).toMatchObject({ status: 503 })
+    expect(calls).toHaveLength(3)
+  })
+
+  it('bounds all idempotent retry attempts by the caller observation deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      stubFetch((call) =>
+        new Promise<Response>((_resolve, reject) => {
+          call.init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        })
+      )
+      const client = new CloudapiClient('https://cloud.example', 'my-key')
+
+      const pending = client.getEvalWorkflow('workflow_1', undefined, Date.now() + 1_000).catch((thrown) => thrown)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.runAllTimersAsync()
+
+      expect(await pending).toBeInstanceOf(errors.TransientRequestError)
+      expect(calls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not retry a non-idempotent call on 5xx', async () => {
     stubFetch(() => new Response('boom', { status: 503 }))
     const client = new CloudapiClient('https://cloud.example', 'my-key')
