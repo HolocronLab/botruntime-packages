@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.2.14 (current) — 2026-07-20
+## 2.3.0 (current) — 2026-07-20
+
+- `generateContent` пробрасывает `conversationId` в тело cognitive-запроса
+(`InputProps`/`CognitiveRequest`), а `InstrumentedCognitive` инжектит активный
+conversationId из runtime-контекста (явно переданный выигрывает; спан и запрос
+получают один и тот же id). Гейтвей (cloudapi) строит из него `session_id`
+sticky-роутинга провайдер-кэша промпта — без поля кэш-стикинес не активируется.
+Для потребителей поле опционально, поведение без него не меняется.
+
+## 2.2.14 — 2026-07-20
 
 - Keep hosted-eval terminal polling alive across bounded transient read failures, return the linked terminal EvalRun when Cloud has already finalized it, and stop requesting unsupported Files expiry for runtime-owned state and Telegram image swaps.
 

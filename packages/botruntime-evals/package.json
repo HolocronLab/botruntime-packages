@@ -1,13 +1,19 @@
 {
   "name": "@holocronlab/botruntime-evals",
-  "version": "2.1.19",
+  "version": "2.1.20",
   "description": "Evaluation definitions and runner for brt-based botruntime agents",
   "botruntime": {
     "capabilities": {
       "evalManifest": 2
     }
   },
-  "keywords": ["brt", "agent", "ai", "evals", "evaluation"],
+  "keywords": [
+    "brt",
+    "agent",
+    "ai",
+    "evals",
+    "evaluation"
+  ],
   "license": "MIT",
   "author": "HolocronLab",
   "repository": {
@@ -19,25 +25,56 @@
     "access": "public",
     "registry": "https://registry.npmjs.org"
   },
-  "files": ["dist/**/*", "package.json", "readme.md", "LICENSE"],
+  "files": [
+    "dist/**/*",
+    "package.json",
+    "readme.md",
+    "LICENSE"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "typesVersions": {
     "*": {
-      "manifest": ["./dist/manifest.d.ts"],
-      "stores": ["./dist/stores/index.d.ts"],
-      "stores/vortex": ["./dist/stores/vortex-eval-store-entry.d.ts"],
-      "spans": ["./dist/spans/index.d.ts"],
-      "runner": ["./dist/runner.d.ts"],
-      "loader": ["./dist/loader.d.ts"],
-      "client": ["./dist/client.d.ts"],
-      "graders": ["./dist/graders/index.d.ts"],
-      "trace": ["./dist/spans/trace.d.ts"],
-      "transformer": ["./dist/transformer.d.ts"],
-      "types": ["./dist/types.d.ts"],
-      "sse-collector": ["./dist/spans/sse-collector.d.ts"],
-      "definition": ["./dist/definition.d.ts"]
+      "manifest": [
+        "./dist/manifest.d.ts"
+      ],
+      "stores": [
+        "./dist/stores/index.d.ts"
+      ],
+      "stores/vortex": [
+        "./dist/stores/vortex-eval-store-entry.d.ts"
+      ],
+      "spans": [
+        "./dist/spans/index.d.ts"
+      ],
+      "runner": [
+        "./dist/runner.d.ts"
+      ],
+      "loader": [
+        "./dist/loader.d.ts"
+      ],
+      "client": [
+        "./dist/client.d.ts"
+      ],
+      "graders": [
+        "./dist/graders/index.d.ts"
+      ],
+      "trace": [
+        "./dist/spans/trace.d.ts"
+      ],
+      "transformer": [
+        "./dist/transformer.d.ts"
+      ],
+      "types": [
+        "./dist/types.d.ts"
+      ],
+      "sse-collector": [
+        "./dist/spans/sse-collector.d.ts"
+      ],
+      "definition": [
+        "./dist/definition.d.ts"
+      ]
     }
   },
   "exports": {
