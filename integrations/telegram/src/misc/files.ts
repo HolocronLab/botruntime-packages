@@ -160,8 +160,6 @@ function filenameFromUrl(url: string): string {
   }
 }
 
-// Download the bytes behind a token-bearing Telegram URL, store them privately in cloudapi and
-// return the stable Files API id plus the current token-free download URL.
 export async function ingestTelegramFileLink(
   fileLink: string,
   key: string,

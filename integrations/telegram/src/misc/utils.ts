@@ -109,7 +109,6 @@ export const getUserNameFromTelegramUser = (telegramUser: User) => {
 
 export type IncomingMessage = { type: string; payload: Record<string, unknown> }
 
-// Resolve a Telegram file_id server-side, then return a durable private Files API reference.
 async function ingestById(
   telegram: Telegram,
   fileId: string,
