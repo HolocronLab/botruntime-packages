@@ -4,8 +4,10 @@ const MAX_MESSAGE_LENGTH = 5000
 
 export namespace Transcript {
   export type Attachment = {
-    type: 'image'
+    type: 'image' | 'file'
     url: string
+    mimeType?: string
+    title?: string
   }
 
   export type AssistantMessage = {

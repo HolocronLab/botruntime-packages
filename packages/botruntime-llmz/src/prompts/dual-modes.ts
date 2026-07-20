@@ -178,14 +178,16 @@ ${inspect(transcript[0]?.payload, transcript[0]?.name, { tokens: 5000 })}
           }).trim(),
         },
         ...attachments.flatMap<LLMzPrompts.MessageContent>((attachment, idx) => {
+          const title = attachment.title ? ` (${attachment.title})` : ''
           return [
             {
               type: 'text',
-              text: `Here's the attachment [${alphabet[idx % alphabet.length]}]`,
+              text: `Here's the attachment [${alphabet[idx % alphabet.length]}]${title}`,
             },
             {
               type: 'image',
               url: attachment.url,
+              ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
             },
           ]
         }),

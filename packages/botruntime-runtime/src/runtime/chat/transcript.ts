@@ -3,8 +3,10 @@ import { z } from '@holocronlab/botruntime-sdk'
 import type { TranscriptCursor } from './transcript-sync'
 
 export type TranscriptAttachment = {
-  type: 'image'
+  type: 'image' | 'file'
   url: string
+  mimeType?: string
+  title?: string
 }
 
 export type TranscriptAssistantMessage = {
@@ -48,8 +50,10 @@ export type TranscriptItem =
   | TranscriptSummaryMessage
 
 const AttachmentSchema = z.object({
-  type: z.literal('image'),
+  type: z.union([z.literal('image'), z.literal('file')]),
   url: z.string(),
+  mimeType: z.string().optional(),
+  title: z.string().optional(),
 })
 
 // There's a bug in the bridge, we can't use unions and discriminated unions.
