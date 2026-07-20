@@ -56,6 +56,46 @@ function assertValidOutgoingMessage(message: unknown): asserts message is Msg {
   }
 }
 
+function stringField(value: unknown, key: string): string | undefined {
+  if (!isPlainRecord(value)) return undefined
+  const field = value[key]
+  return typeof field === 'string' && field.length > 0 ? field : undefined
+}
+
+function isPdfPayload(payload: unknown): boolean {
+  const contentType = stringField(payload, 'contentType')
+  if (contentType?.split(';', 1)[0]?.trim().toLowerCase() === 'application/pdf') return true
+
+  const title = stringField(payload, 'title')
+  if (title && /\.pdf$/i.test(title.trim())) return true
+
+  const fileUrl = stringField(payload, 'fileUrl')
+  return Boolean(fileUrl && /\.pdf(?:$|[?#])/i.test(fileUrl))
+}
+
+function nativeAttachment(type: unknown, payload: unknown): Transcript.Attachment | undefined {
+  if (type === 'image') {
+    const url = stringField(payload, 'imageUrl')
+    if (url) return { type: 'image', url }
+    return undefined
+  }
+
+  if (type === 'file' && isPdfPayload(payload)) {
+    const url = stringField(payload, 'fileUrl')
+    if (!url) return undefined
+    const title = stringField(payload, 'title')
+
+    return {
+      type: 'file',
+      url,
+      mimeType: 'application/pdf',
+      ...(title ? { title } : {}),
+    }
+  }
+
+  return undefined
+}
+
 export type ComponentHandler<
   T extends Autonomous.Component = Autonomous.Component,
   // llmz's RenderedComponent constrains props to `{}`; fall back to it (not
@@ -382,28 +422,16 @@ export class Chat extends _llmzChat {
     let clone = structuredClone(message)
     clone = await this.__temporary__fixTelegramImage(clone)
 
-    const attachments: Transcript.Attachment[] =
-      clone.type === 'image' && clone.payload.imageUrl
-        ? [
-            {
-              type: 'image',
-              url: clone.payload.imageUrl,
-            },
-          ]
-        : []
+    const attachment = nativeAttachment(clone.type, clone.payload)
+    const attachments: Transcript.Attachment[] = attachment ? [attachment] : []
 
     if (clone.type === 'bloc') {
-      // oxlint-disable-next-line no-explicit-any -- SDK bloc payload items lack specific typing
-      clone.payload.items = clone.payload.items.filter((item: any) => {
-        if (item.type === 'image' && item.payload.imageUrl) {
-          attachments.push({
-            type: 'image',
-            url: item.payload.imageUrl,
-          })
-          return false // Exclude image items from payload
-        }
-        return true // Keep other items
-      })
+      const items = Array.isArray(clone.payload.items) ? clone.payload.items : []
+      for (const item of items) {
+        if (!isPlainRecord(item)) continue
+        const itemAttachment = nativeAttachment(item.type, item.payload)
+        if (itemAttachment) attachments.push(itemAttachment)
+      }
     }
 
     if (message.direction === 'outgoing') {
