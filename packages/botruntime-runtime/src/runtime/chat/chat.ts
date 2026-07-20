@@ -96,6 +96,16 @@ function nativeAttachment(type: unknown, payload: unknown): Transcript.Attachmen
   return undefined
 }
 
+function transcriptContent(item: TranscriptItem): string | undefined {
+  return 'content' in item ? item.content : undefined
+}
+
+function sameAttachments(left: TranscriptItem, right: TranscriptItem): boolean {
+  const leftAttachments = 'attachments' in left ? (left.attachments ?? []) : []
+  const rightAttachments = 'attachments' in right ? (right.attachments ?? []) : []
+  return JSON.stringify(leftAttachments) === JSON.stringify(rightAttachments)
+}
+
 export type ComponentHandler<
   T extends Autonomous.Component = Autonomous.Component,
   // llmz's RenderedComponent constrains props to `{}`; fall back to it (not
@@ -605,24 +615,37 @@ export class Chat extends _llmzChat {
     }
 
     const item = await this.transformMessage(message)
+    if (!item) return
 
-    if (!item || this._transcript?.find((m) => m.id === message.id)) {
-      // Message already exists in transcript
-      return
+    const existingIndex = this._transcript?.findIndex((m) => m.id === message.id) ?? -1
+
+    if (existingIndex >= 0) {
+      const existing = this._transcript![existingIndex]!
+      if (transcriptContent(existing) === transcriptContent(item) && sameAttachments(existing, item)) {
+        // Redelivery of an already-transcribed message (e.g. a Telegram bloc retry) with no
+        // new content — the platform's trailing-edge touch can repeat delivery verbatim.
+        return
+      }
+
+      // Trailing-edge redelivery of a bloc carries the fuller payload (more album parts);
+      // upsert in place instead of leaving the transcript stuck on the first partial version.
+      this._transcript![existingIndex] = { ...item, id: message.id }
+    } else {
+      // find the index where it should be inserted to keep chronological order
+      let insertIndex = this._transcript?.findIndex(
+        (m) => m.createdAt && item.createdAt && new Date(m.createdAt) > new Date(item.createdAt)
+      )
+
+      this._transcript?.splice(
+        insertIndex === -1 || insertIndex === undefined ? this._transcript.length : insertIndex,
+        0,
+        item
+      )
     }
 
-    // find the index where it should be inserted to keep chronological order
-    let insertIndex = this._transcript?.findIndex(
-      (m) => m.createdAt && item.createdAt && new Date(m.createdAt) > new Date(item.createdAt)
-    )
-
-    this._transcript?.splice(
-      insertIndex === -1 || insertIndex === undefined ? this._transcript.length : insertIndex,
-      0,
-      item
-    )
-
     if (options.advanceCursor !== false) {
+      // A redelivered message carries the same id/createdAt as the original, so re-running
+      // this on a replacement is idempotent and never moves the cursor backwards.
       this._cursor = advanceTranscriptCursor(this._cursor, message)
       this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] = this._cursor.createdAt
     }
