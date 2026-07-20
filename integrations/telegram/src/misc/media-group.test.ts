@@ -117,7 +117,8 @@ describe('persistInboundTelegramMessage', () => {
     })
     expect(harness.updates).toHaveLength(1)
     expect(harness.stored?.payload).toEqual({ items: [image('11', '101', 'ДДУ и акт'), image('12', '102')] })
-    expect(telegramMessageChannels.bloc.schema.parse(harness.stored?.payload)).toEqual(harness.stored?.payload)
+    const parsed = telegramMessageChannels.bloc.schema.parse(harness.stored!.payload)
+    expect(JSON.stringify(parsed)).toBe(JSON.stringify(harness.stored!.payload))
   })
 
   test('deduplicates Telegram retries by provider message id or update id', async () => {
