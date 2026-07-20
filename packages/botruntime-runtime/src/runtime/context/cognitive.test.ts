@@ -2,9 +2,12 @@ import { describe, expect, test, vi } from 'vitest'
 import { Cognitive } from '@holocronlab/botruntime-cognitive'
 
 vi.mock('./context', () => ({ getActiveConversationId: () => 'conv-ctx-1' }))
+const spanAttrs: Record<string, unknown>[] = []
 vi.mock('../../telemetry/tracing', () => ({
-  span: (_name: string, _attrs: unknown, fn: (s: { setAttribute: () => void }) => unknown) =>
-    fn({ setAttribute: () => {} }),
+  span: (_name: string, attrs: Record<string, unknown>, fn: (s: { setAttribute: () => void }) => unknown) => {
+    spanAttrs.push(attrs)
+    return fn({ setAttribute: () => {} })
+  },
 }))
 
 import { InstrumentedCognitive } from './cognitive'
@@ -56,5 +59,7 @@ describe('InstrumentedCognitive', () => {
     } as never)
 
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv-explicit' }))
+    // Спан и запрос — один эффективный id, иначе трейс коррелирует не с тем диалогом.
+    expect(spanAttrs.at(-1)).toMatchObject({ conversationId: 'conv-explicit' })
   })
 })
