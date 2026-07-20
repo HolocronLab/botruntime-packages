@@ -538,7 +538,6 @@ export class Chat extends _llmzChat {
         index: false,
         accessPolicies: ['public_content'],
         publicContentImmediatelyAccessible: true,
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 1 day
       })
 
       clone.payload.imageUrl = file.url

@@ -429,7 +429,6 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
               contentType: 'application/json',
               content: serializedJSON,
               accessPolicies: [],
-              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
               tags: {
                 system: 'true',
                 purpose: 'swap',
@@ -438,7 +437,7 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
 
             console.warn(
               `State for ${this.type}/${this.id} is too big (${tooBig.human}) for State API (max ${MaxStateSize.human}). ` +
-                `Swapping state to file ${file.id}. Swap states are valid for 30 days.`
+                `Swapping state to file ${file.id}.`
             )
 
             s.setAttribute('swapped_to_file', tooBig ? true : false)

@@ -14,6 +14,38 @@ const deferred = () => {
 }
 
 describe('TrackedState.save', () => {
+	it('swaps oversized state without requesting unsupported file expiry', async () => {
+		const uploads: Record<string, unknown>[] = []
+		const writes: unknown[] = []
+		const client = {
+			uploadFile: async (input: Record<string, unknown>) => {
+				uploads.push(input)
+				return { file: { id: 'file_swap_1' } }
+			},
+			setState: async ({ payload }: { payload: unknown }) => {
+				writes.push(payload)
+			},
+		} as unknown as Client
+
+		await context.run({ states: [], executionFinished: false } as unknown as BotContext, async () => {
+			const state = TrackedState.create({
+				type: 'workflow',
+				id: 'workflow-large',
+				name: 'workflowSteps',
+				schema: z.object({ content: z.string() }),
+				client,
+			})
+			state.value = { content: 'x'.repeat(140_000) }
+			state.markDirty()
+
+			await state.save()
+		})
+
+		expect(uploads).toHaveLength(1)
+		expect(uploads[0]).not.toHaveProperty('expiresAt')
+		expect(writes).toEqual([{ value: undefined, location: { type: 'file', key: 'file_swap_1' } }])
+	})
+
   it('keeps a mutation dirty when it happens while an earlier snapshot is being persisted', async () => {
     const writeStarted = deferred()
     const allowWrite = deferred()

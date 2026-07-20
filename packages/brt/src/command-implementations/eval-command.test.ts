@@ -646,6 +646,62 @@ describe('brt eval public contract', () => {
     expect(JSON.parse(stdout).run.id).toBe('101')
   })
 
+  it('continues bounded terminal polling after one idempotent GET exhausts transient retries', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      stubFetch(async (_url, index) => {
+        if (index === 0) return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        if (index <= 3) throw new TypeError('network request failed')
+        if (index === 4) {
+          return json({
+            workflow: {
+              id: 'workflow_1',
+              status: 'completed',
+              output: { runId: '101', passed: 1, failed: 0, total: 1, duration: 1000 },
+            },
+          })
+        }
+        return json(detail())
+      })
+
+      const pending = runCommand({ json: true }).handler()
+      for (let index = 0; index < 10 && calls.length < 6; index++) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        await vi.runOnlyPendingTimersAsync()
+      }
+      expect(calls.length).toBeGreaterThanOrEqual(6)
+      const response = await pending
+
+      expect(response.exitCode).toBe(0)
+      expect(JSON.parse(stdout).run.id).toBe('101')
+      expect(calls.filter((call) => call.url.includes('/v1/chat/workflows/workflow_1'))).toHaveLength(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns the exact linked terminal EvalRun when the workflow fails', async () => {
+    stubFetch(async (_url, index) => {
+      if (index === 0) return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+      if (index === 1) return json({ workflow: { id: 'workflow_1', status: 'failed', output: {} } })
+      if (index === 2) return json({ runs: [run({ status: 'failed', errorKind: 'internal' })] })
+      return json(
+        detail({
+          status: 'failed',
+          errorKind: 'internal',
+          entries: [entry({ passed: false, errorKind: 'internal' })],
+        })
+      )
+    })
+
+    const response = await runCommand({ json: true }).handler()
+
+    expect(response.exitCode).toBe(1)
+    expect(JSON.parse(stdout).run).toEqual(expect.objectContaining({ id: '101', status: 'failed' }))
+    expect(stderr).toMatch(/eval suite failed/i)
+    expect(stderr).not.toMatch(/redeploy the bot/i)
+  })
+
   it('runs against dev only through the PAT-scoped opaque target', async () => {
     writeDevTarget()
     stubFetch(async (url, index) => {
