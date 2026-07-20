@@ -6,7 +6,11 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.19 (current) — 2026-07-19
+## 0.7.20 (current) — 2026-07-20
+
+- Keep hosted-eval terminal polling alive across bounded transient read failures, return the linked terminal EvalRun when Cloud has already finalized it, and stop requesting unsupported Files expiry for runtime-owned state and Telegram image swaps.
+
+## 0.7.19 — 2026-07-19
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.2.13
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.46.7
