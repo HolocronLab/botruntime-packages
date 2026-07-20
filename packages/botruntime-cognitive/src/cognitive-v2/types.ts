@@ -205,6 +205,11 @@ export type CognitiveRequest = {
   stopSequences?: string | string[]
   stream?: boolean
   /**
+   * Conversation this call belongs to. The gateway derives provider prompt-cache
+   * sticky routing (session_id) from it; never sent to the provider verbatim.
+   */
+  conversationId?: string
+  /**
    * json_object is deprecated, use json
    */
   responseFormat?: 'text' | 'json' | 'json_object'

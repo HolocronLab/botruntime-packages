@@ -60,7 +60,11 @@ export class InstrumentedCognitive extends Cognitive {
         ...(conversationId ? { conversationId } : {}),
       },
       async (s) => {
-        const result = await super.generateContent(input)
+        const result = await super.generateContent({
+          ...input,
+          // Провайдер-кэш: гейтвей строит session_id sticky-роутинга из conversationId.
+          conversationId: input.conversationId ?? conversationId,
+        })
 
         // Set output attributes
         s.setAttribute('ai.cached', !!result.meta.cached)

@@ -120,6 +120,22 @@ describe('generateContent routing', () => {
     expect(bp.callAction).toHaveBeenCalled()
   })
 
+  test('v2 path forwards conversationId (provider prompt-cache stickiness)', async () => {
+    const betaInstance = mockBetaClient()
+    const client = new Cognitive({ client: bp, provider, __experimental_beta: true })
+
+    await client.generateContent({
+      messages: [{ role: 'user', content: 'hi' }],
+      model: 'openai:gpt-5',
+      conversationId: 'conv-1',
+    })
+
+    expect(betaInstance.generateText).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-1' }),
+      expect.anything()
+    )
+  })
+
   test('useBeta=true + known v2 provider uses v2 path', async () => {
     const betaInstance = mockBetaClient()
     const client = new Cognitive({ client: bp, provider, __experimental_beta: true })
