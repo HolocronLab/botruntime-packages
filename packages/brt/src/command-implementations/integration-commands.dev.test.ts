@@ -435,6 +435,7 @@ describe('integration install/register dev target routing', () => {
           ok: true,
           webhookId: 'wh_agent_prod',
           webhookUrl: 'https://hooks.example/wh_agent_prod',
+          webhookSecret: 'agent_prod_webhook_secret',
         })
       }
       throw new Error(`unexpected request ${call.init.method} ${call.url}`)
@@ -463,6 +464,10 @@ describe('integration install/register dev target routing', () => {
     expect(JSON.parse(fs.readFileSync(botMetadataPath, 'utf8'))).not.toHaveProperty('botId')
     expect(JSON.parse(fs.readFileSync(botMetadataPath, 'utf8'))).not.toHaveProperty('workspaceId')
     expect(JSON.parse(fs.readFileSync(botMetadataPath, 'utf8'))).not.toHaveProperty('apiUrl')
+    expect(JSON.parse(fs.readFileSync(path.join(botpressHome, 'bots.json'), 'utf8'))).toEqual({
+      default: { '7': { webhookSecret: 'agent_prod_webhook_secret' } },
+    })
+    expect(stdout.join('')).not.toContain('agent_prod_webhook_secret')
   })
 
   it('uses the owner/admin workspace PAT for production install/register without a per-bot key', async () => {
@@ -497,6 +502,7 @@ describe('integration install/register dev target routing', () => {
             ok: true,
             webhookId: 'wh_prod',
             webhookUrl: 'https://hooks.example/wh_prod',
+            webhookSecret: 'prod_webhook_secret',
           }),
           { status: 200 }
         )
@@ -520,6 +526,9 @@ describe('integration install/register dev target routing', () => {
       botId: 7,
       integrations: [{ ref: 'telegram@0.0.1', alias: 'telegram', webhookId: 'wh_prod' }],
     })
-    expect(fs.existsSync(botsStorePath)).toBe(false)
+    expect(JSON.parse(fs.readFileSync(botsStorePath, 'utf8'))).toEqual({
+      default: { '7': { webhookSecret: 'prod_webhook_secret' } },
+    })
+    expect(stdout.join('')).not.toContain('prod_webhook_secret')
   })
 })

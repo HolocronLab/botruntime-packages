@@ -126,6 +126,7 @@ export interface WorkspaceRegisterResponse {
   ok: boolean
   status: string
   webhookUrl: string
+  webhookSecret: string
 }
 
 export interface WorkspaceIntegrationInstallation {

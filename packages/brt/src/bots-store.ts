@@ -2,8 +2,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as errors from './errors'
 
-// bots.json — per-bot API keys minted by the bespoke cloudapi wire (provision-bot /
-// link), stored alongside profiles.json in $BRT_BOTPRESS_HOME. This is the fork's
+// bots.json — per-bot credentials minted by the bespoke cloudapi wire (API keys from
+// provision/link and webhook secrets from integration registration), stored alongside
+// profiles.json in $BRT_BOTPRESS_HOME. This is the fork's
 // adaptation of the (deleted) thin brt CLI's `~/.brtrc` `bots[profile][botId]` map:
 // same namespacing (per-profile, so the same botId under two profiles never picks
 // the wrong key), but as its own file rather than folded into profiles.json — the
@@ -14,7 +15,8 @@ import * as errors from './errors'
 // Perms are 0600 (same posture as thin's ~/.brtrc): these are live bot credentials.
 
 export interface BotCreds {
-  apiKey: string
+  apiKey?: string
+  webhookSecret?: string
 }
 
 // profile -> botId -> creds
