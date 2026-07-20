@@ -115,6 +115,13 @@ describe('persistInboundTelegramMessage', () => {
       tags: { id: '12', chatId: '42', updateId: '102', webhookId: 'wh-1', mediaGroupId: 'album-7' },
       discriminateByTags: ['webhookId', 'chatId', 'mediaGroupId'],
     })
+    // Every touch — first part and later parts alike — carries the trailing-edge schedule;
+    // it is what shifts the platform's delivery moment to now+delay on each part.
+    expect(harness.creates[1]).toMatchObject({
+      schedule: { delay: 2000 },
+      tags: { id: '11', chatId: '42', updateId: '101', webhookId: 'wh-1', mediaGroupId: 'album-7' },
+      discriminateByTags: ['webhookId', 'chatId', 'mediaGroupId'],
+    })
     expect(harness.updates).toHaveLength(1)
     expect(harness.stored?.payload).toEqual({ items: [image('11', '101', 'ДДУ и акт'), image('12', '102')] })
     const parsed = telegramMessageChannels.bloc.schema.parse(harness.stored!.payload)
@@ -136,5 +143,68 @@ describe('persistInboundTelegramMessage', () => {
 
     expect(harness.updates).toHaveLength(0)
     expect(harness.stored?.payload).toEqual({ items: [first] })
+  })
+
+  const sendPart = async (harness: ReturnType<typeof makeClient>, n: number) =>
+    persistInboundTelegramMessage({
+      ...common,
+      client: harness.client,
+      messageId: String(n),
+      updateId: String(100 + n),
+      mediaGroupId: 'album-7',
+      message: image(String(n), String(100 + n)),
+    })
+
+  test('does not flush before the Telegram 10-item album cap is reached', async () => {
+    const harness = makeClient()
+    for (let n = 1; n <= 9; n++) await sendPart(harness, n)
+
+    // One get-or-create touch per part (all trailing-edge, delay 2000), no extra delay:0 flush.
+    expect(harness.creates).toHaveLength(9)
+    for (const create of harness.creates) {
+      expect(create).toMatchObject({ schedule: { delay: 2000 } })
+    }
+    expect(harness.updates).toHaveLength(8)
+    expect((harness.stored?.payload as { items: unknown[] }).items).toHaveLength(9)
+  })
+
+  test('flushes immediately with a delay:0 touch once the 10th part fills the album', async () => {
+    const harness = makeClient()
+    for (let n = 1; n <= 10; n++) await sendPart(harness, n)
+
+    expect(harness.updates).toHaveLength(9)
+    expect((harness.stored?.payload as { items: unknown[] }).items).toHaveLength(10)
+
+    // One touch per part (10) plus exactly one extra flush touch right after the 10th update.
+    expect(harness.creates).toHaveLength(11)
+    expect(harness.creates[harness.creates.length - 1]).toMatchObject({
+      type: 'bloc',
+      schedule: { delay: 0 },
+      tags: { id: '10', chatId: '42', updateId: '110', webhookId: 'wh-1', mediaGroupId: 'album-7' },
+      discriminateByTags: ['webhookId', 'chatId', 'mediaGroupId'],
+    })
+  })
+
+  test('a duplicate delivery at 9 existing items does not update or flush', async () => {
+    const harness = makeClient()
+    for (let n = 1; n <= 9; n++) await sendPart(harness, n)
+
+    const createsBeforeDuplicate = harness.creates.length
+    const updatesBeforeDuplicate = harness.updates.length
+
+    await persistInboundTelegramMessage({
+      ...common,
+      client: harness.client,
+      messageId: '5',
+      updateId: '105',
+      mediaGroupId: 'album-7',
+      message: image('5', '105', 'duplicate retry'),
+    })
+
+    // The touch itself still runs (trailing-edge debounce keeps working for retries), but
+    // isDuplicate short-circuits before update/flush.
+    expect(harness.creates).toHaveLength(createsBeforeDuplicate + 1)
+    expect(harness.creates[harness.creates.length - 1]).toMatchObject({ schedule: { delay: 2000 } })
+    expect(harness.updates).toHaveLength(updatesBeforeDuplicate)
   })
 })
