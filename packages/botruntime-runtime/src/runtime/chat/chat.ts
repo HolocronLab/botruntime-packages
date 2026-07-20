@@ -629,23 +629,26 @@ export class Chat extends _llmzChat {
 
       // Trailing-edge redelivery of a bloc carries the fuller payload (more album parts);
       // upsert in place instead of leaving the transcript stuck on the first partial version.
+      // The cursor is deliberately left untouched below: this id already advanced it (or was
+      // covered by a batch advance) on its first delivery, and advanceTranscriptCursor trusts
+      // whatever message it is given, so replaying this older message here would regress the
+      // durable watermark behind messages that arrived — and were cursor-advanced — since.
       this._transcript![existingIndex] = { ...item, id: message.id }
-    } else {
-      // find the index where it should be inserted to keep chronological order
-      let insertIndex = this._transcript?.findIndex(
-        (m) => m.createdAt && item.createdAt && new Date(m.createdAt) > new Date(item.createdAt)
-      )
-
-      this._transcript?.splice(
-        insertIndex === -1 || insertIndex === undefined ? this._transcript.length : insertIndex,
-        0,
-        item
-      )
+      return
     }
 
+    // find the index where it should be inserted to keep chronological order
+    let insertIndex = this._transcript?.findIndex(
+      (m) => m.createdAt && item.createdAt && new Date(m.createdAt) > new Date(item.createdAt)
+    )
+
+    this._transcript?.splice(
+      insertIndex === -1 || insertIndex === undefined ? this._transcript.length : insertIndex,
+      0,
+      item
+    )
+
     if (options.advanceCursor !== false) {
-      // A redelivered message carries the same id/createdAt as the original, so re-running
-      // this on a replacement is idempotent and never moves the cursor backwards.
       this._cursor = advanceTranscriptCursor(this._cursor, message)
       this.trackedTags.tags['adkSyncTs' as keyof typeof BUILT_IN_TAGS.conversation] = this._cursor.createdAt
     }

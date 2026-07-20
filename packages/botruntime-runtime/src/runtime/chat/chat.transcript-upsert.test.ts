@@ -144,10 +144,51 @@ describe('Chat transcript upsert-by-id (trailing-edge redelivery)', () => {
       await chat.saveTranscript()
       const cursorAfterRedelivery = stored.cursor
 
-      // Redelivery carries the same message id/createdAt (trailing-edge touch, not a new
-      // message), so the cursor must land on the same watermark both times.
+      // A replacement leaves the cursor untouched — it was already accounted for on this id's
+      // first delivery, so the watermark should not move again (and, per the next test, must
+      // never move backwards past messages that arrived since).
       expect(cursorAfterRedelivery).toEqual(cursorAfterFirstDelivery)
       expect(cursorAfterRedelivery).toEqual({ messageId: 'bloc-x', createdAt: '2026-07-21T10:00:00Z' })
+    })
+  })
+
+  it('does not regress the cursor when an older message is redelivered after a newer one advanced it', async () => {
+    const botContext = makeBotContext()
+    let stored: TranscriptState = { transcript: [], cursor: undefined }
+    const client = {
+      _inner: {
+        list: {
+          messages: () => ({ collect: async () => [] }),
+        },
+      },
+      getOrSetState: async () => ({ state: { payload: structuredClone(stored) } }),
+      setState: async ({ payload }: { payload: TranscriptState }) => {
+        stored = structuredClone(payload)
+      },
+    } as unknown as Client & { _inner: Client }
+    botContext.client = client as unknown as BotContext['client']
+
+    await context.run(botContext, async () => {
+      const chat = new Chat(botContext)
+      await chat.fetchTranscript()
+
+      const x1 = bloc('bloc-x', '2026-07-21T10:00:00Z', ['https://files.test/img1'])
+      const y = cloudMessage('m-y', '2026-07-21T10:00:05Z', 'text', { text: 'in between' })
+      const x2 = bloc('bloc-x', '2026-07-21T10:00:00Z', ['https://files.test/img1', 'https://files.test/img2'])
+
+      await chat.addMessage(x1)
+      await chat.addMessage(y)
+      await chat.saveTranscript()
+      const cursorAfterY = stored.cursor
+      expect(cursorAfterY).toEqual({ messageId: 'm-y', createdAt: '2026-07-21T10:00:05Z' })
+
+      // bloc-x's trailing-edge touch redelivers it (fuller payload) after m-y already moved the
+      // cursor forward. Replacing bloc-x in the transcript must not drag the durable watermark
+      // back behind m-y, or the next fetch would needlessly re-read and re-transform it.
+      await chat.addMessage(x2)
+      await chat.saveTranscript()
+
+      expect(stored.cursor).toEqual(cursorAfterY)
     })
   })
 })
