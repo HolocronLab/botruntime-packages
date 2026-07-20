@@ -182,7 +182,12 @@ describe('agent integration mutations refresh completed dependency snapshots', (
         call.init.method === 'POST' &&
         call.url === `${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/7/integrations/wh_prod/register`
       ) {
-        return Response.json({ ok: true, webhookId: 'wh_prod', webhookUrl: 'https://hooks.example/wh_prod' })
+        return Response.json({
+          ok: true,
+          webhookId: 'wh_prod',
+          webhookUrl: 'https://hooks.example/wh_prod',
+          webhookSecret: 'prod_webhook_secret',
+        })
       }
       if (call.init.method === 'GET' && call.url === `${API_URL}/v1/admin/bots/7`) {
         return Response.json(cloudBot('7'))
@@ -205,6 +210,9 @@ describe('agent integration mutations refresh completed dependency snapshots', (
       target: { env: 'prod', apiUrl: API_URL, workspaceId: WORKSPACE_ID, botId: '7' },
     }))
     expect(snapshot.refreshCompletedDependencySnapshot.mock.calls[0]![0]).not.toHaveProperty('runtimeBotId')
+    expect(JSON.parse(fs.readFileSync(path.join(botpressHome, 'bots.json'), 'utf8'))).toEqual({
+      default: { '7': { webhookSecret: 'prod_webhook_secret' } },
+    })
   })
 
   it('does not fabricate a marker and tells an agent user which stateful command initializes prod', async () => {

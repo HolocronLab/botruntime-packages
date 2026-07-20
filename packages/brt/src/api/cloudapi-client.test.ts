@@ -293,7 +293,7 @@ describe('CloudapiClient', () => {
     }
   })
 
-  it('workspace integration install/register uses human routes and does not expose a webhook secret', async () => {
+  it('workspace integration install/register uses human routes and returns the register webhook secret', async () => {
     stubFetch((call) => {
       if (call.init.method === 'POST' && call.url.endsWith('/integrations')) {
         return new Response(
@@ -313,6 +313,7 @@ describe('CloudapiClient', () => {
           ok: true,
           status: 'registered',
           webhookUrl: 'https://hooks/wh_dev',
+          webhookSecret: 'register_secret',
         }),
         {
           status: 200,
@@ -333,7 +334,7 @@ describe('CloudapiClient', () => {
       status: 'pending',
     })
     expect(installed).not.toHaveProperty('webhookSecret')
-    expect(registered).toMatchObject({ ok: true, status: 'registered' })
+    expect(registered).toMatchObject({ ok: true, status: 'registered', webhookSecret: 'register_secret' })
     expect(calls.map((call) => call.url)).toEqual([
       'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations',
       'https://cloud.example/v1/admin/workspaces/ws_123/bots/42/integrations/wh_dev/register',

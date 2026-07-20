@@ -7,6 +7,7 @@ import {
 } from '../api/cloudapi-client'
 import { ApiClient, PublicOrPrivateIntegration, IntegrationSummary } from '../api/client'
 import * as adkBundle from '../adk-bundle'
+import * as botsStore from '../bots-store'
 import { cloudInfo, readSecretValue } from '../cloud-io'
 import type * as cloudLink from '../cloud-project-link'
 import type commandDefinitions from '../command-definitions'
@@ -570,11 +571,35 @@ export class CloudIntegrationRegisterCommand extends CloudCommand<CloudIntegrati
     }
     const link = this.loadLink()
     const botId = this.requireBotId(link)
-    const { profile } = await this.resolveProfile()
+    const { name: profileName, profile } = await this.resolveProfile()
     const apiUrl = this.resolveApiUrl(profile, link)
     const client = new CloudapiClient(apiUrl, profile.token)
+    const store = this.readBotsStore()
 
     const res = await client.registerWorkspaceIntegration(profile.workspaceId, botId, this.argv.webhookId)
+    if (
+      typeof res.webhookSecret !== 'string' ||
+      res.webhookSecret.length === 0 ||
+      res.webhookSecret !== res.webhookSecret.trim() ||
+      /[\u0000-\u001f\u007f]/.test(res.webhookSecret)
+    ) {
+      throw new errors.BotpressCLIError(
+        `Integration webhook ${this.argv.webhookId} registration succeeded in Cloud, but the response did not ` +
+          'contain a valid webhook secret; the local credential was not saved.'
+      )
+    }
+    botsStore.setBotCreds(store, profileName, botId, {
+      webhookSecret: res.webhookSecret,
+    })
+    try {
+      this.writeBotsStore(store)
+    } catch (thrown) {
+      throw errors.BotpressCLIError.wrap(
+        thrown,
+        `Integration webhook ${this.argv.webhookId} registration succeeded in Cloud, but the local webhook ` +
+          'credential could not be saved.'
+      )
+    }
     if (this.isAgentProject) {
       await refreshCompletedAgentDependencySnapshot({
         projectDir: this.projectDir,
