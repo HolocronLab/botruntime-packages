@@ -7,7 +7,11 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.2.13 (current) — 2026-07-19
+## 2.2.14 (current) — 2026-07-20
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-runtime@2.2.14
+
+## 2.2.13 — 2026-07-19
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.46.7
 - Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.7.2
