@@ -32,7 +32,23 @@ function cloudApi(): CloudApi {
 export type TelegramMedia = string | { source: Buffer; filename: string }
 export type TelegramDocument = TelegramMedia
 
-const MAX_PROTECTED_MEDIA_BYTES = 20 << 20
+const MAX_TELEGRAM_MEDIA_BYTES = 20 << 20
+const FILE_TRANSFER_TIMEOUT_MS = 20_000
+
+export type IngestedTelegramFile = {
+  id: string
+  url: string
+  size: number
+  contentType: string
+}
+
+export type TelegramFileMetadata = {
+  providerFileId?: string
+  providerFileUniqueId?: string
+  providerMessageId?: string
+  providerMediaGroupId?: string
+  filename?: string
+}
 
 // Telegram's servers cannot fetch our protected file-store URLs because they do not have the
 // runtime bearer token. Fetch only the canonical file-download route owned by this Botruntime
@@ -58,7 +74,7 @@ export async function resolveTelegramMedia(fileUrl: string, title?: string, oper
   const internalUrl = new URL(`${publicUrl.pathname}${publicUrl.search}`, process.env.BP_API_URL).toString()
   let response: Response
   try {
-    response = await fetch(internalUrl, { headers, signal: AbortSignal.timeout(20_000) })
+    response = await fetch(internalUrl, { headers, signal: AbortSignal.timeout(FILE_TRANSFER_TIMEOUT_MS) })
   } catch (error) {
     throw protectedDownloadError(error, operation, 'PROTECTED_DOWNLOAD_FAILED')
   }
@@ -92,7 +108,7 @@ function isBotruntimeFileDownload(url: string, base: string | undefined): boolea
 
 async function readProtectedMediaCapped(response: Response): Promise<Buffer> {
   const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > MAX_PROTECTED_MEDIA_BYTES) throw mediaTooLarge()
+  if (Number.isFinite(declared) && declared > MAX_TELEGRAM_MEDIA_BYTES) throw mediaTooLarge()
   if (!response.body) return Buffer.alloc(0)
 
   const reader = response.body.getReader()
@@ -103,7 +119,7 @@ async function readProtectedMediaCapped(response: Response): Promise<Buffer> {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_PROTECTED_MEDIA_BYTES) throw mediaTooLarge()
+      if (total > MAX_TELEGRAM_MEDIA_BYTES) throw mediaTooLarge()
       chunks.push(value)
     }
   } finally {
@@ -144,26 +160,39 @@ function filenameFromUrl(url: string): string {
   }
 }
 
-// Download the bytes behind a (token-bearing, server-side-only) Telegram file URL, push them into
-// cloudapi, and return the token-free download URL the bot/platform will see.
-export async function ingestTelegramFileLink(fileLink: string, key: string, contentType: string): Promise<string> {
-  const dl = await fetch(fileLink)
+// Download the bytes behind a token-bearing Telegram URL, store them privately in cloudapi and
+// return the stable Files API id plus the current token-free download URL.
+export async function ingestTelegramFileLink(
+  fileLink: string,
+  key: string,
+  contentType: string,
+  providerMetadata: TelegramFileMetadata = {},
+): Promise<IngestedTelegramFile> {
+  const existing = await getStoredFile(key)
+  if (existing) return existing
+
+  const dl = await fetch(fileLink, { signal: AbortSignal.timeout(FILE_TRANSFER_TIMEOUT_MS) })
   if (!dl.ok) {
     throw new Error(`telegram: file download -> ${dl.status}`)
   }
-  const bytes = new Uint8Array(await dl.arrayBuffer())
+  const bytes = await readInboundMediaCapped(dl)
 
   const { base, headers } = cloudApi()
   const upsertRes = await fetch(`${base}/v1/files`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ key, size: bytes.byteLength, contentType }),
+    body: JSON.stringify({
+      key,
+      size: bytes.byteLength,
+      contentType,
+      metadata: compactObject({ source: 'telegram', ...providerMetadata, declaredContentType: contentType }),
+    }),
   })
   if (!upsertRes.ok) {
     throw new Error(`telegram: upsert file -> ${upsertRes.status}`)
   }
-  const reg = (await upsertRes.json()) as { file?: { uploadUrl?: string; url?: string } }
-  if (!reg.file?.uploadUrl || !reg.file.url) {
+  const reg = (await upsertRes.json()) as { file?: { id?: string; uploadUrl?: string; url?: string } }
+  if (!reg.file?.id || !reg.file.uploadUrl || !reg.file.url) {
     throw new Error('telegram: upsert file did not return upload/download urls')
   }
 
@@ -172,8 +201,81 @@ export async function ingestTelegramFileLink(fileLink: string, key: string, cont
     headers: { authorization: headers.authorization, 'x-bot-id': headers['x-bot-id']!, 'content-type': contentType },
     body: bytes,
   })
+  if (putRes.status === 409) {
+    const winner = await waitForStoredFile(key)
+    if (winner) return winner
+  }
   if (!putRes.ok) {
     throw new Error(`telegram: upload file bytes -> ${putRes.status}`)
   }
-  return reg.file.url
+  return { id: reg.file.id, url: reg.file.url, size: bytes.byteLength, contentType }
+}
+
+type CloudFileResponse = {
+  file?: {
+    id?: string
+    url?: string
+    size?: number | null
+    contentType?: string
+    status?: string
+  }
+}
+
+async function getStoredFile(key: string): Promise<IngestedTelegramFile | undefined> {
+  const { base, headers } = cloudApi()
+  const response = await fetch(`${base}/v1/files/${encodeURIComponent(key)}`, {
+    headers: { authorization: headers.authorization, 'x-bot-id': headers['x-bot-id']! },
+    signal: AbortSignal.timeout(FILE_TRANSFER_TIMEOUT_MS),
+  })
+  if (response.status === 404) return undefined
+  if (!response.ok) throw new Error(`telegram: get file -> ${response.status}`)
+  const { file } = (await response.json()) as CloudFileResponse
+  if (!file?.id || !file.url || typeof file.size !== 'number' || !file.contentType) return undefined
+  if (file.status === 'upload_pending' || file.status === 'upload_failed') return undefined
+  return { id: file.id, url: file.url, size: file.size, contentType: file.contentType }
+}
+
+async function waitForStoredFile(key: string): Promise<IngestedTelegramFile | undefined> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const file = await getStoredFile(key)
+    if (file) return file
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return undefined
+}
+
+async function readInboundMediaCapped(response: Response): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_TELEGRAM_MEDIA_BYTES) throw inboundMediaTooLarge()
+  if (!response.body) return new Uint8Array()
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > MAX_TELEGRAM_MEDIA_BYTES) throw inboundMediaTooLarge()
+      chunks.push(value)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+  const output = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    output.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return output
+}
+
+function inboundMediaTooLarge(): Error {
+  return new Error('telegram: inbound media exceeds the 20 MiB limit')
+}
+
+function compactObject(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined))
 }

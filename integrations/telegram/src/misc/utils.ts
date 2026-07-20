@@ -109,16 +109,46 @@ export const getUserNameFromTelegramUser = (telegramUser: User) => {
 
 export type IncomingMessage = { type: string; payload: Record<string, unknown> }
 
-// Resolve a Telegram file_id to its public link (token-bearing, used server-side only) then
-// byte-ingest into cloudapi, returning a token-free URL (see files.ts for the WHY).
+// Resolve a Telegram file_id server-side, then return a durable private Files API reference.
 async function ingestById(
   telegram: Telegram,
   fileId: string,
   fileUniqueId: string,
-  contentType: string
-): Promise<string> {
+  contentType: string,
+  message: TelegramMessage,
+  filename?: string,
+) {
   const link = await telegram.getFileLink(fileId).catch(mapToRuntimeErrorAndThrow('Fail to get file link'))
-  return ingestTelegramFileLink(link.href, `telegram/${fileUniqueId}`, contentType)
+  return ingestTelegramFileLink(link.href, `telegram/${fileUniqueId}`, contentType, {
+    providerFileId: fileId,
+    providerFileUniqueId: fileUniqueId,
+    providerMessageId: String(message.message_id),
+    providerMediaGroupId: mediaGroupId(message),
+    filename,
+  })
+}
+
+function storedFilePayload(
+  file: Awaited<ReturnType<typeof ingestById>>,
+  message: TelegramMessage,
+  providerFileId: string,
+  providerFileUniqueId: string,
+  filename?: string,
+) {
+  return {
+    fileId: file.id,
+    ...(filename ? { filename } : {}),
+    contentType: file.contentType,
+    size: file.size,
+    providerFileId,
+    providerFileUniqueId,
+    providerMessageId: String(message.message_id),
+    ...(mediaGroupId(message) ? { providerMediaGroupId: mediaGroupId(message) } : {}),
+  }
+}
+
+function mediaGroupId(message: TelegramMessage): string | undefined {
+  return 'media_group_id' in message && typeof message.media_group_id === 'string' ? message.media_group_id : undefined
 }
 
 export const convertTelegramMessageToBotpressMessage = async ({
@@ -133,52 +163,91 @@ export const convertTelegramMessageToBotpressMessage = async ({
   if ('photo' in message) {
     const photo = _.maxBy(message.photo, (p) => p.height * p.width)
     ok(photo, 'No photo found in message')
-    const imageUrl = await ingestById(telegram, photo.file_id, photo.file_unique_id, 'image/jpeg')
-    return { type: 'image', payload: { imageUrl } }
+    const file = await ingestById(telegram, photo.file_id, photo.file_unique_id, 'image/jpeg', message)
+    return {
+      type: 'image',
+      payload: { imageUrl: file.url, ...storedFilePayload(file, message, photo.file_id, photo.file_unique_id) },
+    }
   }
 
   if ('sticker' in message) {
     const sticker = (message as TelegramMessage & { sticker: Sticker }).sticker
-    const imageUrl = await ingestById(telegram, sticker.file_id, sticker.file_unique_id, 'image/webp')
-    return { type: 'image', payload: { imageUrl } }
+    const file = await ingestById(telegram, sticker.file_id, sticker.file_unique_id, 'image/webp', message)
+    return {
+      type: 'image',
+      payload: { imageUrl: file.url, ...storedFilePayload(file, message, sticker.file_id, sticker.file_unique_id) },
+    }
   }
 
   if ('audio' in message) {
-    const audioUrl = await ingestById(
+    const file = await ingestById(
       telegram,
       message.audio.file_id,
       message.audio.file_unique_id,
-      message.audio.mime_type ?? 'audio/mpeg'
+      message.audio.mime_type ?? 'audio/mpeg',
+      message,
+      message.audio.file_name,
     )
-    return { type: 'audio', payload: { audioUrl } }
+    return {
+      type: 'audio',
+      payload: {
+        audioUrl: file.url,
+        ...storedFilePayload(file, message, message.audio.file_id, message.audio.file_unique_id, message.audio.file_name),
+      },
+    }
   }
 
   if ('voice' in message) {
-    const audioUrl = await ingestById(
+    const file = await ingestById(
       telegram,
       message.voice.file_id,
       message.voice.file_unique_id,
-      message.voice.mime_type ?? 'audio/ogg'
+      message.voice.mime_type ?? 'audio/ogg',
+      message,
     )
-    return { type: 'audio', payload: { audioUrl } }
+    return {
+      type: 'audio',
+      payload: { audioUrl: file.url, ...storedFilePayload(file, message, message.voice.file_id, message.voice.file_unique_id) },
+    }
   }
 
   if ('video' in message) {
-    const videoUrl = await ingestById(
+    const file = await ingestById(
       telegram,
       message.video.file_id,
       message.video.file_unique_id,
-      message.video.mime_type ?? 'video/mp4'
+      message.video.mime_type ?? 'video/mp4',
+      message,
+      message.video.file_name,
     )
-    return { type: 'video', payload: { videoUrl } }
+    return {
+      type: 'video',
+      payload: {
+        videoUrl: file.url,
+        ...storedFilePayload(file, message, message.video.file_id, message.video.file_unique_id, message.video.file_name),
+      },
+    }
   }
 
   if ('document' in message) {
     const contentType = message.document.mime_type ?? 'application/octet-stream'
-    const fileUrl = await ingestById(telegram, message.document.file_id, message.document.file_unique_id, contentType)
+    const filename = message.document.file_name
+    const file = await ingestById(
+      telegram,
+      message.document.file_id,
+      message.document.file_unique_id,
+      contentType,
+      message,
+      filename,
+    )
     return {
       type: 'file',
-      payload: { fileUrl, title: message.document.file_name ?? 'файл', mimeType: contentType },
+      payload: {
+        fileUrl: file.url,
+        title: filename ?? 'файл',
+        mimeType: contentType,
+        ...storedFilePayload(file, message, message.document.file_id, message.document.file_unique_id, filename),
+      },
     }
   }
 
