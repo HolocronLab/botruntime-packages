@@ -8,6 +8,7 @@ const storedMediaFields = {
   providerFileId: z.string().min(1).optional().describe('Telegram file_id used to download the media'),
   providerFileUniqueId: z.string().min(1).optional().describe('Telegram stable file_unique_id'),
   providerMessageId: z.string().min(1).optional().describe('Telegram message_id carrying the media'),
+  providerUpdateId: z.string().min(1).optional().describe('Telegram update_id carrying the media'),
   providerMediaGroupId: z.string().min(1).optional().describe('Telegram media_group_id for album membership'),
 }
 
@@ -38,12 +39,18 @@ const _audioMessageDefinition = {
 
 const _videoMessageDefinition = {
   ...messages.defaults.video,
-  schema: messages.defaults.video.schema.extend(storedMediaFields),
+  schema: messages.defaults.video.schema.extend({
+    caption: z.string().optional().describe('The caption/description of the video'),
+    ...storedMediaFields,
+  }),
 }
 
 const _fileMessageDefinition = {
   ...messages.defaults.file,
-  schema: messages.defaults.file.schema.extend(storedMediaFields),
+  schema: messages.defaults.file.schema.extend({
+    caption: z.string().optional().describe('The caption/description of the file'),
+    ...storedMediaFields,
+  }),
 }
 
 const _blocSchema = z.union([

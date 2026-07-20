@@ -50,6 +50,7 @@ test('file payload preserves transport compatibility and exposes a stable Files 
     } as never,
     telegram: { getFileLink: async () => new URL('https://telegram.test/document') } as never,
     logger: { forBot: () => ({ warn: () => undefined }) } as never,
+    updateId: 99,
   })
 
   expect(result).toEqual({
@@ -59,6 +60,7 @@ test('file payload preserves transport compatibility and exposes a stable Files 
       title: 'ДДУ.pdf', mimeType: 'application/pdf', fileId: 'telegram/unique-doc', filename: 'ДДУ.pdf',
       contentType: 'application/pdf', size: 9, providerFileId: 'provider-doc',
       providerFileUniqueId: 'unique-doc', providerMessageId: '42', providerMediaGroupId: 'album-3',
+      providerUpdateId: '99',
     },
   })
   expect(telegramMessageChannels.file.schema.parse(result.payload)).toMatchObject({
@@ -69,5 +71,42 @@ test('file payload preserves transport compatibility and exposes a stable Files 
     providerFileUniqueId: 'unique-doc',
     providerMessageId: '42',
     providerMediaGroupId: 'album-3',
+    providerUpdateId: '99',
   })
+})
+
+test('album media keeps its caption once on the media item', async () => {
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const request = url instanceof Request ? new Request(url, init) : new Request(String(url), init)
+    if (request.url === 'https://runtime.internal/v1/files/telegram%2Funique-photo') return new Response('{}', { status: 404 })
+    if (request.url === 'https://telegram.test/photo') return new Response('image-bytes')
+    if (request.url === 'https://runtime.internal/v1/files') {
+      return new Response(JSON.stringify({ file: {
+        id: 'telegram/unique-photo',
+        url: 'https://runtime.example/v1/files/download?key=telegram%2Funique-photo',
+        uploadUrl: 'https://runtime.internal/v1/files/upload?key=telegram%2Funique-photo&token=1',
+      } }))
+    }
+    if (request.url.includes('/v1/files/upload?')) return new Response('{}')
+    throw new Error(`unexpected request ${request.url}`)
+  }) as typeof fetch
+
+  const result = await convertTelegramMessageToBotpressMessage({
+    message: {
+      message_id: 43, date: 1, chat: { id: 7, type: 'private' }, media_group_id: 'album-3',
+      caption: 'ДДУ **и** акт',
+      photo: [{ file_id: 'provider-photo', file_unique_id: 'unique-photo', width: 10, height: 10, file_size: 11 }],
+    } as never,
+    telegram: { getFileLink: async () => new URL('https://telegram.test/photo') } as never,
+    logger: { forBot: () => ({ warn: () => undefined }) } as never,
+    updateId: 100,
+  })
+
+  expect(result.payload).toMatchObject({
+    caption: 'ДДУ **и** акт',
+    providerMessageId: '43',
+    providerUpdateId: '100',
+    providerMediaGroupId: 'album-3',
+  })
+  expect(telegramMessageChannels.image.schema.parse(result.payload)).toMatchObject({ caption: 'ДДУ **и** акт' })
 })

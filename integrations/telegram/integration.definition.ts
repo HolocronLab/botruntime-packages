@@ -51,6 +51,7 @@ export default new IntegrationDefinition({
           chatId: { title: 'Chat ID', description: 'The message Chat id' },
           updateId: { title: 'Update ID', description: 'Telegram update_id used for webhook deduplication' },
           webhookId: { title: 'Webhook ID', description: 'Botruntime installation webhook identity' },
+          mediaGroupId: { title: 'Media Group ID', description: 'Telegram media_group_id used for album aggregation' },
         },
       },
       conversation: {

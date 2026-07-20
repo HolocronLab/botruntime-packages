@@ -22,6 +22,7 @@ import type { Context } from './bp'
 import type { Client, HandlerProps, TelegramMessage, TypingActionProps } from './misc/types'
 import { isTelegramServiceMessage } from './misc/service-messages'
 import { conversationTagId, threadExtra, topicThreadId } from './misc/threading'
+import { persistInboundTelegramMessage } from './misc/media-group'
 import {
   convertTelegramMessageToBotpressMessage,
   getChat,
@@ -185,24 +186,26 @@ const webhookHandler = async (props: HandlerProps) =>
 
     const botToken = await getStoredBotToken(client, ctx.integrationId, ctx.configuration.botToken)
     const telegraf = makeTelegraf(botToken)
-    const bpMessage = await convertTelegramMessageToBotpressMessage({ message, telegram: telegraf.telegram, logger })
+    const bpMessage = await convertTelegramMessageToBotpressMessage({
+      message,
+      telegram: telegraf.telegram,
+      logger,
+      updateId,
+    })
 
     logger.forBot().debug(`Received message from user ${telegramUserId}: ${JSON.stringify(message)}`)
 
-    await client
-      .getOrCreateMessage({
-        tags: {
-          id: messageId.toString(),
-          chatId: telegramConversationId.toString(),
-          updateId: updateId.toString(),
-          webhookId: ctx.webhookId,
-        },
-        discriminateByTags: ['webhookId', 'updateId'],
-        type: bpMessage.type,
-        payload: bpMessage.payload,
-        userId: user.id,
-        conversationId: conversation.id,
-      })
+    await persistInboundTelegramMessage({
+      client,
+      message: bpMessage,
+      messageId: messageId.toString(),
+      updateId: updateId.toString(),
+      mediaGroupId: 'media_group_id' in message ? message.media_group_id : undefined,
+      webhookId: ctx.webhookId,
+      chatId: telegramConversationId.toString(),
+      userId: user.id,
+      conversationId: conversation.id,
+    })
       .catch(mapToRuntimeErrorAndThrow('Fail to create message'))
 
     return { status: 200 }
