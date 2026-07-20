@@ -2,7 +2,7 @@
   "name": "@holocronlab/botruntime-llmz",
   "type": "module",
   "description": "An LLM-native Typescript VM built on top of botruntime Zui - code-generation agent framework",
-  "version": "0.0.89",
+  "version": "0.1.0",
   "types": "./dist/index.d.ts",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

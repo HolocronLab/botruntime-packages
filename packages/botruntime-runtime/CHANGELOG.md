@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.3.0 (current) — 2026-07-20
+## 2.4.0 (current) — 2026-07-20
+
+- Forward incoming PDF files to multimodal models through the existing URL and MIME-type contract, including PDFs inside bloc messages. Images remain native, while unsupported files such as DOCX stay available only as structured message metadata.
+
+## 2.3.0 — 2026-07-20
 
 - `generateContent` пробрасывает `conversationId` в тело cognitive-запроса
 (`InputProps`/`CognitiveRequest`), а `InstrumentedCognitive` инжектит активный
