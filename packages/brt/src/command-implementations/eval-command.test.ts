@@ -665,9 +665,14 @@ describe('brt eval public contract', () => {
       })
 
       const pending = runCommand({ json: true }).handler()
-      for (let index = 0; index < 10 && calls.length < 6; index++) {
+      for (let index = 0; index < 200 && calls.length === 0; index++) {
         await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      expect(calls.length).toBeGreaterThanOrEqual(1)
+
+      for (let index = 0; index < 20 && calls.length < 6; index++) {
         await vi.runOnlyPendingTimersAsync()
+        await new Promise<void>((resolve) => setImmediate(resolve))
       }
       expect(calls.length).toBeGreaterThanOrEqual(6)
       const response = await pending

@@ -80,6 +80,39 @@ test('docs contract CI retains the checkout SDK until its bumped version is publ
   )
 })
 
+test('docs contract CI retains unreleased ZUI and JEX throughout a release PR', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+  const zuiBuild = workflow.indexOf('name: Build the current botruntime-zui package')
+  const jexBuild = workflow.indexOf('name: Build the current botruntime-jex package')
+  const sdkBuild = workflow.indexOf('name: Build the current botruntime-sdk package')
+
+  assert.ok(zuiBuild >= 0 && jexBuild > zuiBuild && sdkBuild > jexBuild)
+
+  const expectedLocalDependencies = new Map([
+    ['botruntime-sdk', ['botruntime-zui']],
+    ['botruntime-zai', ['botruntime-zui']],
+    ['botruntime-llmz', ['botruntime-zui']],
+    ['botruntime-runtime', ['botruntime-zui']],
+    ['botruntime-adk', ['botruntime-zui', 'botruntime-jex']],
+    ['brt', ['botruntime-zui']],
+  ])
+
+  for (const [packageName, dependencies] of expectedLocalDependencies) {
+    const prepareLine = workflow
+      .split('\n')
+      .find((line) => line.includes(`--package=packages/${packageName}`))
+    assert.ok(prepareLine, `docs-contract must prepare ${packageName}`)
+    for (const dependency of dependencies) {
+      assert.match(
+        prepareLine,
+        new RegExp(`--exclude=@holocronlab/${dependency}(?:\\s|$)`),
+        `${packageName} must keep the checkout ${dependency} package local`
+      )
+    }
+  }
+})
+
 test('docs contract CI retains checkout analytics while building ADK', () => {
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
 

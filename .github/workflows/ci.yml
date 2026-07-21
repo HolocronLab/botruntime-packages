@@ -201,12 +201,27 @@ jobs:
         working-directory: packages/botruntime-chat
         run: bun install --frozen-lockfile --ignore-scripts
 
+      # Release PRs bump these low-level packages before their immutable npm
+      # versions exist. Build the checkout copies once and keep them local in
+      # every downstream package that participates in docs-contract.
+      - name: Build the current botruntime-zui package
+        working-directory: packages/botruntime-zui
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+
+      - name: Build the current botruntime-jex package
+        working-directory: packages/botruntime-jex
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+
       # The SDK carries the integration network type added by this checkout.
       # Keep the freshly built client local, but resolve the unchanged sibling
       # dependencies from the registry so PR CI does not need SDK publication.
       - name: Build the current botruntime-sdk package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-sdk --exclude=@holocronlab/botruntime-client --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-sdk --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-zui --write
           mv packages/botruntime-sdk/bun.lock "$RUNNER_TEMP/botruntime-sdk.source.bun.lock"
           cd packages/botruntime-sdk
           bun install --no-save --ignore-scripts
@@ -224,7 +239,7 @@ jobs:
 
       - name: Build the current botruntime-zai package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-zai --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-zai --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-zui --write
           mv packages/botruntime-zai/bun.lock "$RUNNER_TEMP/botruntime-zai.source.bun.lock"
           cd packages/botruntime-zai
           bun install --no-save --ignore-scripts
@@ -232,7 +247,7 @@ jobs:
 
       - name: Build the current botruntime-llmz package
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-llmz --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-llmz --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-zui --write
           mv packages/botruntime-llmz/bun.lock "$RUNNER_TEMP/botruntime-llmz.source.bun.lock"
           cd packages/botruntime-llmz
           bun install --no-save --ignore-scripts
@@ -255,7 +270,7 @@ jobs:
         run: |
           ln -s ../botruntime-llmz/patches packages/botruntime-runtime/patches
           trap 'unlink "$GITHUB_WORKSPACE/packages/botruntime-runtime/patches"' EXIT
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-llmz --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-zai --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-runtime --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-llmz --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-zai --exclude=@holocronlab/botruntime-zui --write
           mv packages/botruntime-runtime/bun.lock "$RUNNER_TEMP/botruntime-runtime.source.bun.lock"
           cd packages/botruntime-runtime
           bun install --no-save --ignore-scripts
@@ -278,7 +293,7 @@ jobs:
         run: |
           ln -s ../botruntime-llmz/patches packages/botruntime-adk/patches
           trap 'unlink "$GITHUB_WORKSPACE/packages/botruntime-adk/patches"' EXIT
-          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --write
+          node scripts/prepare-package-publish.mjs --package=packages/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-cognitive --exclude=@holocronlab/botruntime-runtime --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-analytics --exclude=@holocronlab/botruntime-zui --exclude=@holocronlab/botruntime-jex --write
           mv packages/botruntime-adk/bun.lock "$RUNNER_TEMP/botruntime-adk.source.bun.lock"
           cd packages/botruntime-adk
           bun install --no-save --ignore-scripts
@@ -289,7 +304,7 @@ jobs:
       # source lock so Bun cannot silently restore stale file: resolutions.
       - name: Resolve BRT dependencies as published packages
         run: |
-          node scripts/prepare-package-publish.mjs --package=packages/brt --exclude=@holocronlab/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-sdk --write
+          node scripts/prepare-package-publish.mjs --package=packages/brt --exclude=@holocronlab/botruntime-adk --exclude=@holocronlab/botruntime-chat --exclude=@holocronlab/botruntime-evals --exclude=@holocronlab/botruntime-client --exclude=@holocronlab/botruntime-sdk --exclude=@holocronlab/botruntime-zui --write
           mv packages/brt/bun.lock "$RUNNER_TEMP/brt.source.bun.lock"
 
       - name: Install brt contract-generator dependencies

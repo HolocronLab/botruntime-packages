@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 An LLM-native TypeScript VM (code-generation agent framework) built on `@holocronlab/botruntime-zui`.
 See README.md.
 
-## 0.1.0 (current) — 2026-07-20
+## 0.1.1 (current) — 2026-07-21
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zui@2.3.1
+
+## 0.1.0 — 2026-07-20
 
 - Forward incoming PDF files to multimodal models through the existing URL and MIME-type contract, including PDFs inside bloc messages. Images remain native, while unsupported files such as DOCX stay available only as structured message metadata.
 

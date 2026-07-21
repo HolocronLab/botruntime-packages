@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-evals",
-  "version": "2.1.20",
+  "version": "2.1.21",
   "description": "Evaluation definitions and runner for brt-based botruntime agents",
   "botruntime": {
     "capabilities": {
