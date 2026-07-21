@@ -21,8 +21,8 @@
       "package": "botruntime-zui",
       "path": "packages/botruntime-zui",
       "upstream": "@bpinternal/zui",
-      "pinned": "2.3.0",
-      "source": "README.md; CHANGELOG.md; commit e3694c9 ('fork @bpinternal/zui@2.3.0 from source')",
+      "pinned": "2.3.1",
+      "source": "README.md; CHANGELOG.md; commit e3694c9 ('fork @bpinternal/zui@2.3.0 from source'); synchronized through @bpinternal/zui@2.3.1 on 2026-07-21",
       "note": null
     },
     {
@@ -85,9 +85,9 @@
       "package": "botruntime-jex",
       "path": "packages/botruntime-jex",
       "upstream": "@bpinternal/jex",
-      "pinned": "1.2.4",
-      "source": "commit 38d2c83 ('npm source, 86 tests pass, leaf')",
-      "note": null
+      "pinned": "1.3.1",
+      "source": "commit 38d2c83 ('npm source, 86 tests pass, leaf'); synchronized through @bpinternal/jex@1.3.1 on 2026-07-21",
+      "note": "Keeps JexUnsuportedJsonSchemaError as a deprecated local alias for source compatibility."
     },
     {
       "package": "botruntime-analytics",
@@ -119,7 +119,7 @@
       "upstream": "@botpress/zai",
       "pinned": "2.7.1",
       "source": "commit 6495425 ('clone source; repoint cognitive/thicktoken/zui')",
-      "note": null
+      "note": "Partial point ports from @botpress/zai@2.9.1 on 2026-07-21: stale micropatch insert guard (f6d5a0b46) and rewrite output-length enforcement. The 2.7.1 pin intentionally remains until the rest of the upstream source range is reconciled."
     },
     {
       "package": "botruntime-llmz",
@@ -151,7 +151,7 @@
       "upstream": "@botpress/cli",
       "pinned": null,
       "source": "README.md and CHANGELOG.md both say 'full fork of @botpress/cli' but neither, nor any commit message (0eca3d4, a69d364, f4a8963), records the upstream version number",
-      "note": "Sibling packages forked in the same window (client@1.46.0, sdk@6.13.0, chat@0.5.5, zui@2.3.0, all committed 2026-06-30) suggest the CLI fork point is from that same @botpress/cli release train, but that is an inference, not a recorded fact — do not treat it as a pin. Needs a one-time manual reconciliation (e.g. diff @botpress/cli's published versions around 2026-06-30) before this entry can carry a real version."
+      "note": "Sibling packages forked in the same window (client@1.46.0, sdk@6.13.0, chat@0.5.5, zui@2.3.0, all committed 2026-06-30) suggest the CLI fork point is from that same @botpress/cli release train, but that is an inference, not a recorded fact — do not treat it as a pin. Needs a one-time manual reconciliation (e.g. diff @botpress/cli's published versions around 2026-06-30) before this entry can carry a real version. Point-port recorded on 2026-07-21: 180-second API timeout from @botpress/cli@6.8.12 (1e0bb4dfe)."
     },
     {
       "package": "integrations/telegram",

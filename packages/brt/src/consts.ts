@@ -11,6 +11,7 @@ export const defaultBotpressHome = pathlib.join(os.homedir(), '.brt')
 export const defaultWorkDir = process.cwd()
 export const defaultInstallPath = process.cwd()
 export const defaultBotpressApiUrl = 'https://botruntime.ru'
+export const defaultBotpressApiTimeout = 180_000
 export const defaultBotpressAppUrl = 'https://botruntime.ru'
 export const defaultTunnelUrl = 'https://botruntime.ru'
 export const defaultChatApiUrl = 'https://botruntime.ru'
