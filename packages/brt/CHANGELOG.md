@@ -6,7 +6,11 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.24 (current) — 2026-07-21
+## 0.7.25 (current) — 2026-07-21
+
+- Port Botpress fixes for recursive ZUI schemas, JSON Schema `oneOf`, stale micropatch line references, bounded rewrite output, and slow CLI API operations while preserving local compatibility contracts.
+
+## 0.7.24 — 2026-07-21
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.4.1
 

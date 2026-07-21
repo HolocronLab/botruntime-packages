@@ -5,7 +5,15 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.4.1 (current) — 2026-07-21
+## 2.4.2 (current) — 2026-07-21
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.21
+- Обновлены внутренние зависимости: @holocronlab/botruntime-llmz@0.1.1
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.13.8
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.4
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zui@2.3.1
+
+## 2.4.1 — 2026-07-21
 
 - `Chat.addMessage` now upserts by message id instead of silently no-op'ing on a
 repeat id: if the redelivered message's content or attachments differ from what
