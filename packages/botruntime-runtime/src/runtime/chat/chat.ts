@@ -96,6 +96,16 @@ function nativeAttachment(type: unknown, payload: unknown): Transcript.Attachmen
   return undefined
 }
 
+function transcriptContent(item: TranscriptItem): string | undefined {
+  return 'content' in item ? item.content : undefined
+}
+
+function sameAttachments(left: TranscriptItem, right: TranscriptItem): boolean {
+  const leftAttachments = 'attachments' in left ? (left.attachments ?? []) : []
+  const rightAttachments = 'attachments' in right ? (right.attachments ?? []) : []
+  return JSON.stringify(leftAttachments) === JSON.stringify(rightAttachments)
+}
+
 export type ComponentHandler<
   T extends Autonomous.Component = Autonomous.Component,
   // llmz's RenderedComponent constrains props to `{}`; fall back to it (not
@@ -605,9 +615,25 @@ export class Chat extends _llmzChat {
     }
 
     const item = await this.transformMessage(message)
+    if (!item) return
 
-    if (!item || this._transcript?.find((m) => m.id === message.id)) {
-      // Message already exists in transcript
+    const existingIndex = this._transcript?.findIndex((m) => m.id === message.id) ?? -1
+
+    if (existingIndex >= 0) {
+      const existing = this._transcript![existingIndex]!
+      if (transcriptContent(existing) === transcriptContent(item) && sameAttachments(existing, item)) {
+        // Redelivery of an already-transcribed message (e.g. a Telegram bloc retry) with no
+        // new content — the platform's trailing-edge touch can repeat delivery verbatim.
+        return
+      }
+
+      // Trailing-edge redelivery of a bloc carries the fuller payload (more album parts);
+      // upsert in place instead of leaving the transcript stuck on the first partial version.
+      // The cursor is deliberately left untouched below: this id already advanced it (or was
+      // covered by a batch advance) on its first delivery, and advanceTranscriptCursor trusts
+      // whatever message it is given, so replaying this older message here would regress the
+      // durable watermark behind messages that arrived — and were cursor-advanced — since.
+      this._transcript![existingIndex] = { ...item, id: message.id }
       return
     }
 

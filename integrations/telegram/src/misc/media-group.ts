@@ -3,6 +3,11 @@ import type { IncomingMessage } from './utils'
 
 const ALBUM_SETTLE_DELAY_MS = 2_000
 
+// Telegram Bot API's sendMediaGroup accepts 2–10 items per album; once an album reaches the
+// cap there are no further parts to wait for, so it is flushed immediately instead of riding
+// out the trailing-edge debounce window.
+const TELEGRAM_ALBUM_MAX_ITEMS = 10
+
 type RuntimeMessage = {
   id: string
   type?: string
@@ -102,10 +107,29 @@ export async function persistInboundTelegramMessage({
 
   // get-or-create is the atomic album identity boundary. Integration webhook delivery is FIFO per
   // installation, so later parts can safely update the one scheduled message without process-local
-  // timers or state. A retry of the first update returns the existing message and is deduplicated.
+  // timers or state. Every touch (first part or later) shifts platform delivery to now+delay
+  // (trailing-edge debounce); a retry of the first update returns the existing message and is
+  // deduplicated the same way.
   if (meta?.created) return
 
   const items = readBlocItems(stored)
   if (isDuplicate(items, message)) return
-  await client.updateMessage({ id: stored.id, payload: { items: [...items, message].sort(compareProviderOrder) } })
+  const updatedItems = [...items, message].sort(compareProviderOrder)
+  await client.updateMessage({ id: stored.id, payload: { items: updatedItems } })
+
+  if (updatedItems.length >= TELEGRAM_ALBUM_MAX_ITEMS) {
+    // The album is as full as Telegram will ever send it — touch with delay 0 to deliver
+    // immediately rather than waiting out the settle window for parts that will never arrive.
+    // The platform ignores this touch's payload on a hit, so it mirrors the minimal shape used
+    // to create the bloc.
+    await client.getOrCreateMessage({
+      tags,
+      discriminateByTags: ['webhookId', 'chatId', 'mediaGroupId'],
+      type: 'bloc',
+      payload: { items: [message] },
+      userId,
+      conversationId,
+      schedule: { delay: 0 },
+    })
+  }
 }
