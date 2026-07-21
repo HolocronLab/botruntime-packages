@@ -4,7 +4,7 @@ import { configuration } from './definitions/configuration'
 
 export default new IntegrationDefinition({
   name: 'pochta',
-  version: '0.1.0',
+  version: '0.1.1',
   title: 'Почта России',
   description: 'Отслеживание отправлений, вручения и возврата через официальный SOAP API Почты России.',
   readme: 'hub.md',

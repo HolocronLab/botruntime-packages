@@ -6,6 +6,14 @@ const MAX_RESPONSE_BYTES = 1 << 20
 const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_RETRY_DELAY_MS = 500
 
+export const POCHTA_ERROR_CODE = {
+  authorizationFailed: 'POCHTA_AUTHORIZATION_FAILED',
+  soapFault: 'POCHTA_SOAP_FAULT',
+  apiError: 'POCHTA_API_ERROR',
+} as const
+
+export type PochtaErrorCode = typeof POCHTA_ERROR_CODE[keyof typeof POCHTA_ERROR_CODE]
+
 export type TrackingStatus = 'not_found' | 'in_transit' | 'delivered' | 'returned'
 
 export type TrackingOperation = {
@@ -36,7 +44,11 @@ export type PochtaClientConfig = {
 }
 
 export class PochtaApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly code: PochtaErrorCode = POCHTA_ERROR_CODE.apiError,
+  ) {
     super(message)
     this.name = 'PochtaApiError'
   }
@@ -74,8 +86,7 @@ export class PochtaClient {
       try {
         return await this.requestOnce(trackingNumber)
       } catch (error) {
-        const status = error instanceof PochtaApiError ? error.status : 0
-        if (!isTransient(status) || attempt >= this.maxAttempts) throw error
+        if (!isTransient(error) || attempt >= this.maxAttempts) throw error
         await delay(this.retryDelayMs << (attempt - 1))
       }
     }
@@ -97,8 +108,20 @@ export class PochtaClient {
         throw new PochtaApiError(0, error instanceof Error ? error.message : 'network error')
       }
       const text = await readCappedText(response)
-      if (containsSoapFault(text)) {
-        throw new PochtaApiError(response.status, `Pochta API SOAP Fault (HTTP ${response.status})`)
+      const soapFault = classifySoapFault(text)
+      if (soapFault === POCHTA_ERROR_CODE.authorizationFailed) {
+        throw new PochtaApiError(
+          response.status,
+          `Pochta API authorization rejected [${soapFault}] (HTTP ${response.status})`,
+          soapFault,
+        )
+      }
+      if (soapFault === POCHTA_ERROR_CODE.soapFault) {
+        throw new PochtaApiError(
+          response.status,
+          `Pochta API SOAP Fault [${soapFault}] (HTTP ${response.status})`,
+          soapFault,
+        )
       }
       if (!response.ok) throw new PochtaApiError(response.status, `Pochta API returned HTTP ${response.status}`)
       return parseTrackingResponse(trackingNumber, text)
@@ -206,13 +229,74 @@ function containsSoapFault(xml: string): boolean {
   return /<(?:[A-Za-z_][\w.-]*:)?Fault(?:\s|>)/.test(xml)
 }
 
+function classifySoapFault(xml: string): PochtaErrorCode | undefined {
+  if (!containsSoapFault(xml)) return undefined
+
+  let parsed: unknown
+  try {
+    parsed = new XMLParser({
+      ignoreAttributes: false,
+      removeNSPrefix: true,
+      parseTagValue: false,
+      trimValues: true,
+    }).parse(xml)
+  } catch {
+    return POCHTA_ERROR_CODE.soapFault
+  }
+
+  const fault = (parsed as any)?.Envelope?.Body?.Fault
+  if (!fault || typeof fault !== 'object') return POCHTA_ERROR_CODE.soapFault
+  if (findNamedSoapValue(fault, 'AuthorizationFaultReason') !== undefined) {
+    return POCHTA_ERROR_CODE.authorizationFailed
+  }
+
+  const reason = [
+    soapText((fault as any)?.Reason?.Text),
+    soapText((fault as any)?.faultstring),
+  ].filter(Boolean).join(' ')
+  return isAuthorizationFaultReason(reason)
+    ? POCHTA_ERROR_CODE.authorizationFailed
+    : POCHTA_ERROR_CODE.soapFault
+}
+
+function findNamedSoapValue(root: unknown, name: string): unknown {
+  const pending: unknown[] = [root]
+  for (let visited = 0; pending.length > 0 && visited < 2_000; visited++) {
+    const value = pending.pop()
+    if (!value || typeof value !== 'object') continue
+    for (const [key, child] of Object.entries(value)) {
+      if (key === name) return child
+      if (child && typeof child === 'object') pending.push(child)
+    }
+  }
+  return undefined
+}
+
+function soapText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return ''
+  const text = (value as Record<string, unknown>)['#text']
+  return typeof text === 'string' ? text : ''
+}
+
+function isAuthorizationFaultReason(value: string): boolean {
+  return (
+    /ошибк[аи]\s+авторизац/iu.test(value) ||
+    /неверн\S*\s+(?:имя пользователя|логин).*парол/iu.test(value) ||
+    /authorization\s+(?:failed|fault)/iu.test(value) ||
+    /invalid\s+(?:user\s*name|login).*password/iu.test(value)
+  )
+}
+
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
   })[char]!)
 }
 
-function isTransient(status: number): boolean {
+function isTransient(error: unknown): boolean {
+  if (error instanceof PochtaApiError && error.code === POCHTA_ERROR_CODE.authorizationFailed) return false
+  const status = error instanceof PochtaApiError ? error.status : 0
   return status === 0 || status === 408 || status === 429 || status >= 500
 }
 

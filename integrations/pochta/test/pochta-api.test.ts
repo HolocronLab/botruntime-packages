@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { PochtaApiError, PochtaClient } from '../src/pochta-api'
+import {
+  POCHTA_ERROR_CODE,
+  PochtaApiError,
+  PochtaClient,
+} from '../src/pochta-api'
 
 const cfg = { login: 'api-user', password: 'super-secret', retryDelayMs: 0 }
 
@@ -120,16 +124,59 @@ describe('PochtaClient', () => {
     expect(result.status).toBe('in_transit')
   })
 
-  test('SOAP fault is sanitized and never leaks the configured password', async () => {
-    const fault = `<?xml version="1.0"?><S:Envelope xmlns:S="http://www.w3.org/2003/05/soap-envelope"><S:Body>
-      <S:Fault><S:Reason><S:Text>Authorization failed for super-secret</S:Text></S:Reason></S:Fault>
-    </S:Body></S:Envelope>`
-    const client = new PochtaClient({ ...cfg, fetchImpl: async () => new Response(fault, { status: 500 }) })
+  test('classifies a namespaced authorization fault without exposing provider text or credentials', async () => {
+    const fault = `<?xml version="1.0"?>
+      <soapenv:Envelope xmlns:soapenv="http://www.w3.org/2003/05/soap-envelope"
+        xmlns:tracking="http://russianpost.org/operationhistory/data">
+        <soapenv:Body>
+          <soapenv:Fault>
+            <soapenv:Code><soapenv:Value>soapenv:Receiver</soapenv:Value></soapenv:Code>
+            <soapenv:Reason><soapenv:Text xml:lang="ru">Ошибка авторизации</soapenv:Text></soapenv:Reason>
+            <soapenv:Detail>
+              <tracking:AuthorizationFaultReason>Неверное имя пользователя api-user или пароль super-secret.</tracking:AuthorizationFaultReason>
+            </soapenv:Detail>
+          </soapenv:Fault>
+        </soapenv:Body>
+      </soapenv:Envelope>`
+    let calls = 0
+    const client = new PochtaClient({
+      ...cfg,
+      fetchImpl: async () => {
+        calls++
+        return new Response(fault, { status: 500 })
+      },
+    })
 
     const error = await client.track('RA644000001RU').catch((value) => value)
 
     expect(error).toBeInstanceOf(PochtaApiError)
+    expect(error.code).toBe(POCHTA_ERROR_CODE.authorizationFailed)
+    expect(calls).toBe(1)
+    expect(String(error)).not.toContain('api-user')
     expect(String(error)).not.toContain('super-secret')
-    expect(String(error)).toContain('SOAP Fault')
+    expect(String(error)).not.toContain('Неверное имя пользователя')
+  })
+
+  test('keeps an unknown namespaced SOAP fault generic but diagnosable by code', async () => {
+    const fault = `<?xml version="1.0"?>
+      <S:Envelope xmlns:S="http://www.w3.org/2003/05/soap-envelope">
+        <S:Body><S:Fault>
+          <S:Reason><S:Text>Provider detail for api-user and super-secret</S:Text></S:Reason>
+        </S:Fault></S:Body>
+      </S:Envelope>`
+    const client = new PochtaClient({
+      ...cfg,
+      maxAttempts: 1,
+      fetchImpl: async () => new Response(fault, { status: 500 }),
+    })
+
+    const error = await client.track('RA644000001RU').catch((value) => value)
+
+    expect(error).toBeInstanceOf(PochtaApiError)
+    expect(error.code).toBe(POCHTA_ERROR_CODE.soapFault)
+    expect(String(error)).toContain(POCHTA_ERROR_CODE.soapFault)
+    expect(String(error)).not.toContain('api-user')
+    expect(String(error)).not.toContain('super-secret')
+    expect(String(error)).not.toContain('Provider detail')
   })
 })
