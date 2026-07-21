@@ -1,7 +1,7 @@
 {
   "name": "@holocronlab/botruntime-adk",
   "description": "Core ADK library for building AI agents on botruntime.",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "type": "module",
   "source": "./src/index.ts",
   "main": "./dist/index.js",
