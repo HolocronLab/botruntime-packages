@@ -205,16 +205,25 @@ export class PreflightChecker {
   }
 
   private buildAgentConfigDiffs(project: AgentProject, bot: Bot): AgentConfigDiff[] {
+    const diffs: AgentConfigDiff[] = []
     if (project.config?.name !== undefined && project.config.name !== bot.name) {
-      return [
-        {
-          field: 'name',
-          oldValue: bot.name,
-          newValue: project.config.name,
-        },
-      ]
+      diffs.push({
+        field: 'name',
+        oldValue: bot.name,
+        newValue: project.config.name,
+      })
     }
-    return []
+    if (
+      project.config?.maxExecutionTime !== undefined &&
+      project.config.maxExecutionTime !== bot.maxExecutionTime
+    ) {
+      diffs.push({
+        field: 'maxExecutionTime',
+        oldValue: bot.maxExecutionTime,
+        newValue: project.config.maxExecutionTime,
+      })
+    }
+    return diffs
   }
 
   private async buildSecretWarnings(project: AgentProject, env: Environment): Promise<SecretWarning[]> {

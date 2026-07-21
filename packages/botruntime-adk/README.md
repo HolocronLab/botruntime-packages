@@ -12,6 +12,21 @@ brt dev --check
 brt deploy --adk
 ```
 
+Agent-level runtime settings belong in `agent.config.ts`. For example, one
+message or event invocation can be given a five-minute deadline:
+
+```ts
+import { defineConfig } from '@holocronlab/botruntime-runtime'
+
+export default defineConfig({
+  name: 'support-bot',
+  maxExecutionTime: 300,
+})
+```
+
+The value is in seconds (`1..3600`); omission uses the platform default of
+`120`. Both the generated development bot and production deploy carry it.
+
 The CLI calls this package directly; it does not shell out to an `adk`, `bp`, or
 Botpress executable. This boundary is the accepted architecture in
 [ADR-0006](../../docs/adr/0006-single-cli-brt-engines-mcp.md).

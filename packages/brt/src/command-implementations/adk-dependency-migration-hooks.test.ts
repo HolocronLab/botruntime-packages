@@ -7,7 +7,7 @@ const migrationToolsMock = vi.hoisted(() => ({ load: vi.fn() }))
 
 vi.mock('../adk-bundle', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../adk-bundle')>()),
-  loadAgentRecurringEvents: vi.fn(async () => ({})),
+  loadAgentDeploymentConfig: vi.fn(async () => ({ recurringEvents: {} })),
   loadAdkMigrationTools: migrationToolsMock.load,
 }))
 

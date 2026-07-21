@@ -420,3 +420,11 @@ test('BotDefinition: explicit recurringEvents with no inline counterpart is pres
     payload: {},
   })
 })
+
+test('BotDefinition exposes maxExecutionTime', () => {
+  expect(new BotDefinition({ maxExecutionTime: 300 }).maxExecutionTime).toBe(300)
+})
+
+test.each([0, -1, 1.5, 3601])('BotDefinition rejects invalid maxExecutionTime %p', (maxExecutionTime) => {
+  expect(() => new BotDefinition({ maxExecutionTime })).toThrow(/maxExecutionTime/i)
+})

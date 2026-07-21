@@ -59,6 +59,7 @@ export const AGENT_CONFIG_FILE = 'agent.config.ts'
 export const AGENT_BOT_REL_PATH = path.join('.adk', 'bot')
 
 type WorkflowScheduleProject = {
+  config?: { maxExecutionTime?: number }
   workflows: Array<{
     definition: {
       name: string
@@ -75,6 +76,11 @@ export interface RecurringEventManifestEntry {
 }
 
 export type RecurringEventsManifest = Record<string, RecurringEventManifestEntry>
+
+export interface AgentDeploymentConfig {
+  recurringEvents: RecurringEventsManifest
+  maxExecutionTime?: number
+}
 
 export function buildRecurringEventsManifest(project: WorkflowScheduleProject): RecurringEventsManifest {
   const manifest: RecurringEventsManifest = {}
@@ -96,10 +102,19 @@ export function buildRecurringEventsManifest(project: WorkflowScheduleProject): 
   return manifest
 }
 
-export async function loadAgentRecurringEvents(dir: string): Promise<RecurringEventsManifest> {
+export function buildAgentDeploymentConfig(project: WorkflowScheduleProject): AgentDeploymentConfig {
+  return {
+    recurringEvents: buildRecurringEventsManifest(project),
+    ...(project.config?.maxExecutionTime !== undefined
+      ? { maxExecutionTime: project.config.maxExecutionTime }
+      : {}),
+  }
+}
+
+export async function loadAgentDeploymentConfig(dir: string): Promise<AgentDeploymentConfig> {
   const { AgentProject } = await loadAdkProjectTools()
   const project = await AgentProject.load(dir, { offline: true, noCache: true })
-  return buildRecurringEventsManifest(project)
+  return buildAgentDeploymentConfig(project)
 }
 
 // Where brt's native build drops the generated bot's single-file CJS bundle,

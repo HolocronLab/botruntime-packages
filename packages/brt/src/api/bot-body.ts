@@ -5,6 +5,7 @@ import * as utils from '../utils'
 import * as types from './types'
 
 export const prepareCreateBotBody = async (bot: sdk.BotDefinition): Promise<types.CreateBotRequestBody> => ({
+  maxExecutionTime: bot.maxExecutionTime,
   user: bot.user,
   conversation: bot.conversation,
   message: bot.message,

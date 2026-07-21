@@ -41,7 +41,9 @@ export class AgentConfigSyncManager {
     if (config.name !== undefined) {
       updates.name = config.name
     }
-
+    if (config.maxExecutionTime !== undefined) {
+      updates.maxExecutionTime = config.maxExecutionTime
+    }
     return this.performSync(botId, updates, options)
   }
 
@@ -61,6 +63,9 @@ export class AgentConfigSyncManager {
       switch (change.field) {
         case 'name':
           updates.name = change.newValue as string
+          break
+        case 'maxExecutionTime':
+          updates.maxExecutionTime = change.newValue as number
           break
         default:
           options?.onProgress?.(`Warning: Unknown config field '${change.field}' - skipping sync`)

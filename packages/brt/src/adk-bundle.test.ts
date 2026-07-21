@@ -70,6 +70,21 @@ describe('buildRecurringEventsManifest', () => {
   })
 })
 
+describe('buildAgentDeploymentConfig', () => {
+  it('carries maxExecutionTime with recurring events', () => {
+    expect(
+      adkBundle.buildAgentDeploymentConfig({
+        config: { maxExecutionTime: 300 },
+        workflows: [],
+      })
+    ).toEqual({ recurringEvents: {}, maxExecutionTime: 300 })
+  })
+
+  it('omits maxExecutionTime so the platform default remains authoritative', () => {
+    expect(adkBundle.buildAgentDeploymentConfig({ workflows: [] })).toEqual({ recurringEvents: {} })
+  })
+})
+
 describe('isAgentSourceChange', () => {
   const dir = path.join(os.tmpdir(), 'brt-agent-source')
 

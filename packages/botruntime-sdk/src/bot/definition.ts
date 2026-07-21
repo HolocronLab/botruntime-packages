@@ -207,6 +207,9 @@ export type BotDefinitionProps<
 
   attributes?: Record<string, string>
 
+  /** Maximum time for one bot invocation, in seconds. */
+  maxExecutionTime?: number
+
   __advanced?: SchemaTransformOptions
 }
 
@@ -231,6 +234,7 @@ export class BotDefinition<
   public readonly secrets: this['props']['secrets']
   public readonly workflows: this['props']['workflows']
   public readonly attributes: this['props']['attributes']
+  public readonly maxExecutionTime: this['props']['maxExecutionTime']
   public readonly __advanced: this['props']['__advanced']
 
   /** Bot definition with plugins merged into it */
@@ -240,6 +244,12 @@ export class BotDefinition<
   >
 
   public constructor(public readonly props: BotDefinitionProps<TStates, TEvents, TActions, TTables, TWorkflows>) {
+    if (
+      props.maxExecutionTime !== undefined &&
+      (!Number.isInteger(props.maxExecutionTime) || props.maxExecutionTime < 1 || props.maxExecutionTime > 3600)
+    ) {
+      throw new DefinitionError('maxExecutionTime must be an integer between 1 and 3600 seconds')
+    }
     const events = stripRecurringFromEvents(
       props.events as Record<string, EventDefinition> | undefined
     ) as this['props']['events']
@@ -262,6 +272,7 @@ export class BotDefinition<
     this.secrets = props.secrets
     this.workflows = props.workflows
     this.attributes = props.attributes
+    this.maxExecutionTime = props.maxExecutionTime
     this.__advanced = props.__advanced
 
     this.withPlugins = {
