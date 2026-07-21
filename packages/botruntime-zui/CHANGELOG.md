@@ -2,8 +2,8 @@
 
 Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- packages/botruntime-zui`.
 
-A fork of Zod with additional features. Fork of `@bpinternal/zui@2.3.0` from source (34k LOC, zero
-deps). See README.md.
+A fork of Zod with additional features. Fork of `@bpinternal/zui`, synchronized through 2.3.1
+from source (34k LOC, zero deps). See README.md.
 
 ## 2.3.0 (current)
 

@@ -29,7 +29,7 @@ forked, MIT-attributed, and repointed:
 |---|---|---|
 | `botruntime-client` | `@botpress/client@1.46.0` | fork src; `gen/` codegenerated from the pinned API. Byte-exact type surface (71 `/v1` path templates). |
 | `botruntime-sdk` | `@botpress/sdk@6.13.0` | fork src; repoint client + zui. |
-| `botruntime-zui` | `@bpinternal/zui@2.3.0` | fork from source (34k LOC, zero deps). |
+| `botruntime-zui` | `@bpinternal/zui@2.3.1` | fork from source (34k LOC, zero deps). |
 | `botruntime-chat` | `@botpress/chat@0.5.5` | vendor dist (not the byte oracle). |
 | `botruntime-tunnel` | `@bpinternal/tunnel@0.1.25` | fork from npm source. |
 | `botruntime-verel` | `@bpinternal/verel@0.2.0` | vendor dist (VRL/wasm executor). |
