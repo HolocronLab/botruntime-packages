@@ -1,7 +1,11 @@
 import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import type { IncomingMessage } from './utils'
 
-const ALBUM_SETTLE_DELAY_MS = 2_000
+// The window measures silence between PROCESSED parts, not between Telegram updates: each part
+// downloads and re-uploads its media before the touch, and webhook deliveries are FIFO per
+// installation — so one slow part eats the whole window and the dispatch fires with a partial
+// album (observed in production at 2s). 5s covers per-part processing latency.
+const ALBUM_SETTLE_DELAY_MS = 5_000
 
 // Telegram Bot API's sendMediaGroup accepts 2–10 items per album; once an album reaches the
 // cap there are no further parts to wait for, so it is flushed immediately instead of riding

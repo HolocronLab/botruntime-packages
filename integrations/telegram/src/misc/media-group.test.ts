@@ -111,14 +111,14 @@ describe('persistInboundTelegramMessage', () => {
     expect(harness.creates[0]).toMatchObject({
       type: 'bloc',
       payload: { items: [image('12', '102')] },
-      schedule: { delay: 2000 },
+      schedule: { delay: 5000 },
       tags: { id: '12', chatId: '42', updateId: '102', webhookId: 'wh-1', mediaGroupId: 'album-7' },
       discriminateByTags: ['webhookId', 'chatId', 'mediaGroupId'],
     })
     // Every touch — first part and later parts alike — carries the trailing-edge schedule;
     // it is what shifts the platform's delivery moment to now+delay on each part.
     expect(harness.creates[1]).toMatchObject({
-      schedule: { delay: 2000 },
+      schedule: { delay: 5000 },
       tags: { id: '11', chatId: '42', updateId: '101', webhookId: 'wh-1', mediaGroupId: 'album-7' },
       discriminateByTags: ['webhookId', 'chatId', 'mediaGroupId'],
     })
@@ -159,10 +159,10 @@ describe('persistInboundTelegramMessage', () => {
     const harness = makeClient()
     for (let n = 1; n <= 9; n++) await sendPart(harness, n)
 
-    // One get-or-create touch per part (all trailing-edge, delay 2000), no extra delay:0 flush.
+    // One get-or-create touch per part (all trailing-edge, delay 5000), no extra delay:0 flush.
     expect(harness.creates).toHaveLength(9)
     for (const create of harness.creates) {
-      expect(create).toMatchObject({ schedule: { delay: 2000 } })
+      expect(create).toMatchObject({ schedule: { delay: 5000 } })
     }
     expect(harness.updates).toHaveLength(8)
     expect((harness.stored?.payload as { items: unknown[] }).items).toHaveLength(9)
@@ -204,7 +204,7 @@ describe('persistInboundTelegramMessage', () => {
     // The touch itself still runs (trailing-edge debounce keeps working for retries), but
     // isDuplicate short-circuits before update/flush.
     expect(harness.creates).toHaveLength(createsBeforeDuplicate + 1)
-    expect(harness.creates[harness.creates.length - 1]).toMatchObject({ schedule: { delay: 2000 } })
+    expect(harness.creates[harness.creates.length - 1]).toMatchObject({ schedule: { delay: 5000 } })
     expect(harness.updates).toHaveLength(updatesBeforeDuplicate)
   })
 })
