@@ -149,7 +149,7 @@ describe('BotGenerator config target isolation', () => {
           crm: { version: '1.0.0', config: { local: 'LOCAL_SENTINEL' } },
         },
       },
-      config: { name: 'target-isolation' },
+      config: { name: 'target-isolation', maxExecutionTime: 300 },
       triggers: [],
       workflows: [],
       actions: [],
@@ -322,6 +322,17 @@ describe('BotGenerator config target isolation', () => {
     expect(artifact).toContain('TranscriptStateSchema')
     expect(artifact).toContain('schema: TranscriptStateSchema')
     expect(artifact).not.toContain('schema: z.object({ transcript: TranscriptSchema })')
+  })
+
+  it('carries maxExecutionTime from agent.config.ts into the generated bot definition', async () => {
+    const artifact = await generateDefinition('adk-dev', {
+      environment: 'dev',
+      botId: '42',
+      runtimeBotId: 'dev_explicit',
+      credentials: DEV_CONNECTION,
+    })
+
+    expect(artifact).toContain('maxExecutionTime: 300')
   })
 
   it('adk-dev embeds integration and plugin config only from the explicit dev target', async () => {

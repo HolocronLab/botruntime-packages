@@ -47,6 +47,7 @@ const configSchema = z
   .object({
     name: z.string().optional(),
     description: z.string().optional(),
+    maxExecutionTime: z.number().int().min(1).max(3600).optional(),
     user: z
       .object({
         state: zuiSchema.optional(),

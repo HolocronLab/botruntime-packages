@@ -1368,6 +1368,7 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
 
       const bot = new BotDefinition({
 
+        ${project.config?.maxExecutionTime !== undefined ? `maxExecutionTime: ${project.config.maxExecutionTime},` : ''}
         attributes: {
           runtime: "adk",
           runtimeVersion: "${ADK_VERSION}",

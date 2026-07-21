@@ -388,13 +388,14 @@ export class CloudapiClient {
         payload: Record<string, unknown>
       }
     > = {},
+    maxExecutionTime?: number,
   ): Promise<unknown> {
     return this.raw({
       method: 'PUT',
       path: `/v1/admin/bots/${botId}`,
       botId,
       workspaceId,
-      body: { name, code, type: 'adk', commands, recurringEvents },
+      body: { name, code, type: 'adk', commands, recurringEvents, maxExecutionTime },
       timeoutMs: BUNDLE_TIMEOUT_MS,
       idempotent: true,
     })

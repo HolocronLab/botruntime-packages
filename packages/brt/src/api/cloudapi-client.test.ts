@@ -181,7 +181,7 @@ describe('CloudapiClient', () => {
         schedule: { cron: '0 9 * * *' },
         payload: { workflow: 'daily' },
       },
-    })
+    }, 300)
 
     const [call] = calls
     expect(call!.url).toBe('https://cloud.example/v1/admin/bots/3')
@@ -191,6 +191,7 @@ describe('CloudapiClient', () => {
     expect(headers['x-workspace-id']).toBe('ws_123')
     expect(headers['x-bot-id']).toBe('3')
     expect(JSON.parse(String(call!.init.body))).toMatchObject({
+      maxExecutionTime: 300,
       recurringEvents: {
         dailyschedule: { type: 'workflowSchedule', schedule: { cron: '0 9 * * *' } },
       },

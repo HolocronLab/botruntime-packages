@@ -79,7 +79,7 @@ describe('DeployCommand ADK watch routing', () => {
   beforeEach(() => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-deploy-watch-'))
     vi.spyOn(toolchainContract, 'assertPlatformToolchainCompatible').mockImplementation(() => undefined)
-    vi.spyOn(adkBundle, 'loadAgentRecurringEvents').mockResolvedValue({})
+    vi.spyOn(adkBundle, 'loadAgentDeploymentConfig').mockResolvedValue({ recurringEvents: {} })
     vi.spyOn(CloudapiClient.prototype, 'listWorkspaceIntegrations').mockResolvedValue({ installations: [] })
     vi.spyOn(adkBundle, 'loadAdkMigrationTools').mockResolvedValue({
       migrateFromConfig: vi.fn(async () => ({
@@ -382,6 +382,10 @@ describe('DeployCommand ADK watch routing', () => {
     })
     ;(command as any)._syncAdkTables = vi.fn().mockResolvedValue(undefined)
     ;(command as any)._writeAdkLastDeploy = vi.fn()
+    vi.mocked(adkBundle.loadAgentDeploymentConfig).mockResolvedValue({
+      recurringEvents: {},
+      maxExecutionTime: 300,
+    })
     const provisionSpy = vi.spyOn(CloudapiClient.prototype, 'provisionBot')
     const puts: CapturedPut[] = []
     capturePutBundles(puts)
@@ -393,7 +397,7 @@ describe('DeployCommand ADK watch routing', () => {
       {
         baseUrl: 'https://profile.example',
         apiKey: 'profile_pat',
-        args: ['42', '42', 'canonical bundle', [], 'ws_profile', {}],
+        args: ['42', '42', 'canonical bundle', [], 'ws_profile', {}, 300],
       },
     ])
     expect(JSON.stringify(puts)).not.toContain('999')

@@ -43,6 +43,23 @@ import { setup } from '@holocronlab/botruntime-runtime/runtime'
 setup(bot) // `bot` comes from @holocronlab/botruntime-sdk
 ```
 
+## Agent invocation timeout
+
+ADK projects configure the per-invocation timeout in `agent.config.ts`:
+
+```ts
+import { defineConfig } from '@holocronlab/botruntime-runtime'
+
+export default defineConfig({
+  name: 'support-bot',
+  maxExecutionTime: 300,
+})
+```
+
+`maxExecutionTime` is measured in seconds, accepts integers from `1` to `3600`,
+and defaults to `120` when omitted. `brt dev` and `brt deploy --adk` send the
+same value to their respective bot targets.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

@@ -855,9 +855,9 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // as an unrelated runtime or eval error after provisioning.
     const toolchainContract = inspectPlatformToolchain(dir)
     assertPlatformToolchainCompatible(toolchainContract)
-    // Load and validate recurring metadata before provisioning. The server
-    // synchronizes these durable schedules atomically with the deployed bot.
-    const recurringEvents = await adkBundle.loadAgentRecurringEvents(dir)
+    // Load and validate deploy metadata before provisioning. The server
+    // synchronizes schedules and the invocation timeout with the deployed bot.
+    const { recurringEvents, maxExecutionTime } = await adkBundle.loadAgentDeploymentConfig(dir)
     const usesLocalTarget = Boolean(this.argv.local)
     // Target files are environment-isolated. A local deploy never reads or
     // writes agent.json; a production deploy never lets agent.local.json
@@ -1099,7 +1099,11 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // and gates owner|admin; the CLI no longer reads the per-bot key to deploy.
     const bot = new CloudapiClient(apiUrl, profile.token)
     cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId} (workspace ${workspaceId})`)
-    await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId, recurringEvents)
+    if (maxExecutionTime === undefined) {
+      await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId, recurringEvents)
+    } else {
+      await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId, recurringEvents, maxExecutionTime)
+    }
 
     // 4. verify round-trip by sha256 (length alone would pass on a corrupt/raced copy)
     const internalToken = profile.internalToken

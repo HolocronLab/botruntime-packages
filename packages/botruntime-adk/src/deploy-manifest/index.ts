@@ -28,6 +28,7 @@ export const deployedAgentManifestSchema = z.object({
   agent: z.object({
     name: z.string().optional(),
     description: z.string().optional(),
+    maxExecutionTime: z.number().int().min(1).max(3600).optional(),
     configuration: z.object({ schema: z.record(z.unknown()) }).optional(),
     defaultModels: z.unknown().optional(),
     secrets: z.array(
@@ -108,6 +109,7 @@ export function createDeployedAgentManifest(
     agent: {
       ...(config?.name ? { name: config.name } : {}),
       ...(config?.description ? { description: config.description } : {}),
+      ...(config?.maxExecutionTime !== undefined ? { maxExecutionTime: config.maxExecutionTime } : {}),
       ...(config?.configuration?.schema
         ? { configuration: { schema: schemaToRecord(config.configuration.schema, 'Agent configuration') } }
         : {}),
