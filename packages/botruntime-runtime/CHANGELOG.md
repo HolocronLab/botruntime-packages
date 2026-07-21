@@ -5,7 +5,18 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.4.0 (current) — 2026-07-20
+## 2.4.1 (current) — 2026-07-21
+
+- `Chat.addMessage` now upserts by message id instead of silently no-op'ing on a
+repeat id: if the redelivered message's content or attachments differ from what
+is already in the transcript, the existing entry is replaced in place (position
+preserved) rather than left on its first, partial version. This unblocks the
+platform's trailing-edge redelivery of a scheduled message (e.g. a Telegram
+album `bloc` whose payload grows between deliveries) — without it, the agent
+would keep seeing the first, incomplete album. Identical redeliveries (same
+content and attachments) remain a no-op, preserving prior dedup behavior.
+
+## 2.4.0 — 2026-07-20
 
 - Forward incoming PDF files to multimodal models through the existing URL and MIME-type contract, including PDFs inside bloc messages. Images remain native, while unsupported files such as DOCX stay available only as structured message metadata.
 
