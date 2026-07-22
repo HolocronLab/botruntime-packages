@@ -7,10 +7,13 @@ import { configuration } from './definitions/configuration'
 export default new IntegrationDefinition({
   name: 'yadisk',
   title: 'Яндекс.Диск',
-  version: '0.2.2',
+  version: '0.2.3',
   description: 'Хранение документов дел на Яндекс.Диске: папки, загрузка, публичные ссылки.',
   readme: 'hub.md',
   icon: 'icon.svg',
+  // Файловая загрузка может занимать дольше общего 45-секундного лимита.
+  // 119 секунд оставляют платформе одну секунду до внешнего 120s host-call deadline.
+  maxExecutionTime: 119,
   configuration,
   actions,
   network: {

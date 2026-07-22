@@ -5,7 +5,7 @@
     "": {
       "name": "@botruntime/integration-yadisk",
       "dependencies": {
-        "@holocronlab/botruntime-sdk": "^6.13.3",
+        "@holocronlab/botruntime-sdk": "^6.15.0",
         "@holocronlab/botruntime-zui": "^2.3.0",
       },
       "devDependencies": {
@@ -16,9 +16,9 @@
     },
   },
   "packages": {
-    "@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.46.4", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-XjK134fRYzEWfXGZSxc4U+XUagP7hoZuJG6HCpECn6evxrrz4zGuNRUy3cAuZfwZLwVph3Ru2/aBCTEsVbCNAQ=="],
+    "@holocronlab/botruntime-client": ["@holocronlab/botruntime-client@1.47.0", "", { "dependencies": { "axios": "^1.6.1", "axios-retry": "^4.5.0", "browser-or-node": "^2.1.1", "qs": "^6.11.0" } }, "sha512-kwE/71DdcLkm6eQV2Vyd57tzz72SjnvvSBpnZG+VYY6yFrWrp99RDRatF1vL8WLksheGAZ1A/mAv4SXfMHlWmQ=="],
 
-    "@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.13.4", "", { "dependencies": { "@holocronlab/botruntime-client": "^1.46.4", "@holocronlab/botruntime-zui": "^2.3.0", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-6tcw9e4pTguwxOSdghVGbBwVyAet6E8KviE9PdkhbiyWZKt+00Fm0Z7OP8CoQ44UeL4rqJCV1AVb1Ju7XA++mA=="],
+    "@holocronlab/botruntime-sdk": ["@holocronlab/botruntime-sdk@6.15.0", "", { "dependencies": { "@holocronlab/botruntime-client": "1.47.0", "@holocronlab/botruntime-zui": "2.3.1", "browser-or-node": "^2.1.1", "semver": "^7.3.8" }, "peerDependencies": { "esbuild": "^0.16.12" }, "optionalPeers": ["esbuild"] }, "sha512-QYiMcfnmEJGbssE4RXGr8wYihA4Cku+jJVYYEoAM7lXZWOz5YSVfBmYAqOqQkDAhVwWB7Q/AzojP5uUklHPEYg=="],
 
     "@holocronlab/botruntime-zui": ["@holocronlab/botruntime-zui@2.3.0", "", {}, "sha512-rv4OaPBODSzu9qSX+jocxVtR1af1CIsw0MyvxXuOdpnIFCqJpDFv5W6AZO/+Lq2gUCfiuHiClfbIqCNgw3zlRw=="],
 
@@ -107,5 +107,7 @@
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
+
+    "@holocronlab/botruntime-sdk/@holocronlab/botruntime-zui": ["@holocronlab/botruntime-zui@2.3.1", "", {}, "sha512-sXXFnHg4vZou5Ilr+WJo+vyOUVVQ8uP6pGKIn0WKWn3epGP4XsD2MQiNJ9Yvq0tVLfZYYqiSiEeZkpHMYuP7Gg=="],
   }
 }
