@@ -1,5 +1,0 @@
-node_modules/
-.botpress/
-dist/
-*.log
-.npmrc

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@botruntime/integration-docconvert",
+      "name": "@botruntime/integration-cloudconvert",
       "dependencies": {
         "@holocronlab/botruntime-sdk": "^6.13.4",
         "@holocronlab/botruntime-zui": "^2.3.0",

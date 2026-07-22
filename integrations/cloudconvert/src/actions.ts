@@ -1,38 +1,38 @@
 import { metrics } from '@opentelemetry/api'
 import type { IntegrationLogger } from '@holocronlab/botruntime-sdk'
-import type { DocConvertConfiguration } from './config'
+import type { CloudConvertConfiguration } from './config'
 import {
-  DocConvertClient,
+  CloudConvertClient,
+  type CloudConvertClientOptions,
   type ConversionAudit,
   type ConvertToPdfInput,
   type ConvertToPdfOutput,
-  type DocConvertClientOptions,
-} from './docconvert-client'
-import { normalizeDocConvertError, toRuntimeError } from './errors'
+} from './cloudconvert-client'
+import { normalizeCloudConvertError, toRuntimeError } from './errors'
 
-const meter = metrics.getMeter('@botruntime/integration-docconvert', '0.1.0')
-const calls = meter.createCounter('docconvert.calls', { description: 'DOCX conversion action outcomes' })
-const duration = meter.createHistogram('docconvert.duration', {
+const meter = metrics.getMeter('@botruntime/integration-cloudconvert', '0.1.0')
+const calls = meter.createCounter('cloudconvert.calls', { description: 'DOCX conversion action outcomes' })
+const duration = meter.createHistogram('cloudconvert.duration', {
   description: 'DOCX conversion action duration',
   unit: 'ms',
 })
 
 export async function convertToPdf(
-  configuration: Partial<DocConvertConfiguration>,
+  configuration: Partial<CloudConvertConfiguration>,
   input: ConvertToPdfInput,
   logger: IntegrationLogger,
-  options: DocConvertClientOptions = {},
+  options: CloudConvertClientOptions = {},
 ): Promise<ConvertToPdfOutput> {
   const startedAt = Date.now()
   const audit: ConversionAudit = {
     sourceSha256: typeof input.sha256 === 'string' ? input.sha256.toLowerCase() : undefined,
   }
   try {
-    const result = await new DocConvertClient(configuration, options).convert(input, audit)
+    const result = await new CloudConvertClient(configuration, options).convert(input, audit)
     recordOutcome(logger, 'ok', startedAt, audit)
     return result
   } catch (caught) {
-    const error = normalizeDocConvertError(caught)
+    const error = normalizeCloudConvertError(caught)
     recordOutcome(logger, error.code, startedAt, audit)
     throw toRuntimeError(error)
   }
@@ -48,7 +48,7 @@ function recordOutcome(
   calls.add(1, { result })
   duration.record(durationMs, { result })
   const line = JSON.stringify({
-    event: 'docconvert.convert',
+    event: 'cloudconvert.convert',
     result,
     sourceSha256: audit.sourceSha256,
     inputBytes: audit.inputBytes,

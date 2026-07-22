@@ -1,0 +1,9 @@
+{
+  "fields": {
+    "apiKey": {
+      "type": "string",
+      "required": true,
+      "secret": true
+    }
+  }
+}

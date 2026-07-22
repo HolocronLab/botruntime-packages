@@ -24,6 +24,52 @@ export function bodyOf(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
+export function createJobResponse(
+  uploadUrl = 'https://upload.cloudconvert.com/upload-token/',
+): Record<string, unknown> {
+  return {
+    data: {
+      id: 'job-123',
+      status: 'waiting',
+      tasks: [{
+        operation: 'import/upload',
+        status: 'waiting',
+        result: {
+          form: {
+            url: uploadUrl,
+            parameters: { expires: 1234567890, signature: 'signed-upload' },
+          },
+        },
+      }],
+    },
+  }
+}
+
+export function completedJobResponse(
+  outputUrl = 'https://storage.cloudconvert.com/export-token/converted.pdf?signature=signed',
+): Record<string, unknown> {
+  return {
+    data: {
+      id: 'job-123',
+      status: 'finished',
+      tasks: [
+        { operation: 'import/upload', status: 'finished' },
+        {
+          operation: 'convert',
+          status: 'finished',
+          engine: 'office',
+          engine_version: '2021.4',
+        },
+        {
+          operation: 'export/url',
+          status: 'finished',
+          result: { files: [{ filename: 'converted.pdf', url: outputUrl }] },
+        },
+      ],
+    },
+  }
+}
+
 function makeStoredZip(names: string[]): Uint8Array {
   const encoder = new TextEncoder()
   const localParts: Uint8Array[] = []

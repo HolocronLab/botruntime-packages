@@ -1,9 +1,9 @@
 {
-  "name": "@botruntime/integration-docconvert",
+  "name": "@botruntime/integration-cloudconvert",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Secure DOCX to PDF conversion through a sealed Gotenberg service.",
+  "description": "Secure high-fidelity DOCX to PDF conversion through CloudConvert API v2.",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test"

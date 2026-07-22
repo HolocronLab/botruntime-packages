@@ -1,16 +1,16 @@
 import { Integration, RuntimeError, type IntegrationProps } from '@holocronlab/botruntime-sdk'
 import { convertToPdf } from './actions'
-import { DocConvertClient } from './docconvert-client'
-import { normalizeDocConvertError } from './errors'
+import { CloudConvertClient } from './cloudconvert-client'
+import { normalizeCloudConvertError } from './errors'
 
 const integration: IntegrationProps = {
   register: async ({ ctx, logger }) => {
     try {
-      const engine = await new DocConvertClient(ctx.configuration).verify()
-      logger.info(`docconvert: сервис конвертации подключён (${engine})`)
+      await new CloudConvertClient(ctx.configuration).verify()
+      logger.info('CloudConvert: API v2 подключён')
     } catch (caught) {
-      const error = normalizeDocConvertError(caught)
-      throw new RuntimeError(`docconvert: сервис не прошёл проверку: ${error.message}`, error)
+      const error = normalizeCloudConvertError(caught)
+      throw new RuntimeError(`CloudConvert: API key не прошёл проверку: ${error.message}`, error)
     }
   },
   unregister: async () => {},

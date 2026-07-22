@@ -4,21 +4,29 @@ import { actions } from '../definitions/actions'
 import { configuration } from '../definitions/configuration'
 import { normalizeConfiguration } from '../src/config'
 
-describe('docconvert definition', () => {
+describe('cloudconvert definition', () => {
   test('publishes the exact global ref and action contract', () => {
-    expect(definition.name).toBe('docconvert')
+    expect(definition.name).toBe('cloudconvert')
     expect(definition.version).toBe('0.1.0')
     expect(Object.keys(definition.actions ?? {})).toEqual(['convertToPdf'])
-    expect(definition.network).toEqual({ providerHosts: [], ingressRelayed: false })
+    expect(definition.network).toEqual({
+      providerHosts: [
+        'api.cloudconvert.com',
+        'sync.api.cloudconvert.com',
+        'upload.cloudconvert.com',
+        'storage.cloudconvert.com',
+      ],
+      ingressRelayed: false,
+    })
   })
 
-  test('all wire schemas serialize for brt publish', () => {
+  test('all wire schemas serialize for brt publication', () => {
     expect(() => configuration.schema.toJSONSchema()).not.toThrow()
     expect(() => actions.convertToPdf.input.schema.toJSONSchema()).not.toThrow()
     expect(() => actions.convertToPdf.output.schema.toJSONSchema()).not.toThrow()
   })
 
-  test('sourceFormat is a closed enum and SHA-256 is exactly 64 hex characters', () => {
+  test('sourceFormat is closed and SHA-256 is exactly 64 hex characters', () => {
     const valid = {
       fileUrl: 'https://botruntime.example/v1/files/download?key=claim.docx',
       sha256: 'a'.repeat(64),
@@ -31,22 +39,12 @@ describe('docconvert definition', () => {
 })
 
 describe('sealed configuration', () => {
-  test('accepts HTTPS and normalizes the base URL', () => {
-    expect(normalizeConfiguration({ serviceUrl: 'https://convert.internal/root/' })).toEqual({
-      serviceUrl: 'https://convert.internal/root',
-      authToken: undefined,
-    })
+  test('trims a non-empty API key', () => {
+    expect(normalizeConfiguration({ apiKey: '  provider-key  ' })).toEqual({ apiKey: 'provider-key' })
   })
 
-  test('rejects missing, HTTP, credential-bearing and query-bearing service URLs', () => {
-    for (const serviceUrl of [
-      undefined,
-      '',
-      'http://convert.internal',
-      'https://user:pass@convert.internal',
-      'https://convert.internal?target=other',
-    ]) {
-      expect(() => normalizeConfiguration({ serviceUrl })).toThrow(/конфигурац/)
-    }
+  test('rejects missing and blank API keys', () => {
+    expect(() => normalizeConfiguration({})).toThrow(/apiKey/)
+    expect(() => normalizeConfiguration({ apiKey: '   ' })).toThrow(/apiKey/)
   })
 })

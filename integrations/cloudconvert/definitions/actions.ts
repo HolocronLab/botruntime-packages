@@ -5,7 +5,7 @@ const sha256Schema = z.string().regex(/^[a-fA-F0-9]{64}$/).describe('SHA-256 в 
 export const actions = {
   convertToPdf: {
     title: 'Конвертировать DOCX в PDF',
-    description: 'Скачивает версию DOCX по защищённому URL, сверяет SHA-256 и возвращает PDF.',
+    description: 'Скачивает версию DOCX, сверяет SHA-256 и конвертирует её через CloudConvert.',
     input: {
       schema: z.object({
         fileUrl: z.string().url().title('URL исходного DOCX'),
@@ -18,7 +18,7 @@ export const actions = {
         pdfBase64: z.string().min(1).title('PDF в base64'),
         pageCount: z.number().int().positive().title('Количество страниц'),
         sourceSha256: sha256Schema.title('Фактический SHA-256 исходника'),
-        engine: z.string().min(1).title('Движок конвертации'),
+        engine: z.string().min(1).title('Движок CloudConvert и версия'),
       }),
     },
   },
