@@ -45,7 +45,7 @@ describe('integration deployment bodies', () => {
     const local = await prepareCreateIntegrationBody(
       new IntegrationDefinition({ name: 'default', version: '1.0.0', network: { providerHosts: [] } }),
     )
-    const body = prepareUpdateIntegrationBody(local, {
+    const body = prepareUpdateIntegrationBody({ ...local, id: 'integration-id' }, {
       actions: {},
       events: {},
       states: {},
