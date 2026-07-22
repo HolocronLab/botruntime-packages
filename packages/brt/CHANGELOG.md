@@ -6,7 +6,13 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.7.25 (current) — 2026-07-21
+## 0.8.0 (current) — 2026-07-22
+
+- Added typed `maxExecutionTime` configuration for classic bot definitions and
+ADK agents. `brt dev` and `brt deploy --adk` now carry the configured
+per-invocation deadline to the platform instead of silently dropping it.
+
+## 0.7.25 — 2026-07-21
 
 - Port Botpress fixes for recursive ZUI schemas, JSON Schema `oneOf`, stale micropatch line references, bounded rewrite output, and slow CLI API operations while preserving local compatibility contracts.
 
