@@ -28,6 +28,41 @@ describe('integration deployment bodies', () => {
     })
   })
 
+  test('preserves the definition-owned integration execution budget', async () => {
+    const body = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({
+        name: 'slow',
+        version: '1.0.0',
+        maxExecutionTime: 119,
+        network: { providerHosts: [] },
+      }),
+    )
+
+    expect(body.maxExecutionTime).toBe(119)
+  })
+
+  test('materializes the default execution budget so update can clear an old override', async () => {
+    const local = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({ name: 'default', version: '1.0.0', network: { providerHosts: [] } }),
+    )
+    const body = prepareUpdateIntegrationBody(local, {
+      actions: {},
+      events: {},
+      states: {},
+      entities: {},
+      user: { tags: {} },
+      channels: {},
+      interfaces: {},
+      configurations: {},
+      attributes: {},
+      configuration: { identifier: {} },
+      identifier: {},
+      maxExecutionTime: 119,
+    } as unknown as Integration)
+
+    expect(body.maxExecutionTime).toBe(45)
+  })
+
   test('preserves the platform network contract when classic deploy updates an integration', () => {
     const body = prepareUpdateIntegrationBody(
       {
@@ -35,6 +70,7 @@ describe('integration deployment bodies', () => {
         providerHosts: ['api.yookassa.ru'],
         ingressRelayed: true,
         webhookAuthMode: 'provider_verified',
+        maxExecutionTime: 119,
       },
       {
         actions: {},
@@ -55,6 +91,7 @@ describe('integration deployment bodies', () => {
       providerHosts: ['api.yookassa.ru'],
       ingressRelayed: true,
       webhookAuthMode: 'provider_verified',
+      maxExecutionTime: 119,
     })
   })
 

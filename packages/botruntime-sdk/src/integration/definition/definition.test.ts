@@ -33,6 +33,31 @@ test('integration definition supports handler-owned end-user authentication', ()
   expect(integration.network?.webhookAuthMode).toBe('handler_verified')
 })
 
+test('integration definition exposes maxExecutionTime', () => {
+  expect(
+    new IntegrationDefinition({
+      name: 'slow',
+      version: '1.0.0',
+      maxExecutionTime: 119,
+    }).maxExecutionTime
+  ).toBe(119)
+})
+
+test('integration definition materializes the default maxExecutionTime', () => {
+  expect(new IntegrationDefinition({ name: 'default', version: '1.0.0' }).maxExecutionTime).toBe(45)
+})
+
+test.each([0, -1, 1.5, 120])('integration definition rejects invalid maxExecutionTime %p', (maxExecutionTime) => {
+  expect(
+    () =>
+      new IntegrationDefinition({
+        name: 'slow',
+        version: '1.0.0',
+        maxExecutionTime,
+      })
+  ).toThrow(/maxExecutionTime/i)
+})
+
 test('integration with channel extending an interface with same channel merges channel tags', () => {
   // arrange
   const intrface = new InterfaceDefinition({

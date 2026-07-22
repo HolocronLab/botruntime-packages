@@ -25,6 +25,9 @@ import {
 
 export * from './types'
 
+export const DEFAULT_INTEGRATION_MAX_EXECUTION_TIME_SECONDS = 45
+export const MAX_INTEGRATION_MAX_EXECUTION_TIME_SECONDS = 119
+
 export type IntegrationDefinitionProps<
   TName extends string = string,
   TVersion extends string = string,
@@ -43,6 +46,8 @@ export type IntegrationDefinitionProps<
   description?: string
   icon?: string
   readme?: string
+  /** Admission deadline for one integration operation, including queue and initialization. */
+  maxExecutionTime?: number
 
   attributes?: Record<string, string>
 
@@ -195,6 +200,7 @@ export class IntegrationDefinition<
   public readonly description: this['props']['description']
   public readonly icon: this['props']['icon']
   public readonly readme: this['props']['readme']
+  public readonly maxExecutionTime: number
   public readonly configuration: this['props']['configuration']
   public readonly configurations: this['props']['configurations']
   public readonly events: this['props']['events']
@@ -223,10 +229,21 @@ export class IntegrationDefinition<
       TEntities
     >
   ) {
+    if (
+      props.maxExecutionTime !== undefined &&
+      (!Number.isInteger(props.maxExecutionTime) ||
+        props.maxExecutionTime < 1 ||
+        props.maxExecutionTime > MAX_INTEGRATION_MAX_EXECUTION_TIME_SECONDS)
+    ) {
+      throw new DefinitionError(
+        `maxExecutionTime must be an integer between 1 and ${MAX_INTEGRATION_MAX_EXECUTION_TIME_SECONDS} seconds`
+      )
+    }
     this.name = props.name
     this.version = props.version
     this.icon = props.icon
     this.readme = props.readme
+    this.maxExecutionTime = props.maxExecutionTime ?? DEFAULT_INTEGRATION_MAX_EXECUTION_TIME_SECONDS
     this.title = props.title
     this.identifier = props.identifier
     this.description = props.description
