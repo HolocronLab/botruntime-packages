@@ -23,6 +23,9 @@ export const prepareCreateIntegrationBody = async (
     version: integration.version,
     title: 'title' in integration ? integration.title : undefined,
     description: 'description' in integration ? integration.description : undefined,
+    // Materialize the platform default so removing a previous override converges
+    // back to 45 instead of an update silently preserving the stored value.
+    maxExecutionTime: integration.maxExecutionTime ?? sdk.DEFAULT_INTEGRATION_MAX_EXECUTION_TIME_SECONDS,
     user: integration.user,
     events: integration.events
       ? await utils.records.mapValuesAsync(integration.events, async (event, eventName) => ({

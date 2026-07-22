@@ -38,6 +38,16 @@ const networkProperties = {
   },
 };
 
+const executionProperties = {
+  maxExecutionTime: {
+    type: "integer",
+    minimum: 1,
+    maximum: 119,
+    description:
+      "Admission deadline for one integration operation, including queue and initialization (seconds).",
+  },
+};
+
 function appendProperties(properties, additions) {
   const extended = { ...properties };
   for (const [name, schema] of Object.entries(additions)) {
@@ -52,9 +62,14 @@ export function extendOpenApiDocument(document) {
     const schema =
       requestBodies?.[bodyName]?.content?.["application/json"]?.schema;
     if (schema?.properties) {
-      schema.properties = appendProperties(
-        schema.properties,
-        networkProperties,
+      schema.properties = appendProperties(schema.properties, {
+        ...networkProperties,
+      });
+      // Upstream already exposes this field on some update schemas, but without
+      // the platform ceiling. Normalize every operation instead of preserving an
+      // unconstrained pre-existing definition.
+      schema.properties.maxExecutionTime = structuredClone(
+        executionProperties.maxExecutionTime,
       );
     }
   }
@@ -75,6 +90,12 @@ const requestTypeFields = `  /**
   webhookAuthMode?: "shared_secret" | "provider_verified" | "handler_verified";
 `;
 
+const executionRequestTypeField = `  /**
+   * Admission deadline for one integration operation, including queue and initialization (seconds).
+   */
+  maxExecutionTime?: number;
+`;
+
 export function extendGeneratedClientSource(source, operationName) {
   let output = source;
   if (
@@ -88,18 +109,33 @@ export function extendGeneratedClientSource(source, operationName) {
     );
   }
 
-  if (!output.includes("webhookAuthMode?:")) {
-    const inputMarker = `\n}\n\nexport type ${operationName}Input`;
-    if (!output.includes(inputMarker)) {
-      throw new Error(`failed to find ${operationName} request body boundary`);
-    }
+  const inputMarker = `\n}\n\nexport type ${operationName}Input`;
+  const inputBoundary = output.indexOf(inputMarker);
+  if (inputBoundary < 0) {
+    throw new Error(`failed to find ${operationName} request body boundary`);
+  }
+  const requestBodySource = output.slice(0, inputBoundary);
+  let requestFields = "";
+  if (!requestBodySource.includes("maxExecutionTime?: number;")) {
+    requestFields += executionRequestTypeField;
+  }
+  if (!requestBodySource.includes("webhookAuthMode?:")) {
+    requestFields += requestTypeFields;
+  }
+  if (requestFields) {
     output = output.replace(
       inputMarker,
-      `\n${requestTypeFields}}\n\nexport type ${operationName}Input`,
+      `\n${requestFields}}\n\nexport type ${operationName}Input`,
     );
   }
 
-  if (!output.includes("'webhookAuthMode': input['webhookAuthMode']")) {
+  const serializerFields = [
+    "'maxExecutionTime': input['maxExecutionTime']",
+    "'providerHosts': input['providerHosts']",
+    "'ingressRelayed': input['ingressRelayed']",
+    "'webhookAuthMode': input['webhookAuthMode']",
+  ].filter((field) => !output.includes(field));
+  if (serializerFields.length > 0) {
     const serializerPattern = /(\n\s*body: \{[^\n]*)( \},)/;
     if (!serializerPattern.test(output)) {
       throw new Error(
@@ -108,7 +144,7 @@ export function extendGeneratedClientSource(source, operationName) {
     }
     output = output.replace(
       serializerPattern,
-      "$1, 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode']$2",
+      `$1, ${serializerFields.join(", ")}$2`,
     );
   }
 

@@ -24396,6 +24396,12 @@
                     "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
+                },
+                "maxExecutionTime": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 119,
+                  "description": "Admission deadline for one integration operation, including queue and initialization (seconds)."
                 }
               },
               "required": [
@@ -25016,6 +25022,12 @@
                     "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
+                },
+                "maxExecutionTime": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 119,
+                  "description": "Admission deadline for one integration operation, including queue and initialization (seconds)."
                 }
               },
               "required": [
@@ -25248,7 +25260,9 @@
                 },
                 "maxExecutionTime": {
                   "type": "integer",
-                  "description": "Maximum execution time of the integration (in seconds)."
+                  "minimum": 1,
+                  "maximum": 119,
+                  "description": "Admission deadline for one integration operation, including queue and initialization (seconds)."
                 },
                 "identifier": {
                   "type": "object",
@@ -25881,7 +25895,9 @@
                 },
                 "maxExecutionTime": {
                   "type": "integer",
-                  "description": "Maximum execution time of the integration (in seconds)."
+                  "minimum": 1,
+                  "maximum": 119,
+                  "description": "Admission deadline for one integration operation, including queue and initialization (seconds)."
                 },
                 "identifier": {
                   "type": "object",

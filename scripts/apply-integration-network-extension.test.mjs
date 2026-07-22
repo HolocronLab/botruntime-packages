@@ -48,6 +48,14 @@ test("extends classic deploy and dry-run request schemas with network policy", (
       },
     },
   };
+  for (const bodyName of [
+    "updateIntegrationBody",
+    "validateIntegrationUpdateBody",
+  ]) {
+    document.components.requestBodies[bodyName].content[
+      "application/json"
+    ].schema.properties.maxExecutionTime = { type: "integer" };
+  }
 
   extendOpenApiDocument(document);
 
@@ -67,6 +75,9 @@ test("extends classic deploy and dry-run request schemas with network policy", (
       "provider_verified",
       "handler_verified",
     ]);
+    assert.equal(properties.maxExecutionTime.type, "integer");
+    assert.equal(properties.maxExecutionTime.minimum, 1);
+    assert.equal(properties.maxExecutionTime.maximum, 119);
   }
 });
 
@@ -101,12 +112,14 @@ export const parseReq = (input: ${operationName}Input) => ({
     );
 
     assert.match(extended, /providerHosts\?: string\[\];/);
+    assert.match(extended, /maxExecutionTime\?: number;/);
     assert.match(extended, /ingressRelayed\?: boolean;/);
     assert.match(
       extended,
       /webhookAuthMode\?: "shared_secret" \| "provider_verified" \| "handler_verified";/,
     );
     assert.match(extended, /'providerHosts': input\['providerHosts'\]/);
+    assert.match(extended, /'maxExecutionTime': input\['maxExecutionTime'\]/);
     assert.match(extended, /'ingressRelayed': input\['ingressRelayed'\]/);
     assert.match(extended, /'webhookAuthMode': input\['webhookAuthMode'\]/);
   }

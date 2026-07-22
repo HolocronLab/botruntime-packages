@@ -11,6 +11,8 @@ export {
 
 export {
   DefaultIntegration,
+  DEFAULT_INTEGRATION_MAX_EXECUTION_TIME_SECONDS,
+  MAX_INTEGRATION_MAX_EXECUTION_TIME_SECONDS,
   IntegrationDefinition,
   IntegrationDefinitionProps,
   IntegrationImplementation as Integration,
