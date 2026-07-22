@@ -7,7 +7,12 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.5.0 (current) — 2026-07-22
+## 2.5.1 (current) — 2026-07-22
+
+- Allow ADK projects to run with the compatible BRT 0.9 release line while
+continuing to reject the next unverified CLI compatibility line.
+
+## 2.5.0 — 2026-07-22
 
 - Added typed `maxExecutionTime` configuration for classic bot definitions and
 ADK agents. `brt dev` and `brt deploy --adk` now carry the configured

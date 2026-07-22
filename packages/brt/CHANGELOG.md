@@ -6,7 +6,14 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.8.0 (current) — 2026-07-22
+## 0.9.0 (current) — 2026-07-22
+
+- Added definition-owned `maxExecutionTime` for integration operations. The SDK
+validates the platform deadline and BRT preserves it on
+create/update/dry-run requests, including resetting removed overrides to the
+45-second platform default.
+
+## 0.8.0 — 2026-07-22
 
 - Added typed `maxExecutionTime` configuration for classic bot definitions and
 ADK agents. `brt dev` and `brt deploy --adk` now carry the configured
