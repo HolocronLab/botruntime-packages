@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Wrapper around `@holocronlab/botruntime-client` for calling LLMs, forked as part of the
 `@botpress/runtime` dependency closure (zero-`@botpress` cascade, 6495425). See README.md.
 
-## 0.8.0 (current) — 2026-07-20
+## 0.8.1 (current) — 2026-07-22
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.0
+
+## 0.8.0 — 2026-07-20
 
 - `generateContent` пробрасывает `conversationId` в тело cognitive-запроса
 (`InputProps`/`CognitiveRequest`), а `InstrumentedCognitive` инжектит активный

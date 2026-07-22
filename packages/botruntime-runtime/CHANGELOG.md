@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.5.0 (current) — 2026-07-22
+## 2.5.1 (current) — 2026-07-22
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.1
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.22
+- Обновлены внутренние зависимости: @holocronlab/botruntime-llmz@0.1.2
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.15.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.5
+
+## 2.5.0 — 2026-07-22
 
 - Added typed `maxExecutionTime` configuration for classic bot definitions and
 ADK agents. `brt dev` and `brt deploy --adk` now carry the configured

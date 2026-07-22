@@ -5,7 +5,14 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.14.0 (current) — 2026-07-22
+## 6.15.0 (current) — 2026-07-22
+
+- Added definition-owned `maxExecutionTime` for integration operations. The SDK
+validates the platform deadline and BRT preserves it on
+create/update/dry-run requests, including resetting removed overrides to the
+45-second platform default.
+
+## 6.14.0 — 2026-07-22
 
 - Added typed `maxExecutionTime` configuration for classic bot definitions and
 ADK agents. `brt dev` and `brt deploy --adk` now carry the configured

@@ -6,7 +6,13 @@ Evaluation definitions and runner for `brt`-based botruntime agents: author eval
 declarative `Eval` API, run them against a live agent through the native platform eval transport and
 a trace collector. See README.md.
 
-## 2.1.21 (current) — 2026-07-21
+## 2.1.22 (current) — 2026-07-22
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.1
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.5
+
+## 2.1.21 — 2026-07-21
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.4
 
