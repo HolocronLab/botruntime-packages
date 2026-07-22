@@ -168,7 +168,7 @@ test('global integration publication installs brt and dependencies anonymously',
   )
 
   assert.doesNotMatch(workflow, /npm\.pkg\.github\.com|GITHUB_TOKEN|NODE_AUTH_TOKEN|read:packages/)
-  assert.match(workflow, /npm install --global --userconfig=\/dev\/null @holocronlab\/brt@0\.6\.0/)
+  assert.match(workflow, /npm install --global --userconfig=\/dev\/null @holocronlab\/brt@0\.9\.0/)
   assert.match(workflow, /bun install --frozen-lockfile --ignore-scripts/)
   assert.equal(existsSync(new URL('../.github/bunfig.github-packages.toml', import.meta.url)), false)
 })

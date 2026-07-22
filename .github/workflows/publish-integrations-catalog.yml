@@ -53,7 +53,7 @@ jobs:
           scope: "@holocronlab"
 
       - name: Install the published brt CLI
-        run: npm install --global --userconfig=/dev/null @holocronlab/brt@0.6.0
+        run: npm install --global --userconfig=/dev/null @holocronlab/brt@0.9.0
 
       - name: Install all integration dependencies
         shell: bash
@@ -133,7 +133,7 @@ jobs:
             fi
             integration_id="$(jq -er '.id' <<<"$decision")"
             echo "Retiring $qualified_name@$version (id $integration_id)"
-            # brt@0.6.0 resolves name refs through a private-only lookup and rejects
+            # brt resolves name refs through a private-only lookup and rejects
             # an already-public integration before calling this authenticated endpoint.
             curl --fail --silent --show-error --output /dev/null \
               --request DELETE \
