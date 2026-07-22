@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.15.0 (current) — 2026-07-22
+## 6.15.1 (current) — 2026-07-22
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.1
+
+## 6.15.0 — 2026-07-22
 
 - Added definition-owned `maxExecutionTime` for integration operations. The SDK
 validates the platform deadline and BRT preserves it on

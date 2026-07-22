@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Zui AI (zai) — an LLM utility library built on Zui and the botruntime Cognitive client. See
 README.md.
 
-## 2.8.5 (current) — 2026-07-22
+## 2.8.6 (current) — 2026-07-22
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.2
+
+## 2.8.5 — 2026-07-22
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.1
 

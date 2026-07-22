@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.5.1 (current) — 2026-07-22
+## 2.5.2 (current) — 2026-07-22
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.1
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.2
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.23
+- Обновлены внутренние зависимости: @holocronlab/botruntime-llmz@0.1.3
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.15.1
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.6
+
+## 2.5.1 — 2026-07-22
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.0
 - Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.1

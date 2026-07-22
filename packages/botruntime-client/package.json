@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-client",
-  "version": "1.47.0",
+  "version": "1.47.1",
   "description": "HTTP client for the botruntime API",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
