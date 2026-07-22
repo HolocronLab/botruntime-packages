@@ -1,4 +1,4 @@
-# Publish every repository integration to the global botruntime catalog.
+# Reconcile repository integrations with the global catalog: publish active definitions, then retire explicit tombstones.
 #
 # The platform workspace is the only workspace allowed to deploy public
 # integrations. BRT_API_KEY must therefore belong to that workspace, while
@@ -106,3 +106,30 @@ jobs:
               --visibility public \
               -y
           done
+
+      # Retire only after every active definition publishes successfully, so a failed
+      # replacement deploy cannot leave the catalog without a working integration.
+      - name: Retire tombstoned integrations
+        shell: bash
+        run: |
+          while IFS= read -r retired; do
+            qualified_name="$(jq -er '.name' <<<"$retired")"
+            version="$(jq -er '.version' <<<"$retired")"
+            catalog="$(brt integrations list \
+              --json \
+              --owned \
+              --name "$qualified_name" \
+              --versionNumber "$version" \
+              --limit 10)"
+            decision="$(node scripts/catalog-retirement-decision.mjs \
+              "$qualified_name" "$version" <<<"$catalog")"
+            if [[ "$(jq -r '.action' <<<"$decision")" == "skip" ]]; then
+              echo "Already absent: $qualified_name@$version"
+              continue
+            fi
+            integration_id="$(jq -er '.id' <<<"$decision")"
+            echo "Retiring $qualified_name@$version (id $integration_id)"
+            brt integrations delete "$qualified_name@$version" \
+              --workspaceId "$BRT_WORKSPACE_ID" \
+              -y
+          done < <(jq -c '.[]' scripts/catalog-retired-integrations.json)
