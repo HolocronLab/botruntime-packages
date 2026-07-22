@@ -9,6 +9,7 @@ code-gen, dependency reconciliation, runtime helpers).
 
 ## 2.5.1 (current) — 2026-07-22
 
+- Allow ADK projects to run with the compatible BRT 0.9 release line.
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.0
 - Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.1
 - Обновлены внутренние зависимости: @holocronlab/botruntime-runtime@2.5.1
