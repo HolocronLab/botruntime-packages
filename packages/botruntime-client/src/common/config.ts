@@ -2,7 +2,10 @@ import { isBrowser, isNode } from 'browser-or-node'
 import * as types from './types'
 
 const defaultApiUrl = 'https://botruntime.ru'
-const defaultTimeout = 60_000
+// Cloud may spend up to 120 seconds serving a host call. The client must wait
+// slightly longer so the server owns that deadline and can return its terminal
+// response instead of being disconnected while valid work is still running.
+const defaultTimeout = 125_000
 const defaultDebug = false
 
 const apiUrlEnvName = 'BP_API_URL'
