@@ -1,0 +1,14 @@
+{
+  "fields": {
+    "serviceUrl": {
+      "type": "string",
+      "required": true,
+      "secret": false
+    },
+    "authToken": {
+      "type": "string",
+      "required": false,
+      "secret": true
+    }
+  }
+}
