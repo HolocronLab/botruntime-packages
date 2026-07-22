@@ -19,6 +19,7 @@ public, reusable pieces live here.
 | `integrations/yookassa` | YooKassa payments with API-reverified `payment.succeeded` events. |
 | `integrations/pochta` | Russian Post shipment tracking through the official SOAP API. |
 | `integrations/territorial-jurisdiction` | Russian district court and magistrate jurisdiction lookup by address or coordinates. |
+| `integrations/cloudconvert` | High-fidelity DOCX to PDF conversion through CloudConvert API v2. |
 
 ### The runtime libraries (forked Botpress deps → `@holocronlab/botruntime-*`)
 
