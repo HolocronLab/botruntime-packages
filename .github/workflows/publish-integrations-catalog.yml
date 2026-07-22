@@ -110,7 +110,11 @@ jobs:
       # Retire only after every active definition publishes successfully, so a failed
       # replacement deploy cannot leave the catalog without a working integration.
       - name: Retire tombstoned integrations
+        if: ${{ inputs.api_url == 'https://botruntime.ru' }}
         shell: bash
+        env:
+          BRT_TOKEN: ${{ secrets.BRT_API_KEY }}
+          BRT_API_URL: https://botruntime.ru
         run: |
           while IFS= read -r retired; do
             qualified_name="$(jq -er '.name' <<<"$retired")"
@@ -129,7 +133,11 @@ jobs:
             fi
             integration_id="$(jq -er '.id' <<<"$decision")"
             echo "Retiring $qualified_name@$version (id $integration_id)"
-            brt integrations delete "$qualified_name@$version" \
-              --workspaceId "$BRT_WORKSPACE_ID" \
-              -y
+            # brt@0.6.0 resolves name refs through a private-only lookup and rejects
+            # an already-public integration before calling this authenticated endpoint.
+            curl --fail --silent --show-error --output /dev/null \
+              --request DELETE \
+              --header "Authorization: Bearer $BRT_TOKEN" \
+              --header "x-workspace-id: $BRT_WORKSPACE_ID" \
+              "$BRT_API_URL/v1/admin/integrations/$integration_id"
           done < <(jq -c '.[]' scripts/catalog-retired-integrations.json)
