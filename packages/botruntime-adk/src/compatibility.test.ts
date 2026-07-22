@@ -13,6 +13,10 @@ describe('BRT compatibility contract', () => {
     expect(semver.satisfies('0.6.31', BRT_COMPATIBILITY_RANGE)).toBe(false)
   })
 
+  it('does not silently accept the next CLI compatibility line', () => {
+    expect(semver.satisfies('0.10.0', BRT_COMPATIBILITY_RANGE)).toBe(false)
+  })
+
   it('does not create a runtime dependency cycle with the CLI that loads ADK', () => {
     expect(adkPackage.dependencies).not.toHaveProperty('@holocronlab/brt')
   })
