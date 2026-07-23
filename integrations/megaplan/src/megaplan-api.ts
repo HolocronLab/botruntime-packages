@@ -311,6 +311,10 @@ export class MegaplanApiClient {
     return this.do<Task>('POST', '/api/v3/task', undefined, body)
   }
 
+  async getTask(id: string): Promise<Task> {
+    return this.do<Task>('GET', `/api/v3/task/${esc(id)}`, undefined, undefined)
+  }
+
   async createNegotiationTask(t: {
     name: string
     responsibleId: string

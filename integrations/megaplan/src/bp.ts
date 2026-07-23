@@ -25,7 +25,13 @@ import type {
 } from '../definitions/deal-actions'
 import type { AddCommentInput, AddCommentOutput } from '../definitions/comment-actions'
 import type { CreateTodoInput, ListTodosInput, ListTodosOutput, FinishTodoInput, TodoOutput } from '../definitions/todo-actions'
-import type { CreateTaskInput, TaskDoActionInput, TaskOutput } from '../definitions/task-actions'
+import type {
+  CreateTaskInput,
+  GetTaskInput,
+  GetTaskOutput,
+  TaskDoActionInput,
+  TaskOutput,
+} from '../definitions/task-actions'
 import type {
   CreateNegotiationTaskInput,
   CreateNegotiationTaskOutput,
@@ -50,6 +56,7 @@ type Actions = {
   listTodos: { input: ListTodosInput; output: ListTodosOutput }
   finishTodo: { input: FinishTodoInput; output: TodoOutput }
   createTask: { input: CreateTaskInput; output: TaskOutput }
+  getTask: { input: GetTaskInput; output: GetTaskOutput }
   taskDoAction: { input: TaskDoActionInput; output: TaskOutput }
   createNegotiationTask: { input: CreateNegotiationTaskInput; output: CreateNegotiationTaskOutput }
   getNegotiationDecision: { input: GetNegotiationDecisionInput; output: GetNegotiationDecisionOutput }
@@ -57,7 +64,7 @@ type Actions = {
 
 export type TMegaplan = {
   name: 'megaplan'
-  version: '0.2.1'
+  version: '0.2.8'
   configuration: Configuration
   configurations: Record<string, never>
   actions: Actions

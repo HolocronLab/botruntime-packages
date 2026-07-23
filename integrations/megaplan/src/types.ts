@@ -142,6 +142,8 @@ export type Task = {
   id: string
   name?: string
   status?: string
+  deadline?: { contentType?: string; value?: string }
+  deals?: Ref[]
   isNegotiation?: boolean
   negotiationItems?: NegotiationItem[]
 }
