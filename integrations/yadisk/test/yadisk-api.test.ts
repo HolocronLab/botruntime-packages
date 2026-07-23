@@ -5,7 +5,14 @@ import { describe, expect, test } from 'bun:test'
 import { YadiskApiError, YadiskClient, ancestorDirs } from '../src/yadisk-api'
 import { resolveAppPath } from '../src/paths'
 
-type Recorded = { url: string; method: string; hasAuth: boolean }
+type Recorded = {
+  url: string
+  method: string
+  hasAuth: boolean
+  body?: unknown
+  contentLength: string | null
+  contentType: string | null
+}
 
 // makeFetch — fetch-двойник, отдающий реальные Response (тело-стрим читается
 // клиентом как в проде). handler(url, attempt) выбирает ответ; attempt — 0-based
@@ -14,9 +21,16 @@ function makeFetch(handler: (url: string, attempt: number) => { status: number; 
   const calls: Recorded[] = []
   let attempt = 0
   const impl = (async (url: any, init?: any) => {
-    const headers = (init?.headers ?? {}) as Record<string, string>
-    const hasAuth = Object.keys(headers).some((k) => k.toLowerCase() === 'authorization')
-    calls.push({ url: String(url), method: init?.method ?? 'GET', hasAuth })
+    const headers = new Headers(init?.headers)
+    const hasAuth = headers.has('authorization')
+    calls.push({
+      url: String(url),
+      method: init?.method ?? 'GET',
+      hasAuth,
+      body: init?.body,
+      contentLength: headers.get('content-length'),
+      contentType: headers.get('content-type'),
+    })
     const r = handler(String(url), attempt++)
     return new Response(r.body ?? '', { status: r.status })
   }) as unknown as typeof fetch
@@ -24,22 +38,38 @@ function makeFetch(handler: (url: string, attempt: number) => { status: number; 
 }
 
 describe('YadiskClient', () => {
-  test('upload: GET href → PUT байтов (overwrite, путь закодирован, токен не уходит на сторадж)', async () => {
+  test('durable upload: GET href может ретраиться, provider stream PUT выполняется ровно один раз', async () => {
+    let hrefAttempts = 0
     const { impl, calls } = makeFetch((url) =>
-      url.includes('/resources/upload')
-        ? { status: 200, body: JSON.stringify({ href: 'https://storage.example/put?sig=1' }) }
-        : { status: 201 },
+      url.includes('/resources/upload') && hrefAttempts++ === 0
+        ? { status: 503 }
+        : url.includes('/resources/upload')
+          ? { status: 200, body: JSON.stringify({ href: 'https://storage.example/put?sig=1' }) }
+          : { status: 503 },
     )
-    const c = new YadiskClient({ token: 't', fetchImpl: impl })
-    await c.upload('app:/ddu/1.pdf', new Uint8Array([1, 2, 3]), { mimeType: 'application/pdf' })
+    const c = new YadiskClient({ token: 't', fetchImpl: impl, retryDelayMs: 1 })
+    const href = await c.prepareUpload('app:/ddu/1.pdf', true)
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+        controller.close()
+      },
+    })
+    await expect(c.uploadStreamOnce(href, stream, { size: 3, mimeType: 'application/pdf' }))
+      .rejects.toMatchObject({ status: 503 })
 
-    expect(calls.length).toBe(2)
+    expect(calls.length).toBe(3)
     expect(calls[0].url).toContain('overwrite=true')
     expect(calls[0].url).toContain('path=app%3A%2Fddu%2F1.pdf')
     expect(calls[0].hasAuth).toBe(true) // cloud-api → OAuth
-    expect(calls[1].method).toBe('PUT')
-    expect(calls[1].url).toBe('https://storage.example/put?sig=1')
-    expect(calls[1].hasAuth).toBe(false) // хост-сторадж → токен НЕ шлём
+    expect(calls[1].hasAuth).toBe(true) // safe retry до handoff
+    expect(calls[2].method).toBe('PUT')
+    expect(calls[2].url).toBe('https://storage.example/put?sig=1')
+    expect(calls[2].hasAuth).toBe(false) // хост-сторадж → токен НЕ шлём
+    expect(calls[2].body).toBe(stream)
+    expect(calls[2].contentLength).toBe('3')
+    expect(calls[2].contentType).toBe('application/pdf')
+    expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(1)
   })
 
   test('verify: GET /resources на app:/ (scope app_folder), не корень /v1/disk', async () => {
@@ -63,25 +93,6 @@ describe('YadiskClient', () => {
     expect(calls.length).toBe(2) // app:/lead-1, app:/lead-1/case-2
     expect(calls.every((x) => x.method === 'PUT')).toBe(true)
     expect(calls[0].url).toContain('path=app%3A%2Flead-1')
-  })
-
-  test('upload: 5xx на стораже ретраится со СВЕЖИМ href, затем успех', async () => {
-    let put = 0
-    const { impl, calls } = makeFetch((url) => {
-      if (url.includes('/resources/upload')) {
-        return { status: 200, body: JSON.stringify({ href: `https://storage.example/put?try=${put}` }) }
-      }
-      put++
-      return put === 1 ? { status: 500 } : { status: 201 }
-    })
-    const c = new YadiskClient({ token: 't', fetchImpl: impl, retryDelayMs: 1 })
-    await c.upload('app:/x.pdf', new Uint8Array([1]))
-
-    const hrefGets = calls.filter((x) => x.url.includes('/resources/upload'))
-    const puts = calls.filter((x) => x.method === 'PUT' && x.url.startsWith('https://storage'))
-    expect(hrefGets.length).toBe(2) // href пере-запрошен на ретрае
-    expect(puts.length).toBe(2)
-    expect(puts[0].url).not.toBe(puts[1].url) // href одноразовый — свежий на ретрае
   })
 
   test('4xx не ретрается, токен не в тексте ошибки, сообщение из тела', async () => {
@@ -131,17 +142,24 @@ describe('YadiskClient', () => {
     expect(calls[0].hasAuth).toBe(true)
   })
 
-  test('stat: fields=public_url,path & limit=0, парсит ссылку и путь', async () => {
+  test('stat: запрашивает stable identity и парсит size+sha256', async () => {
     const { impl, calls } = makeFetch(() => ({
       status: 200,
-      body: JSON.stringify({ path: 'disk:/Приложения/MP/lead-1', public_url: 'https://yadi.sk/d/abc' }),
+      body: JSON.stringify({
+        path: 'disk:/Приложения/MP/lead-1',
+        public_url: 'https://yadi.sk/d/abc',
+        size: 42,
+        sha256: 'a'.repeat(64),
+      }),
     }))
     const c = new YadiskClient({ token: 't', fetchImpl: impl })
     const meta = await c.stat('app:/lead-1')
 
     expect(meta.publicUrl).toBe('https://yadi.sk/d/abc')
     expect(meta.path).toBe('disk:/Приложения/MP/lead-1')
-    expect(calls[0].url).toContain('fields=public_url%2Cpath')
+    expect(meta.size).toBe(42)
+    expect(meta.sha256).toBe('a'.repeat(64))
+    expect(calls[0].url).toContain('fields=public_url%2Cpath%2Csize%2Csha256')
     expect(calls[0].url).toContain('limit=0')
   })
 

@@ -1,6 +1,6 @@
 {
   "name": "@botruntime/integration-yadisk",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Botpress-style Yandex Disk integration for botruntime: store case documents and return shareable links.",
@@ -9,7 +9,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@holocronlab/botruntime-sdk": "^6.15.0",
+    "@holocronlab/botruntime-sdk": "^6.19.0",
     "@holocronlab/botruntime-zui": "^2.3.0"
   },
   "devDependencies": {

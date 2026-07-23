@@ -7,13 +7,14 @@ import { configuration } from './definitions/configuration'
 export default new IntegrationDefinition({
   name: 'yadisk',
   title: 'Яндекс.Диск',
-  version: '0.2.3',
-  description: 'Хранение документов дел на Яндекс.Диске: папки, загрузка, публичные ссылки.',
+  version: '0.3.0',
+  description: 'Хранение документов дел на Яндекс.Диске: папки, длительная потоковая загрузка, публичные ссылки.',
   readme: 'hub.md',
   icon: 'icon.svg',
-  // Файловая загрузка может занимать дольше общего 45-секундного лимита.
-  // 119 секунд оставляют платформе одну секунду до внешнего 120s host-call deadline.
+  // Legacy short actions retain their released admission cap. uploadDocument
+  // uses the separate durableOperation=v1 business deadline instead.
   maxExecutionTime: 119,
+  maxConcurrency: 4,
   configuration,
   actions,
   network: {

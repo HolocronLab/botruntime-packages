@@ -29,35 +29,64 @@ docx — претензии/иски) на Яндекс.Диске и возвр
 
 - `createCaseFolder({ path })` → `{ diskPath }` — идемпотентно создаёт папку дела и
   предков. Существующая папка (409) — не ошибка.
-- `uploadDocument({ path, contentBase64, mimeType?, overwrite? })` →
-  `{ diskPath }` — заливает уже авторизованные ботом байты (двухшаговый upload
-  Диска). Произвольные URL не принимаются: бот скачивает файл через свой
-  авторизованный files API и передаёт содержимое в base64.
+- `uploadDocument({ path, fileRef, mimeType?, overwrite? })` →
+  `{ diskPath, size, checksum }` — capability `botruntime.durableOperation=v1`.
+  Бот запускает его через `startIntegrationOperation`; обычный `callAction`
+  отклоняется. CloudAPI закрепляет полный immutable
+  `fileRef{id,size,contentType,filename,checksum}`, а интеграция потоково читает
+  exact generation без base64 и делает ровно один provider PUT.
 - `getLink({ path })` → `{ publicUrl, diskPath }` — публикует ресурс и возвращает
   публичную ссылку (`https://yadi.sk/d/...`) и web deep-link в Диск фирмы
   (`disk:/Приложения/...`). Если после публикации ссылка не появилась, action
   завершается ошибкой.
-- `downloadDocument({ path })` → `{ contentBase64 }` — скачивает файл (для HITL /
-  повторной отправки).
+
+Base64-download в 0.3.0 удалён: крупные бинарные payload не должны проходить
+через JSON action envelope. Для повторной отправки используйте ссылку или
+файловый streaming API платформы. Версия 0.2.3 остаётся отдельной неизменяемой
+версией для старых установок.
 
 `path` во всех действиях — case-относительный (напр. `lead-1/case-2/ddu/doc.jpg`);
 префикс `app:/<yadiskFolder>/` навешивает сама интеграция. Абсолютные `app:/`,
 `disk:/` и сегменты `.`/`..` запрещены.
 
+Старт из бота передаёт только scoped file key; CloudAPI канонизирует его до
+полного поколения перед durable persistence:
+
+```ts
+const operation = await client.startIntegrationOperation({
+  type: 'yadisk:uploadDocument',
+  idempotencyKey: `claim-document:${documentId}`,
+  timeoutSeconds: 3600,
+  input: {
+    path: `claims/${documentId}.pdf`,
+    fileRef: { id: platformFileId },
+  },
+})
+```
+
+Далее вызывающий код опрашивает `getIntegrationOperation`. Только
+`status: "succeeded"` разрешает сохранять `result.diskPath`; при
+`outcome_unknown` операция остаётся на reconciliation/operator path и не
+запускается повторно с новым ключом автоматически.
+
 ## Инварианты (порт из TS+Go клиентов)
 
 - Авторизация — заголовок `OAuth <token>`, НЕ Bearer.
-- upload/download двухшаговые; на хост-сторадж (по подписанному href) токен НЕ
-  уходит. href одноразовый — на ретрае берём свежий.
-- Ретраи на транзиентных (сеть/429/5xx) с экспоненциальным backoff'ом; прочие 4xx —
-  сразу наружу. Таймаут на вызов. Токен в текст ошибок не попадает.
+- До provider handoff можно повторить получение upload href. После начала
+  единственного PUT автоматического повтора нет: timeout/disconnect остаётся
+  `outcome_unknown`.
+- `reconcile` и `cancel` не повторяют запись. Они читают метаданные Яндекс.Диска
+  и признают успех только при точном совпадении `size+sha256`; иначе сохраняют
+  `still_unknown`.
+- На хост-сторадж по подписанному href OAuth-токен НЕ уходит. Короткие control
+  calls имеют bounded timeout; потоковый PUT ограничен business deadline
+  durable operation и может работать несколько минут.
 - `getLink` публикует и читает ссылку через `stat` (`fields=public_url,path&limit=0`
   — иначе листинг папки `_embedded` пробил бы лимит тела). В TS-доноре `stat` не
   было — портирован из Go, без него ссылку не прочитать.
 
-## Статус / пререкизит
+## Версия
 
-Интеграция собрана как пакет, но **ещё не подключена** к runtime-host: операция
-`action_triggered` пока не заведена ни в Bun-host (`runtime-host/src/dispatch.ts`
-`IntegrationOp`, `server.ts`), ни в Go-ядре (`integrationruntime` Op-консты). Это
-отдельная задача-пререкизит, прежде чем лоер-бот сможет звать эти actions.
+0.3.0 требует runtime с native durable operation v1 и exact FileRef endpoint.
+Обновление устанавливается как новая integration version; существующие
+инсталляции 0.2.3 не переназначаются автоматически.
