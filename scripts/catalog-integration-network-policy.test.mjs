@@ -24,8 +24,9 @@ const expectedPolicies = [
     hosts: ["cloud-api.yandex.net", "*.disk.yandex.net", "*.disk.yandex.ru"],
     ingressRelayed: false,
     webhookAuthMode: "shared_secret",
-    sdkSpec: "^6.15.0",
+    sdkSpec: "^6.19.0",
     maxExecutionTime: 119,
+    maxConcurrency: 4,
   },
   {
     integration: "yookassa",
@@ -36,7 +37,16 @@ const expectedPolicies = [
   },
 ];
 
-for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec, brtSpec, maxExecutionTime } of expectedPolicies) {
+for (const {
+  integration,
+  hosts,
+  ingressRelayed,
+  webhookAuthMode,
+  sdkSpec,
+  brtSpec,
+  maxExecutionTime,
+  maxConcurrency,
+} of expectedPolicies) {
   test(`${integration} declares its production network policy`, () => {
     const source = readFileSync(
       new URL(`../integrations/${integration}/integration.definition.ts`, import.meta.url),
@@ -52,6 +62,9 @@ for (const { integration, hosts, ingressRelayed, webhookAuthMode, sdkSpec, brtSp
     assert.match(network, new RegExp(`webhookAuthMode:\\s*['\"]${webhookAuthMode}['\"]`));
     if (maxExecutionTime !== undefined) {
       assert.match(source, new RegExp(`maxExecutionTime:\\s*${maxExecutionTime}`));
+    }
+    if (maxConcurrency !== undefined) {
+      assert.match(source, new RegExp(`maxConcurrency:\\s*${maxConcurrency}`));
     }
 
     const packageJson = JSON.parse(
