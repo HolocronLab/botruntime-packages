@@ -6,7 +6,14 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.9.3 (current) — 2026-07-23
+## 0.9.4 (current) — 2026-07-23
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.6.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.49.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.26
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.17.0
+
+## 0.9.3 — 2026-07-23
 
 - Added a definition-owned `maxConcurrency` contract for integrations. Definitions remain serial by default and can opt in to at most four concurrent invocations.
 - Made `brt conversations show` bounded to 20 trace rows by default and added shared `since`, `until`, `limit`, and resumable `nextToken` filters without expanding the metadata-only timeline.
