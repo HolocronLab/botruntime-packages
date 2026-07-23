@@ -6,7 +6,14 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.9.4 (current) — 2026-07-23
+## 0.9.5 (current) — 2026-07-23
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.6.1
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.50.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.27
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.18.0
+
+## 0.9.4 — 2026-07-23
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.6.0
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.49.0

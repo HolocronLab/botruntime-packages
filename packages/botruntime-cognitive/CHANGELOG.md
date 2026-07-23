@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Wrapper around `@holocronlab/botruntime-client` for calling LLMs, forked as part of the
 `@botpress/runtime` dependency closure (zero-`@botpress` cascade, 6495425). See README.md.
 
-## 0.8.5 (current) — 2026-07-23
+## 0.8.6 (current) — 2026-07-23
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.50.0
+
+## 0.8.5 — 2026-07-23
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.49.0
 
