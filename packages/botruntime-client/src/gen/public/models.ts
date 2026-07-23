@@ -1547,6 +1547,10 @@ export interface State {
    */
   updatedAt: string;
   /**
+   * Opaque optimistic-concurrency token. Absent when connected to a legacy server.
+   */
+  version?: number;
+  /**
    * Id of the [Bot](#schema_bot)
    */
   botId: string;

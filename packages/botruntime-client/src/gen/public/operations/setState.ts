@@ -22,6 +22,10 @@ export interface SetStateRequestBody {
    * Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire.
    */
   expiry?: number | null;
+  /**
+   * Expected opaque state version. Omit for legacy last-write-wins behavior; use 0 only when the state must not exist.
+   */
+  expectedVersion?: number;
 }
 
 export type SetStateInput = SetStateRequestBody & SetStateRequestHeaders & SetStateRequestQuery & SetStateRequestParams
@@ -39,7 +43,7 @@ export const parseReq = (input: SetStateInput): SetStateRequest & { path: string
     headers: {  },
     query: {  },
     params: { 'type': input['type'], 'id': input['id'], 'name': input['name'] },
-    body: { 'payload': input['payload'], 'expiry': input['expiry'] },
+    body: { 'payload': input['payload'], 'expiry': input['expiry'], 'expectedVersion': input['expectedVersion'] },
   }
 }
 
@@ -60,6 +64,10 @@ export interface SetStateResponse {
      * Updating date of the [State](#schema_state) in ISO 8601 format
      */
     updatedAt: string;
+    /**
+     * Opaque optimistic-concurrency token. Absent when connected to a legacy server.
+     */
+    version?: number;
     /**
      * Id of the [Bot](#schema_bot)
      */

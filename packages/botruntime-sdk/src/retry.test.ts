@@ -127,6 +127,26 @@ describe.concurrent('retryConfig', () => {
   })
 })
 
+describe('state CAS retry safety', () => {
+  it('does not retry a ResourceLockedConflict write', () => {
+    const error = responseError(
+      {
+        method: 'post',
+        url: '/v1/chat/states/workflow/workflow_1/workflowState',
+      },
+      409,
+      {
+        id: 'err_state_conflict',
+        code: 409,
+        type: 'ResourceLockedConflict',
+        message: 'state version conflict',
+      }
+    )
+
+    expect(retryConfig.retryCondition!(error)).toBe(false)
+  })
+})
+
 describe('action retry safety', () => {
   it.each([
     {
