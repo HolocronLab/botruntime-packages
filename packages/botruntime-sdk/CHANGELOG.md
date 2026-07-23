@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.18.0 (current) — 2026-07-23
+## 6.19.0 (current) — 2026-07-23
+
+- Added authenticated exact-FileRef streaming to the public client and typed bot/integration SDK clients. The method returns a raw Web ReadableStream and never materializes the file as base64, Buffer, or ArrayBuffer. The read-only operation status union also recognizes the platform's audited `abandoned` terminal state; no client-side abandon mutation is exposed.
+
+## 6.18.0 — 2026-07-23
 
 - Added typed public and bot SDK methods to start, inspect, and cancel durable integration operations.
 

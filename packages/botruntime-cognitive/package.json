@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-cognitive",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "Wrapper around the botruntime Client to call LLMs",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
