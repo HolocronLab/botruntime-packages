@@ -350,6 +350,7 @@ describe('brt traces public contract', () => {
   it.each([
     [{ traces: 'wrong', meta: {} }, /malformed.*traces/i],
     [{ traces: [], meta: { nextToken: 123 } }, /malformed.*nextToken/i],
+    [{ traces: [], meta: { nextToken: '' } }, /malformed.*nextToken/i],
     [{ traces: [{ ...trace(), durationMs: '125' }], meta: {} }, /durationMs.*malformed/i],
     [
       {

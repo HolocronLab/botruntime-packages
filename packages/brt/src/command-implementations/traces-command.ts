@@ -1,8 +1,13 @@
 import type { TraceListParams } from '../api/cloudapi-client'
 import type commandDefinitions from '../command-definitions'
 import * as errors from '../errors'
-import { parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
+import {
+  MAX_TRACE_PAGE_SIZE,
+  MAX_TRACE_PAGES,
+  requirePositiveDecimalCursor,
+  resolveTraceWindow,
+} from './trace-window'
 
 const POSITIVE_DECIMAL_ID = /^[1-9][0-9]*$/
 const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
@@ -10,9 +15,6 @@ const TRACE_ID = /^[0-9a-f]{32}$/i
 const SPAN_ID = /^[0-9a-f]{16}$/i
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+\-]{0,95}$/
 const CODE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/\-]{0,63}$/
-const MAX_PAGE_SIZE = 1_000
-const MAX_LIMIT = 10_000
-const MAX_PAGES = 100
 const MAX_DURATION_MS = 86_400_000
 const MAX_COUNT = 1_000_000_000
 const MAX_COST = 1_000_000
@@ -145,9 +147,7 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
   public async run(): Promise<void> {
     const { query, limit } = resolveTraceFilters(this.argv, Date.now())
     const conversationId = query.conversationId
-    if (this.argv.nextToken !== undefined && !POSITIVE_DECIMAL_ID.test(this.argv.nextToken)) {
-      throw new errors.BotpressCLIError('--next-token must be a positive decimal cursor returned by brt traces')
-    }
+    requirePositiveDecimalCursor(this.argv.nextToken, 'brt traces')
 
     const target = await this._resolveTarget()
     const traces: TraceEntry[] = []
@@ -155,8 +155,8 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
     let nextToken = this.argv.nextToken
     if (nextToken) seenTokens.add(nextToken)
 
-    for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
-      const pageSize = Math.min(MAX_PAGE_SIZE, limit - traces.length)
+    for (let pageNumber = 1; pageNumber <= MAX_TRACE_PAGES; pageNumber++) {
+      const pageSize = Math.min(MAX_TRACE_PAGE_SIZE, limit - traces.length)
       const raw = await target.fetchPage({ ...query, pageSize, nextToken }).catch((thrown) => {
         throw errors.BotpressCLIError.wrap(
           thrown,
@@ -180,8 +180,8 @@ export class TracesCommand extends CloudCommand<TracesCommandDefinition> {
       if (page.traces.length === 0) {
         throw new errors.BotpressCLIError('trace response advanced pagination without returning rows')
       }
-      if (pageNumber === MAX_PAGES) {
-        throw new errors.BotpressCLIError(`trace pagination exceeded the ${MAX_PAGES}-page safety limit`)
+      if (pageNumber === MAX_TRACE_PAGES) {
+        throw new errors.BotpressCLIError(`trace pagination exceeded the ${MAX_TRACE_PAGES}-page safety limit`)
       }
     }
 
@@ -312,16 +312,16 @@ type TraceQuery = Omit<TraceListParams, 'pageSize' | 'nextToken'>
 
 function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: TraceQuery; limit: number } {
   const tokens = parseTraceTokens(input.tokens ?? [])
+  const window = resolveTraceWindow(
+    { limit: input.limit, since: input.since, until: input.until },
+    { limit: tokens.get('limit'), since: tokens.get('since'), until: tokens.get('until') },
+    nowMs
+  )
   const conversationId = mergedFilter(input.conversationId, tokens.get('conversation'), 'conversation')
   if (conversationId !== undefined && !CORRELATION_ID.test(conversationId)) {
     throw new errors.BotpressCLIError(
       '--conversation-id must be 1-128 characters using only letters, digits, dot, underscore, colon, or hyphen',
     )
-  }
-
-  const rawLimit = mergedFilter(input.limit, tokenNumber(tokens.get('limit'), 'limit'), 'limit') ?? 20
-  if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > MAX_LIMIT) {
-    throw new errors.BotpressCLIError(`--limit must be an integer between 1 and ${MAX_LIMIT}`)
   }
 
   const status = input.status
@@ -347,21 +347,13 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
     throw new errors.BotpressCLIError('--trace-id must be a non-zero 32-character hexadecimal trace ID')
   }
 
-  const rawSince = mergedFilter(input.since, tokens.get('since'), 'since')
-  const rawUntil = mergedFilter(input.until, tokens.get('until'), 'until')
-  const since = rawSince === undefined ? undefined : parseTimeFilter(rawSince, '--since', nowMs)
-  const until = rawUntil === undefined ? undefined : parseTimeFilter(rawUntil, '--until', nowMs)
-  if (since !== undefined && until !== undefined && since.timeMs > until.timeMs) {
-    throw new errors.BotpressCLIError('--since must not be after --until')
-  }
-
   if (conversationId === undefined) {
     if (workflow === undefined && action === undefined && rawTraceId === undefined) {
       throw new errors.BotpressCLIError(
         'conversation is required unless a workflow, action, or trace filter is provided',
       )
     }
-    if (rawTraceId === undefined && since === undefined) {
+    if (rawTraceId === undefined && window.since === undefined) {
       throw new errors.BotpressCLIError('--since is required when querying traces without a conversation')
     }
   }
@@ -378,10 +370,10 @@ function resolveTraceFilters(input: TraceFilterInput, nowMs: number): { query: T
       ...(workflow !== undefined ? { workflow } : {}),
       ...(action !== undefined ? { action } : {}),
       ...(rawTraceId !== undefined ? { traceId: rawTraceId.toLowerCase() } : {}),
-      ...(since !== undefined ? { since: since.wire } : {}),
-      ...(until !== undefined ? { until: until.wire } : {}),
+      ...(window.since !== undefined ? { since: window.since.wire } : {}),
+      ...(window.until !== undefined ? { until: window.until.wire } : {}),
     },
-    limit: rawLimit,
+    limit: window.limit,
   }
 }
 
@@ -441,16 +433,6 @@ function mergedFilter<T>(named: T | undefined, token: T | undefined, label: stri
   return named ?? token
 }
 
-function tokenNumber(value: string | undefined, label: string): number | undefined {
-  if (value === undefined) return undefined
-  if (!POSITIVE_DECIMAL_ID.test(value)) {
-    throw new errors.BotpressCLIError(`${label}= must be a positive decimal integer`)
-  }
-  const result = Number(value)
-  if (!Number.isSafeInteger(result)) throw new errors.BotpressCLIError(`${label}= is too large`)
-  return result
-}
-
 function validateCodeFilter(value: string | undefined, flag: string): void {
   if (value !== undefined && !CODE_ID.test(value)) {
     throw new errors.BotpressCLIError(`${flag} must be a 1-64 character workflow/action identifier`)
@@ -471,12 +453,12 @@ export function parseTracePage(value: unknown, pageSize: number): TracePage {
   if (rawNextToken !== undefined && typeof rawNextToken !== 'string') {
     throw new errors.BotpressCLIError('trace response has a malformed nextToken')
   }
-  if (typeof rawNextToken === 'string' && rawNextToken !== '' && !POSITIVE_DECIMAL_ID.test(rawNextToken)) {
+  if (typeof rawNextToken === 'string' && !POSITIVE_DECIMAL_ID.test(rawNextToken)) {
     throw new errors.BotpressCLIError('trace response has a malformed nextToken')
   }
   return {
     traces: value.traces.map((row, index) => parseTraceEntry(row, index)),
-    nextToken: rawNextToken || undefined,
+    nextToken: rawNextToken,
   }
 }
 

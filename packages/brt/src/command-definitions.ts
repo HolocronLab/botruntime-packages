@@ -130,7 +130,7 @@ export default {
         alias: 'ls',
       },
       show: {
-        description: 'Show a privacy-safe conversation trace timeline',
+        description: 'Show a bounded privacy-safe conversation trace timeline',
         schema: config.schemas.conversationsShow,
       },
     },

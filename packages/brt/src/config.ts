@@ -215,6 +215,7 @@ const cloudTracesLimit = {
 
 const cloudTracesNextToken = {
   type: 'string',
+  alias: 'next-token',
   description: 'Resume listing from this server-issued pagination cursor',
 } satisfies CommandOption
 
@@ -306,6 +307,14 @@ const cloudConversationId = {
   positional: true,
   idx: 0,
   demandOption: true,
+} satisfies CommandOption
+
+const cloudConversationShowTokens = {
+  type: 'string',
+  description: 'Botpress-compatible filters: since=<duration|RFC3339>, until=<duration|RFC3339>, limit=<n>',
+  array: true,
+  positional: true,
+  idx: 1,
 } satisfies CommandOption
 
 const cloudEvalName = {
@@ -907,7 +916,6 @@ const logsSchema = {
   limit: cloudLogsLimit,
 } satisfies CommandSchema
 
-// brt traces [tokens...] --conversation-id <id> [--dev] [--limit] [--next-token]
 // Production reads the canonical workspace/bot human route. --dev resolves an
 // attested opaque runtime target and uses the bot-scoped trace reader instead.
 const tracesSchema = {
@@ -929,8 +937,8 @@ const tracesSchema = {
   includeLlm: cloudTracesIncludeLlm,
 } satisfies CommandSchema
 
-// brt conversations list|show — compact conversation diagnostics. Detailed
-// canonical LLM content remains available through `brt traces --include-llm`.
+// Conversation diagnostics stay metadata-only; canonical LLM content remains
+// available through `brt traces --include-llm`.
 const conversationsListSchema = {
   ...cloudProjectSchema,
   tokens: cloudConversationsTokens,
@@ -943,7 +951,12 @@ const conversationsListSchema = {
 const conversationsShowSchema = {
   ...cloudProjectSchema,
   conversationId: cloudConversationId,
+  tokens: cloudConversationShowTokens,
   dev: cloudDevTarget,
+  since: cloudTracesSince,
+  until: cloudTracesUntil,
+  limit: cloudTracesLimit,
+  nextToken: cloudTracesNextToken,
 } satisfies CommandSchema
 
 // brt bots versions list|deploy (DEVLP-166) — deploy-version rollback DX. No
