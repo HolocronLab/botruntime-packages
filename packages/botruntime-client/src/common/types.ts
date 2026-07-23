@@ -33,11 +33,15 @@ export type Simplify<T> = T extends (...args: infer A) => infer R
       ? ReadonlyArray<Simplify<E>>
       : T extends Promise<infer R>
         ? Promise<Simplify<R>>
-        : T extends Buffer
-          ? Buffer
-          : T extends object
-            ? SimplifyObject<T>
-            : T
+        : T extends ReadableStream<infer R>
+          ? ReadableStream<R>
+          : T extends AbortSignal
+            ? AbortSignal
+            : T extends Buffer
+              ? Buffer
+              : T extends object
+                ? SimplifyObject<T>
+                : T
 
 export type Operation<C extends Record<string, AsyncFunc>> = Simplify<
   keyof {

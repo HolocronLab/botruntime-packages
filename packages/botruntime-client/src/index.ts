@@ -16,6 +16,12 @@ export type {
   IntegrationOperationStatus,
   StartIntegrationOperationInput,
 } from './integration-operations'
+export type {
+  DownloadFileRefInput,
+  DownloadFileRefOutput,
+  ExactFileRef,
+} from './files/download-file-ref'
+export { DownloadFileRefError } from './files/download-file-ref'
 export * from './gen/public/models'
 export { installAxiosErrorFidelity } from './common/axios'
 export { toApiError } from './common/errors'

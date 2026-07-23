@@ -1,4 +1,5 @@
 import * as common from '../common'
+import * as downloadFileRef from '../files/download-file-ref'
 import * as integrationOperations from '../integration-operations'
 import * as uploadFile from '../files/upload-file'
 import * as gen from '../gen/public'
@@ -6,6 +7,9 @@ import * as types from '../types'
 
 type IClient = common.types.Simplify<
   gen.Client & {
+    downloadFileRef: (
+      input: downloadFileRef.DownloadFileRefInput
+    ) => Promise<downloadFileRef.DownloadFileRefOutput>
     startIntegrationOperation: (
       input: integrationOperations.StartIntegrationOperationInput
     ) => Promise<integrationOperations.IntegrationOperation>
@@ -157,6 +161,15 @@ export class Client extends gen.Client implements IClient {
    */
   public readonly uploadFile = async (input: uploadFile.UploadFileInput): Promise<uploadFile.UploadFileOutput> => {
     return await uploadFile.upload(this, input)
+  }
+
+  /**
+   * Stream the exact immutable FileRef generation without materializing it in memory.
+   */
+  public readonly downloadFileRef = async (
+    input: downloadFileRef.DownloadFileRefInput
+  ): Promise<downloadFileRef.DownloadFileRefOutput> => {
+    return await downloadFileRef.downloadFileRef(this.config, input)
   }
 
   public readonly startIntegrationOperation = async (
