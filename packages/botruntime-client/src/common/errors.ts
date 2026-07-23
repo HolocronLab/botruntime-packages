@@ -1,6 +1,15 @@
 import axios, { type AxiosError } from 'axios'
 import * as errors from '../errors'
 
+const CALL_ACTION_PATH = '/v1/chat/actions'
+const conservativeActionMetadata = (): Readonly<Record<string, unknown>> =>
+  Object.freeze({
+    errorKind: 'integration_execution',
+    executionCode: 'transport_outcome_unknown',
+    executionState: 'outcome_unknown',
+    retryable: false,
+  })
+
 // errors.errorFrom is GENERATED code (src/gen/public/errors.ts, ADR-0005) that bun run
 // generate overwrites wholesale — it must never be hand-patched, so its two known
 // crash-prone inputs are guarded HERE, at this owned boundary, instead:
@@ -49,22 +58,101 @@ const toErrorCause = (err: unknown): Error => {
   return new Error(String(err), { cause: err })
 }
 
-// A transport failure (ECONNRESET/ETIMEDOUT/DNS/socket-closed/...) never reaches the server, so
-// err.response is absent — branch on err.response, not err.response.data: an egress-gateway
-// 500/502 with a falsy body (data: '' or null, a live scenario) DOES have a response, and
-// reporting it as "no response" is self-contradictory and destroys the diagnostic value of the
-// real status code. The no-response branch is its own case so err.code/err.message land in the
-// surfaced message (previously buried in the nested `.error` cause, unreadable by a naive
-// `catch (e) { log(e.message) }` — the prod-observed masking of the real transport cause).
+const isCallActionError = (err: AxiosError): boolean => {
+  if (err.config?.method?.toLowerCase() !== 'post' || !err.config.url) {
+    return false
+  }
+
+  try {
+    return new URL(err.config.url, 'https://botruntime.invalid').pathname === CALL_ACTION_PATH
+  }
+  catch {
+    return false
+  }
+}
+
+const validIntegrationExecutionMetadata = (
+  envelope: unknown,
+): Readonly<Record<string, unknown>> | undefined => {
+  if (typeof envelope !== 'object' || envelope === null) {
+    return undefined
+  }
+  const metadata = (envelope as { metadata?: unknown }).metadata
+  if (typeof metadata !== 'object' || metadata === null) {
+    return undefined
+  }
+  const execution = metadata as {
+    errorKind?: unknown
+    executionCode?: unknown
+    executionState?: unknown
+    retryable?: unknown
+  }
+  if (
+    execution.errorKind !== 'integration_execution'
+    || typeof execution.executionCode !== 'string'
+    || execution.executionCode.length === 0
+    || (
+      execution.executionState !== 'not_started'
+      && execution.executionState !== 'outcome_unknown'
+    )
+    || typeof execution.retryable !== 'boolean'
+  ) {
+    return undefined
+  }
+  return Object.freeze({
+    errorKind: 'integration_execution',
+    executionCode: execution.executionCode,
+    executionState: execution.executionState,
+    retryable: execution.retryable,
+  })
+}
+
+const attachActionExecutionMetadata = (
+  apiError: Error,
+  transportError: AxiosError,
+): Error => {
+  if (!isCallActionError(transportError)) {
+    return apiError
+  }
+
+  // A response-less or legacy/untyped action failure may already have crossed
+  // the provider boundary. Make that ambiguity explicit so downstream durable
+  // retries cannot replay it. Only the server's complete fixed metadata may
+  // prove that execution did not start.
+  const metadata =
+    validIntegrationExecutionMetadata(transportError.response?.data)
+    ?? conservativeActionMetadata()
+  Object.defineProperty(apiError, 'metadata', {
+    value: metadata,
+    enumerable: true,
+    configurable: true,
+  })
+  return apiError
+}
+
+// A transport failure (ECONNRESET/ETIMEDOUT/DNS/socket-closed/...) has no confirmed response;
+// the request may still have reached the server. Branch on err.response, not
+// err.response.data: an egress-gateway 500/502 with a falsy body (data: '' or null, a live
+// scenario) DOES have a response, and reporting it as "no response" is self-contradictory and
+// destroys the diagnostic value of the real status code. The no-response branch is its own
+// case so err.code/err.message land in the surfaced message (previously buried in the nested
+// `.error` cause, unreadable by a naive `catch (e) { log(e.message) }` — the prod-observed
+// masking of the real transport cause).
 export const toApiError = (err: unknown): Error => {
   if (axios.isAxiosError(err)) {
+    let apiError: Error
     if (err.response) {
       if (err.response.data) {
-        return preserveWireCode(safeErrorFrom(err.response.data), err.response.data)
+        apiError = preserveWireCode(safeErrorFrom(err.response.data), err.response.data)
       }
-      return new errors.UnknownError(`Request failed with status ${err.response.status} and empty body`, err)
+      else {
+        apiError = new errors.UnknownError(`Request failed with status ${err.response.status} and empty body`, err)
+      }
     }
-    return transportError(err)
+    else {
+      apiError = transportError(err)
+    }
+    return attachActionExecutionMetadata(apiError, err)
   }
   return safeErrorFrom(err)
 }

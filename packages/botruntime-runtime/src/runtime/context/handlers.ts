@@ -32,7 +32,11 @@ import { incrementRequestCount, getRequestMetrics } from '../../environment'
 import { WorkflowContinueEvent } from '../events'
 import { ulid } from 'ulid'
 import { getConfiguredDevRequestTimeoutMs } from '../../workers/request-timeout'
-import { runtimeClientCoordinates } from '../runtime-client-scope'
+import {
+  RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS,
+  runtimeActionTimeoutMs,
+  runtimeClientCoordinates,
+} from '../runtime-client-scope'
 
 export type { RawHttpRequest } from './http'
 
@@ -121,6 +125,7 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
 
           const vanillaClient = new Client({
             ...runtimeClientCoordinates(process.env, parsed.bot.id),
+            actionTimeoutMs: () => runtimeActionTimeoutMs(lambdaCtx.getRemainingTimeInMillis()),
             headers: {
               'x-multiple-integrations': 'true',
             },
@@ -174,8 +179,10 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
                   }
                 }
 
-                const RUNTIME_SAFETY_MARGIN = 5000
-                const remainingTime = Math.max(lambdaCtx.getRemainingTimeInMillis() - RUNTIME_SAFETY_MARGIN, 100)
+                const remainingTime = Math.max(
+                  lambdaCtx.getRemainingTimeInMillis() - RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS,
+                  100
+                )
 
                 // oxlint-disable-next-line no-async-promise-executor
                 return await new Promise<unknown>(async (resolve, reject) => {
