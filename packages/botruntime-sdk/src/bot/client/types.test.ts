@@ -68,6 +68,38 @@ describe('ClientInputs', () => {
       ]
     >
   })
+
+  test('StartIntegrationOperation constrains the action type but keeps adapter input opaque', () => {
+    const compile = (start: types.StartIntegrationOperation<FooBarBazBot>) => {
+      void start({
+        idempotencyKey: 'operation-1',
+        type: 'fooBarBaz:doFoo',
+        input: {
+          path: 'documents/claim.pdf',
+          fileRef: {
+            id: 'file-42',
+            size: 1024,
+            checksum: 'sha256:example',
+          },
+        },
+        timeoutSeconds: 600,
+      })
+
+      void start({
+        idempotencyKey: 'operation-2',
+        type: 'fooBarBaz:doFoo',
+        input: { adapterSpecificField: 42 },
+      })
+
+      void start({
+        idempotencyKey: 'operation-3',
+        // @ts-expect-error only installed integration actions are accepted
+        type: 'missing:action',
+        input: { inputFoo: 'value' },
+      })
+    }
+    void compile
+  })
 })
 describe('ClientOutputs', () => {
   test('CreateMessage with implemented bot should require strict type', () => {
@@ -245,6 +277,21 @@ describe('ClientOperations', () => {
   test('callAction of BotSpecificClient extends General', () => {
     type Specific = types.ClientOperations<BaseBot>['callAction']
     type General = client.Client['callAction']
+    type _assertion = utils.AssertExtends<Specific, General>
+  })
+  test('startIntegrationOperation of BotSpecificClient extends General', () => {
+    type Specific = types.ClientOperations<BaseBot>['startIntegrationOperation']
+    type General = client.Client['startIntegrationOperation']
+    type _assertion = utils.AssertExtends<Specific, General>
+  })
+  test('getIntegrationOperation of BotSpecificClient extends General', () => {
+    type Specific = types.ClientOperations<BaseBot>['getIntegrationOperation']
+    type General = client.Client['getIntegrationOperation']
+    type _assertion = utils.AssertExtends<Specific, General>
+  })
+  test('cancelIntegrationOperation of BotSpecificClient extends General', () => {
+    type Specific = types.ClientOperations<BaseBot>['cancelIntegrationOperation']
+    type General = client.Client['cancelIntegrationOperation']
     type _assertion = utils.AssertExtends<Specific, General>
   })
   test('uploadFile of BotSpecificClient extends General', () => {

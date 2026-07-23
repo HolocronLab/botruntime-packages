@@ -158,6 +158,21 @@ export type CallAction<TBot extends common.BaseBot> = <ActionType extends keyof 
   >
 >
 
+export type StartIntegrationOperation<TBot extends common.BaseBot> = <
+  ActionType extends keyof common.EnumerateActions<TBot>,
+>(
+  x: utils.Merge<
+    Arg<client.Client['startIntegrationOperation']>,
+    {
+      type: utils.Cast<ActionType, string>
+      input: Record<string, unknown>
+    }
+  >
+) => Promise<client.IntegrationOperation>
+
+export type GetIntegrationOperation<_TBot extends common.BaseBot> = client.Client['getIntegrationOperation']
+export type CancelIntegrationOperation<_TBot extends common.BaseBot> = client.Client['cancelIntegrationOperation']
+
 export type UploadFile<_TBot extends common.BaseBot> = client.Client['uploadFile']
 export type UpsertFile<_TBot extends common.BaseBot> = client.Client['upsertFile']
 export type DeleteFile<_TBot extends common.BaseBot> = client.Client['deleteFile']
@@ -439,6 +454,9 @@ export type ClientOperations<TBot extends common.BaseBot> = {
   getOrSetState: GetOrSetState<TBot>
   patchState: PatchState<TBot>
   callAction: CallAction<TBot>
+  startIntegrationOperation: StartIntegrationOperation<TBot>
+  getIntegrationOperation: GetIntegrationOperation<TBot>
+  cancelIntegrationOperation: CancelIntegrationOperation<TBot>
   uploadFile: UploadFile<TBot>
   upsertFile: UpsertFile<TBot>
   deleteFile: DeleteFile<TBot>
