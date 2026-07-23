@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.6.0 (current) — 2026-07-23
+## 2.6.1 (current) — 2026-07-23
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.50.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.6
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.27
+- Обновлены внутренние зависимости: @holocronlab/botruntime-llmz@0.1.7
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.18.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.10
+
+## 2.6.0 — 2026-07-23
 
 - Added optional optimistic concurrency tokens to State API reads and writes. `TrackedState` now echoes server-issued versions on subsequent saves, detects concurrent updates without replaying them, and falls back to legacy last-write-wins behavior when connected to an older server. Oversized snapshots use version-scoped content-addressed files, clean up superseded generations after successful CAS, and recover once when a concurrent save removes a stale file pointer.
 
