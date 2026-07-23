@@ -825,6 +825,33 @@ test('createTask with deadline serializes DateTime', async () => {
   })
 })
 
+test('getTask reads one task with deadline and deal references', async () => {
+  const env = makeEnv((req, body, url) => {
+    expect(req.method).toBe('GET')
+    expect(body).toBe('')
+    expect(url.pathname).toBe('/api/v3/task/task%2F42')
+    return json(
+      200,
+      wrap(JSON.stringify({
+        contentType: 'Task',
+        id: 'task/42',
+        name: 'Отправить претензию — Иван Иванов',
+        status: 'accepted',
+        deadline: { contentType: 'DateTime', value: '2026-07-24 12:00:00' },
+        deals: [{ contentType: 'Deal', id: 'deal-7' }],
+        statement: 'Внутренняя постановка не должна попадать в публичную проекцию.',
+      })),
+    )
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const task = await c.getTask('task/42')
+    expect(task.id).toBe('task/42')
+    expect(task.deadline?.value).toBe('2026-07-24 12:00:00')
+    expect(task.deals).toEqual([{ contentType: 'Deal', id: 'deal-7' }])
+  })
+})
+
 test('taskDoAction posts action + checkTodos', async () => {
   const env = makeEnv((req, body, url) => {
     expect(req.method).toBe('POST')

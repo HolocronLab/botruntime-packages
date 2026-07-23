@@ -19,6 +19,18 @@ const taskOutput = z.object({
   status: z.string().optional().title('Статус'),
 })
 
+const getTaskInput = z.object({
+  taskId: z.string().min(1).title('ID задачи'),
+})
+
+const getTaskOutput = z.object({
+  id: z.string().title('ID задачи'),
+  name: z.string().optional().title('Название'),
+  status: z.string().optional().title('Статус'),
+  deadline: z.string().optional().title('Дедлайн'),
+  dealIds: z.array(z.string()).title('ID связанных сделок'),
+})
+
 const taskDoActionInput = z.object({
   taskId: z.string().min(1).title('ID задачи'),
   action: z.enum(['act_accept_task', 'act_done']).title('Действие').describe('assigned -> accepted -> completed'),
@@ -31,6 +43,12 @@ export const createTask: ActionDefinition = {
   input: { schema: createTaskInput },
   output: { schema: taskOutput },
 }
+export const getTask: ActionDefinition = {
+  title: 'Получить задачу',
+  description: 'Возвращает безопасную read-only проекцию задачи и связи со сделками.',
+  input: { schema: getTaskInput },
+  output: { schema: getTaskOutput },
+}
 export const taskDoAction: ActionDefinition = {
   title: 'Действие над задачей',
   description: 'Перевод статуса задачи (только через doAction, прямая запись игнорируется).',
@@ -38,8 +56,10 @@ export const taskDoAction: ActionDefinition = {
   output: { schema: taskOutput },
 }
 
-export const taskActions = { createTask, taskDoAction } as const
+export const taskActions = { createTask, getTask, taskDoAction } as const
 
 export type CreateTaskInput = z.infer<typeof createTaskInput>
+export type GetTaskInput = z.infer<typeof getTaskInput>
+export type GetTaskOutput = z.infer<typeof getTaskOutput>
 export type TaskDoActionInput = z.infer<typeof taskDoActionInput>
 export type TaskOutput = z.infer<typeof taskOutput>
