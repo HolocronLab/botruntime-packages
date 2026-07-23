@@ -8,8 +8,8 @@ const logs: string[] = []
 const logger = { forBot: () => ({ info(msg: string) { logs.push(msg) }, warn(msg: string) { logs.push(msg) } }) } as unknown as IntegrationLogger
 const cfg = { yadiskToken: 't', yadiskFolder: 'cases' }
 
-describe('uploadDocument: источник байтов', () => {
-  test('fileUrl отклоняется до сети: интеграция принимает только уже авторизованные байты', async () => {
+describe('uploadDocument: только durable operation', () => {
+  test('ordinary action всегда отклоняется до сети', async () => {
     const originalFetch = globalThis.fetch
     let fetchCalled = false
     globalThis.fetch = (async () => {
@@ -17,25 +17,11 @@ describe('uploadDocument: источник байтов', () => {
       throw new Error('network must not be called')
     }) as unknown as typeof fetch
     try {
-      await expect(uploadDocument(cfg, { path: 'x.pdf', fileUrl: 'https://u' } as any, logger)).rejects.toThrow(
-        /contentBase64/,
-      )
+      await expect(uploadDocument()).rejects.toThrow(/startIntegrationOperation/)
       expect(fetchCalled).toBe(false)
     } finally {
       globalThis.fetch = originalFetch
     }
-  })
-
-  test('нет contentBase64 → fail-loud (без сети)', async () => {
-    await expect(uploadDocument(cfg, { path: 'x.pdf' } as any, logger)).rejects.toThrow(/contentBase64/)
-  })
-
-  test('битый contentBase64 → fail-loud до upload', async () => {
-    await expect(uploadDocument(cfg, { path: 'x.pdf', contentBase64: 'not-base64' }, logger)).rejects.toThrow(/base64/)
-  })
-
-  test('абсолютный путь не обходит yadiskFolder', async () => {
-    await expect(uploadDocument(cfg, { path: 'app:/outside/x.pdf', contentBase64: 'YQ==' }, logger)).rejects.toThrow(/относительный/)
   })
 })
 

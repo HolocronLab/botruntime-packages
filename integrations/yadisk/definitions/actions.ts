@@ -10,6 +10,13 @@ const relativePath = z
   .regex(/^(?!\s*\.\.?\s*(?:\/|$))(?!.*\/\s*\.\.?\s*(?:\/|$)).*$/, 'Сегменты . и .. запрещены')
   .describe('Путь относительно корневой папки, напр. lead-1/case-2/ddu/doc.jpg')
 const absoluteDiskPath = z.string().describe('Абсолютный путь app:/...')
+const immutableFileRef = z.object({
+  id: z.string().min(1).max(1024).describe('Bot-scoped Files API key'),
+  size: z.number().int().min(0).max(1 << 30).describe('Точный размер поколения в байтах'),
+  contentType: z.string().max(255).optional().describe('MIME-тип поколения'),
+  filename: z.string().max(1024).optional().describe('Имя файла поколения'),
+  checksum: z.string().regex(/^[0-9a-f]{64}$/i).describe('SHA-256 поколения'),
+})
 
 export const actions = {
   createCaseFolder: {
@@ -20,16 +27,25 @@ export const actions = {
   },
   uploadDocument: {
     title: 'Загрузить документ',
-    description: 'Загружает уже авторизованные байты документа (base64, overwrite).',
+    description: 'Длительно и потоково загружает immutable FileRef без base64 и повторов после передачи провайдеру.',
+    attributes: {
+      'botruntime.durableOperation': 'v1',
+    },
     input: {
       schema: z.object({
         path: relativePath,
-        contentBase64: z.string().min(1).describe('Содержимое документа в base64'),
+        fileRef: immutableFileRef,
         mimeType: z.string().optional().describe('MIME-тип содержимого'),
         overwrite: z.boolean().default(true).describe('Перезаписать существующий файл'),
       }),
     },
-    output: { schema: z.object({ diskPath: absoluteDiskPath }) },
+    output: {
+      schema: z.object({
+        diskPath: absoluteDiskPath,
+        size: z.number().int().min(0),
+        checksum: z.string().regex(/^[0-9a-f]{64}$/i),
+      }),
+    },
   },
   getLink: {
     title: 'Опубликовать и получить ссылку',
@@ -41,11 +57,5 @@ export const actions = {
         diskPath: z.string().describe('Web deep-link в Диск фирмы: disk:/Приложения/...'),
       }),
     },
-  },
-  downloadDocument: {
-    title: 'Скачать документ',
-    description: 'Скачивает файл по пути и возвращает содержимое base64 (для HITL/повторной отправки).',
-    input: { schema: z.object({ path: relativePath }) },
-    output: { schema: z.object({ contentBase64: z.string().describe('Содержимое файла base64') }) },
   },
 }

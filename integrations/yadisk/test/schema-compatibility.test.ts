@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { actions } from '../definitions/actions'
 import { configuration } from '../definitions/configuration'
+import definition from '../integration.definition'
 
 describe('public catalog schema compatibility', () => {
   test('configuration converts to JSON Schema', () => {
@@ -21,5 +22,27 @@ describe('public catalog schema compatibility', () => {
     expect(schema.safeParse({ path: 'app:/outside' }).success).toBe(false)
     expect(schema.safeParse({ path: '../outside' }).success).toBe(false)
     expect(schema.safeParse({ path: 'lead-1/ .. /outside' }).success).toBe(false)
+  })
+
+  test('v0.3 exposes only the native durable upload capability', () => {
+    expect(definition.version).toBe('0.3.0')
+    expect(actions.uploadDocument.attributes).toEqual({
+      'botruntime.durableOperation': 'v1',
+    })
+    expect(actions.uploadDocument.input.schema.safeParse({
+      path: 'lead-1/document.pdf',
+      fileRef: {
+        id: 'file-1',
+        size: 3,
+        contentType: 'application/pdf',
+        filename: 'document.pdf',
+        checksum: 'a'.repeat(64),
+      },
+    }).success).toBe(true)
+    expect(actions.uploadDocument.input.schema.safeParse({
+      path: 'lead-1/document.pdf',
+      contentBase64: 'YQ==',
+    }).success).toBe(false)
+    expect('downloadDocument' in actions).toBe(false)
   })
 })

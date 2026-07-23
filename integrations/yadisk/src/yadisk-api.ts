@@ -8,9 +8,11 @@
 //  - upload/download двухшаговые: GET href у cloud-api → перенос байтов на
 //    хост-сторадж по этому href. На хост-сторадж токен НЕ уходит (href уже
 //    подписан) — иначе секрет утёк бы за пределы cloud-api.
-//  - href одноразовый: на ретрае берём свежий (весь двухшаг внутри retry).
+//  - До handoff можно повторить GET href. Потоковый PUT выполняется один раз;
+//    сбой после его начала остаётся outcome_unknown и сверяется через stat.
 //  - mkdir идемпотентен: 409 (каталог уже есть) = успех.
-//  - ретраи только на транзиентных (0/429/5xx); прочие 4xx — сразу наружу.
+//  - Control-call ретраи только на транзиентных (0/429/5xx); прочие 4xx —
+//    сразу наружу. Provider PUT не ретраится.
 //  - токен живёт только в заголовке, в текст ошибок не попадает.
 
 const DEFAULT_BASE_URL = 'https://cloud-api.yandex.net/v1/disk'
@@ -36,6 +38,9 @@ export type ResourceMeta = {
   path: string
   // publicUrl (https://yadi.sk/d/<hash>) заполнен только после publish.
   publicUrl: string
+  // Stable identity used by durable upload reconciliation.
+  size?: number
+  sha256?: string
 }
 
 export class YadiskApiError extends Error {
@@ -74,21 +79,44 @@ export class YadiskClient {
     await this.retry(() => this.apiCall('GET', `/resources?${qs({ path: 'app:/', fields: 'path', limit: '0' })}`))
   }
 
-  // upload — залить байты по пути app:/... (overwrite идемпотентен). Родительские
-  // папки должны существовать (см. mkdirAll). Href берём внутри retry — он одноразовый.
-  async upload(
-    path: string,
-    data: Uint8Array,
-    opts: { mimeType?: string; overwrite?: boolean } = {},
-  ): Promise<void> {
-    const overwrite = opts.overwrite ?? true
-    await this.retry(async () => {
-      const href = await this.apiCall<HrefResp>(
+  // prepareUpload may retry because no provider effect has started yet. The
+  // returned href is used exactly once by uploadStreamOnce.
+  async prepareUpload(path: string, overwrite = true, signal?: AbortSignal): Promise<string> {
+    const response = await this.retry(
+      () => this.apiCall<HrefResp>(
         'GET',
         `/resources/upload?${qs({ path, overwrite: String(overwrite) })}`,
-      )
-      await this.transferPut(href.href, data, opts.mimeType)
-    })
+        signal,
+      ),
+      signal,
+    )
+    if (!response.href) throw new YadiskApiError(502, 'Яндекс.Диск не вернул upload href')
+    return response.href
+  }
+
+  // uploadStreamOnce is the provider handoff boundary. It deliberately has no
+  // retry and no fixed transfer timeout: the durable operation deadline owns
+  // cancellation, so multi-minute uploads are supported without replaying an
+  // ambiguous PUT.
+  async uploadStreamOnce(
+    href: string,
+    stream: ReadableStream<Uint8Array>,
+    opts: { size: number; mimeType?: string; signal?: AbortSignal },
+  ): Promise<void> {
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'PUT',
+      body: stream,
+      duplex: 'half',
+      headers: {
+        'content-type': opts.mimeType || 'application/octet-stream',
+        'content-length': String(opts.size),
+      },
+    }
+    const res = await this.send(href, init, 0, opts.signal)
+    if (res.status >= 400) {
+      const raw = await readCappedText(res, MAX_API_BODY_BYTES, res.status)
+      throw parseAPIError(res.status, raw)
+    }
   }
 
   // download — скачать байты по пути (двухшаг, как upload).
@@ -113,17 +141,23 @@ export class YadiskClient {
     await this.retry(() => this.apiCall('PUT', `/resources/publish?${qs({ path })}`))
   }
 
-  // stat — мета ресурса (путь + публичная ссылка, если опубликован).
-  // fields=public_url,path и limit=0 обязательны: без них GET /resources на ПАПКУ
-  // вернёт _embedded со списком файлов и пробьёт MAX_API_BODY_BYTES.
-  async stat(path: string): Promise<ResourceMeta> {
+  // stat — мета ресурса и stable identity для durable reconciliation.
+  // fields + limit=0 обязательны: без них GET /resources на ПАПКУ вернёт
+  // _embedded со списком файлов и пробьёт MAX_API_BODY_BYTES.
+  async stat(path: string, signal?: AbortSignal): Promise<ResourceMeta> {
     return this.retry(async () => {
-      const raw = await this.apiCall<{ path: string; public_url?: string }>(
+      const raw = await this.apiCall<{ path: string; public_url?: string; size?: number; sha256?: string }>(
         'GET',
-        `/resources?${qs({ path, fields: 'public_url,path', limit: '0' })}`,
+        `/resources?${qs({ path, fields: 'public_url,path,size,sha256', limit: '0' })}`,
+        signal,
       )
-      return { path: raw.path, publicUrl: raw.public_url ?? '' }
-    })
+      return {
+        path: raw.path,
+        publicUrl: raw.public_url ?? '',
+        size: raw.size,
+        sha256: raw.sha256,
+      }
+    }, signal)
   }
 
   private async mkdir(path: string): Promise<void> {
@@ -140,11 +174,16 @@ export class YadiskClient {
 
   // apiCall — один вызов cloud-api (OAuth-заголовок, разбор тела). out пуст —
   // тело читается только для текста ошибки. Возвращает undefined на пустом теле.
-  private async apiCall<T = void>(method: string, pathWithQuery: string): Promise<T> {
+  private async apiCall<T = void>(
+    method: string,
+    pathWithQuery: string,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const res = await this.send(
       `${this.baseUrl}${pathWithQuery}`,
       { method, headers: { authorization: `OAuth ${this.token}`, accept: 'application/json' } },
       CALL_TIMEOUT_MS,
+      signal,
     )
     const raw = await readCappedText(res, MAX_API_BODY_BYTES, res.status)
     if (res.status >= 400) throw parseAPIError(res.status, raw)
@@ -153,20 +192,6 @@ export class YadiskClient {
       return JSON.parse(raw) as T
     } catch {
       throw new YadiskApiError(res.status, 'не удалось разобрать ответ')
-    }
-  }
-
-  // transferPut — заливка байтов по одноразовому upload-href. Хост-сторадж, href
-  // уже подписан → OAuth-заголовок НЕ шлём (токен не должен туда утечь).
-  private async transferPut(href: string, data: Uint8Array, mimeType?: string): Promise<void> {
-    const res = await this.send(
-      href,
-      { method: 'PUT', body: data, headers: { 'content-type': mimeType || 'application/octet-stream' } },
-      TRANSFER_TIMEOUT_MS,
-    )
-    if (res.status >= 400) {
-      const raw = await readCappedText(res, MAX_API_BODY_BYTES, res.status)
-      throw parseAPIError(res.status, raw)
     }
   }
 
@@ -182,28 +207,37 @@ export class YadiskClient {
 
   // send — fetch с таймаутом (AbortController); сетевой сбой/таймаут → YadiskApiError(0)
   // (транзиент). Таймер всегда снимаем, чтобы не держать event loop.
-  private async send(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  private async send(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const onAbort = () => controller.abort(signal?.reason)
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
+    const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined
     try {
       return await this.fetchImpl(url, { ...init, signal: controller.signal })
     } catch (e) {
       throw new YadiskApiError(0, e instanceof Error ? e.message : 'сетевая ошибка')
     } finally {
-      clearTimeout(timer)
+      if (timer !== undefined) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
     }
   }
 
   // retry — повтор fn при транзиентном сбое (0/429/5xx) с экспоненциальным backoff'ом;
   // прочие 4xx и успех возвращаются сразу.
-  private async retry<T>(fn: () => Promise<T>): Promise<T> {
+  private async retry<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       try {
         return await fn()
       } catch (e) {
         const status = e instanceof YadiskApiError ? e.status : 0
         if (!isTransient(status) || attempt >= this.maxAttempts) throw e
-        await delay(this.retryDelay << (attempt - 1))
+        await delay(this.retryDelay << (attempt - 1), signal)
       }
     }
   }
@@ -214,12 +248,30 @@ function qs(params: Record<string, string>): string {
   return new URLSearchParams(params).toString()
 }
 
-function isTransient(status: number): boolean {
+export function isTransientStatus(status: number): boolean {
   return status === 0 || status === 429 || status >= 500
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function isTransient(status: number): boolean {
+  return isTransientStatus(status)
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new YadiskApiError(0, 'операция отменена'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new YadiskApiError(0, 'операция отменена'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 // parseAPIError — извлекает человекочитаемое {message|description} из тела ошибки.
