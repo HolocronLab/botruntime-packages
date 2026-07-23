@@ -351,6 +351,10 @@ export interface CreateIntegrationRequestBody {
    */
   maxExecutionTime?: number;
   /**
+   * Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time.
+   */
+  maxConcurrency?: number;
+  /**
    * Outbound host allowlist declared by the integration.
    */
   providerHosts?: string[];
@@ -379,7 +383,7 @@ export const parseReq = (input: CreateIntegrationInput): CreateIntegrationReques
     headers: {  },
     query: {  },
     params: {  },
-    body: { 'name': input['name'], 'version': input['version'], 'configuration': input['configuration'], 'configurations': input['configurations'], 'states': input['states'], 'events': input['events'], 'actions': input['actions'], 'entities': input['entities'], 'identifier': input['identifier'], 'channels': input['channels'], 'user': input['user'], 'interfaces': input['interfaces'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'secrets': input['secrets'], 'code': input['code'], 'url': input['url'], 'dev': input['dev'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'attributes': input['attributes'], 'maxExecutionTime': input['maxExecutionTime'], 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode'] },
+    body: { 'name': input['name'], 'version': input['version'], 'configuration': input['configuration'], 'configurations': input['configurations'], 'states': input['states'], 'events': input['events'], 'actions': input['actions'], 'entities': input['entities'], 'identifier': input['identifier'], 'channels': input['channels'], 'user': input['user'], 'interfaces': input['interfaces'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'secrets': input['secrets'], 'code': input['code'], 'url': input['url'], 'dev': input['dev'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'attributes': input['attributes'], 'maxExecutionTime': input['maxExecutionTime'], 'maxConcurrency': input['maxConcurrency'], 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode'] },
   }
 }
 

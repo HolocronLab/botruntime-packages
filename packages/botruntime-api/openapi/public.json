@@ -24402,6 +24402,12 @@
                   "minimum": 1,
                   "maximum": 119,
                   "description": "Admission deadline for one integration operation, including queue and initialization (seconds)."
+                },
+                "maxConcurrency": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4,
+                  "description": "Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time."
                 }
               },
               "required": [
@@ -25028,6 +25034,12 @@
                   "minimum": 1,
                   "maximum": 119,
                   "description": "Admission deadline for one integration operation, including queue and initialization (seconds)."
+                },
+                "maxConcurrency": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4,
+                  "description": "Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time."
                 }
               },
               "required": [
@@ -25655,6 +25667,12 @@
                     "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
+                },
+                "maxConcurrency": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4,
+                  "description": "Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time."
                 }
               },
               "title": "updateIntegrationBody",
@@ -26290,6 +26308,12 @@
                     "handler_verified"
                   ],
                   "description": "Authentication mode enforced for inbound webhooks."
+                },
+                "maxConcurrency": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4,
+                  "description": "Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time."
                 }
               },
               "title": "validateIntegrationUpdateBody",

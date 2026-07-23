@@ -78,7 +78,14 @@ test("extends classic deploy and dry-run request schemas with network policy", (
     assert.equal(properties.maxExecutionTime.type, "integer");
     assert.equal(properties.maxExecutionTime.minimum, 1);
     assert.equal(properties.maxExecutionTime.maximum, 119);
+    assert.equal(properties.maxConcurrency.type, "integer");
+    assert.equal(properties.maxConcurrency.minimum, 1);
+    assert.equal(properties.maxConcurrency.maximum, 4);
   }
+
+  const extendedOnce = structuredClone(document);
+  extendOpenApiDocument(document);
+  assert.deepEqual(document, extendedOnce);
 });
 
 test("is idempotent and leaves unrelated documents unchanged", () => {
@@ -113,6 +120,7 @@ export const parseReq = (input: ${operationName}Input) => ({
 
     assert.match(extended, /providerHosts\?: string\[\];/);
     assert.match(extended, /maxExecutionTime\?: number;/);
+    assert.match(extended, /maxConcurrency\?: number;/);
     assert.match(extended, /ingressRelayed\?: boolean;/);
     assert.match(
       extended,
@@ -120,7 +128,12 @@ export const parseReq = (input: ${operationName}Input) => ({
     );
     assert.match(extended, /'providerHosts': input\['providerHosts'\]/);
     assert.match(extended, /'maxExecutionTime': input\['maxExecutionTime'\]/);
+    assert.match(extended, /'maxConcurrency': input\['maxConcurrency'\]/);
     assert.match(extended, /'ingressRelayed': input\['ingressRelayed'\]/);
     assert.match(extended, /'webhookAuthMode': input\['webhookAuthMode'\]/);
+    assert.equal(
+      extendGeneratedClientSource(extended, operationName),
+      extended,
+    );
   }
 });
