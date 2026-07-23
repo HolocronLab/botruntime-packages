@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.5.3 (current) — 2026-07-23
+## 2.5.4 (current) — 2026-07-23
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.48.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.4
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.25
+- Обновлены внутренние зависимости: @holocronlab/botruntime-llmz@0.1.5
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.16.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-zai@2.8.8
+
+## 2.5.3 — 2026-07-23
 
 - Wait through the complete integration host lifecycle and advertise a bounded, relative action-response budget derived from the effective transport and current runtime invocation deadlines. Replay action calls only when Cloud explicitly reports that execution was not started and is retryable; workflow steps now stop on non-retryable or outcome-unknown integration execution failures.
 
