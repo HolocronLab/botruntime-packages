@@ -27,6 +27,10 @@ export type IntegrationContext<TIntegration extends BaseIntegration = BaseIntegr
   operation: string
 } & IntegrationContextConfig<TIntegration>
 
+export type IntegrationLambdaContext = {
+  abortSignal?: AbortSignal
+}
+
 export type CommonHandlerProps<TIntegration extends BaseIntegration> = {
   ctx: IntegrationContext<TIntegration>
   client: IntegrationSpecificClient<TIntegration>
@@ -139,6 +143,7 @@ export type ChannelHandlers<TIntegration extends BaseIntegration> = {
 export type UnknownOperationHandler<TIntegration extends BaseIntegration> = (
   props: CommonHandlerProps<TIntegration> & {
     req: Request
+    abortSignal?: AbortSignal
   }
 ) => Promise<Response | void>
 

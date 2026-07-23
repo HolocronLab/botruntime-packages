@@ -18,6 +18,7 @@ import {
   UnregisterPayload,
   CreateConversationPayload,
   IntegrationContext,
+  IntegrationLambdaContext,
 } from './types'
 
 export * from './types'
@@ -27,6 +28,7 @@ export * from './delivery-outcome'
 type ServerProps = CommonHandlerProps<BaseIntegration> & {
   req: Request
   instance: IntegrationHandlers<BaseIntegration>
+  abortSignal?: AbortSignal
 }
 
 const extractTracingHeaders = (headers: Record<string, string | undefined>) => {
@@ -41,7 +43,8 @@ const extractTracingHeaders = (headers: Record<string, string | undefined>) => {
 const getServerProps = (
   ctx: IntegrationContext,
   req: Request,
-  instance: IntegrationHandlers<BaseIntegration>
+  instance: IntegrationHandlers<BaseIntegration>,
+  lambdaCtx?: IntegrationLambdaContext
 ): ServerProps => {
   const [, traceId] = (req.headers['traceparent'] || '').split('-')
 
@@ -66,6 +69,7 @@ const getServerProps = (
     client,
     logger,
     instance,
+    abortSignal: lambdaCtx?.abortSignal,
   }
 }
 
@@ -95,9 +99,9 @@ const handleOperation = async (props: ServerProps) => {
 
 export const integrationHandler =
   (instance: IntegrationHandlers<BaseIntegration>) =>
-  async (req: Request): Promise<Response | void> => {
+  async (req: Request, lambdaCtx?: IntegrationLambdaContext): Promise<Response | void> => {
     const ctx = extractContext(req.headers)
-    const props = getServerProps(ctx, req, instance)
+    const props = getServerProps(ctx, req, instance, lambdaCtx)
     const { logger } = props
 
     try {
@@ -225,6 +229,7 @@ const onUnknownOperationHandler = async ({
   ctx,
   logger,
   req,
+  abortSignal,
 }: ServerProps): Promise<Response | void> => {
   const handler = instance.unknownOperationHandler
   if (!handler) {
@@ -235,5 +240,6 @@ const onUnknownOperationHandler = async ({
     ctx,
     logger,
     req,
+    abortSignal,
   })
 }
