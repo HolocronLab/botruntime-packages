@@ -4,6 +4,13 @@ import * as errors from '../errors'
 import { isRFC3339Timestamp, parseTimeFilter } from '../utils/time-filter'
 import { CloudCommand } from './cloud-command'
 import { parseTracePage, type TraceEntry } from './traces-command'
+import {
+  MAX_TRACE_PAGE_SIZE,
+  MAX_TRACE_PAGES,
+  requirePositiveDecimalCursor,
+  resolveTraceWindow,
+  type ResolvedTraceWindow,
+} from './trace-window'
 
 const POSITIVE_DECIMAL = /^[1-9][0-9]*$/
 const CONVERSATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/
@@ -131,32 +138,43 @@ export class ShowConversationCommand extends ConversationsCloudCommand<ShowConve
     if (!CONVERSATION_ID.test(conversationId)) {
       throw new errors.BotpressCLIError('conversation ID must be 1-256 characters using only letters, digits, dot, underscore, colon, slash, or hyphen')
     }
+    const window = resolveShowFilters(this.argv, Date.now())
+    requirePositiveDecimalCursor(this.argv.nextToken, 'brt conversations show')
 
     const target = await this.resolveConversationTarget()
     const rows: TraceEntry[] = []
     const seenTokens = new Set<string>()
-    let nextToken: string | undefined
+    let nextToken = this.argv.nextToken
+    if (nextToken) seenTokens.add(nextToken)
 
-    for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+    for (let pageNumber = 1; pageNumber <= MAX_TRACE_PAGES; pageNumber++) {
+      const pageSize = Math.min(MAX_TRACE_PAGE_SIZE, window.limit - rows.length)
       const raw = await target.fetchTraces({
         conversationId,
-        pageSize: MAX_PAGE_SIZE,
+        pageSize,
+        ...(window.since === undefined ? {} : { since: window.since.wire }),
+        ...(window.until === undefined ? {} : { until: window.until.wire }),
         nextToken,
       })
-      const page = parseTracePage(raw, MAX_PAGE_SIZE)
+      const page = parseTracePage(raw, pageSize)
       rows.push(...page.traces)
 
-      if (!page.nextToken) break
+      if (!page.nextToken) {
+        nextToken = undefined
+        break
+      }
       if (seenTokens.has(page.nextToken)) {
         throw new errors.BotpressCLIError('conversation timeline pagination cursor loop detected; retry and check the server')
       }
       seenTokens.add(page.nextToken)
       nextToken = page.nextToken
+      if (rows.length >= window.limit) break
       if (page.traces.length === 0) {
         throw new errors.BotpressCLIError('conversation timeline advanced pagination without returning rows')
       }
-      if (pageNumber === MAX_PAGES) {
-        throw new errors.BotpressCLIError(`conversation timeline pagination exceeded the ${MAX_PAGES}-page safety limit`)
+      if (window.limit <= MAX_TRACE_PAGE_SIZE) break
+      if (pageNumber === MAX_TRACE_PAGES) {
+        throw new errors.BotpressCLIError(`conversation timeline pagination exceeded the ${MAX_TRACE_PAGES}-page safety limit`)
       }
     }
 
@@ -165,8 +183,11 @@ export class ShowConversationCommand extends ConversationsCloudCommand<ShowConve
       schemaVersion: 1,
       target: target.output,
       conversationId,
+      traceCount: rows.length,
       turnCount: turns.length,
       turns,
+      nextToken: nextToken ?? null,
+      truncated: nextToken !== undefined,
     }
     if (this.argv.json) {
       this.logger.json(output)
@@ -179,7 +200,52 @@ export class ShowConversationCommand extends ConversationsCloudCommand<ShowConve
       const suffix = details ? ` ${details}` : ''
       this.logger.log(`${turn.startedAt} ${turn.status.toUpperCase()} ${turn.durationMs}ms ${turn.traceId ?? 'unattributed'}${suffix}`)
     }
+    if (nextToken) {
+      this.logger.log(`Next token: ${nextToken}`)
+      this.logger.log(`Continue: ${continuationCommand(conversationId, window, nextToken)}`)
+    }
   }
+}
+
+function resolveShowFilters(
+  input: { tokens?: string[]; limit?: number; since?: string; until?: string },
+  nowMs: number
+): ResolvedTraceWindow {
+  const tokens = parseShowTokens(input.tokens ?? [])
+  return resolveTraceWindow(input, tokens, nowMs)
+}
+
+function parseShowTokens(tokens: string[]): { limit?: string; since?: string; until?: string } {
+  const result: { limit?: string; since?: string; until?: string } = {}
+  for (const token of tokens) {
+    if (token === 'include-llm') {
+      throw new errors.BotpressCLIError('include-llm is supported by brt traces, not brt conversations')
+    }
+    if (token === 'follow') {
+      throw new errors.BotpressCLIError('follow is not supported by the hosted conversation trace API')
+    }
+    const separator = token.indexOf('=')
+    if (separator <= 0 || separator === token.length - 1) {
+      throw new errors.BotpressCLIError(`unknown conversation filter token: ${token}`)
+    }
+    const key = token.slice(0, separator)
+    if (key !== 'limit' && key !== 'since' && key !== 'until') {
+      throw new errors.BotpressCLIError(`unknown conversation filter token: ${token}`)
+    }
+    if (result[key] !== undefined) {
+      throw new errors.BotpressCLIError(`${key} filter was provided more than once`)
+    }
+    result[key] = token.slice(separator + 1)
+  }
+  return result
+}
+
+function continuationCommand(conversationId: string, window: ResolvedTraceWindow, nextToken: string): string {
+  const parts = ['brt conversations show', conversationId]
+  if (window.since !== undefined) parts.push('--since', window.since.wire)
+  if (window.until !== undefined) parts.push('--until', window.until.wire)
+  parts.push('--limit', String(window.limit), '--next-token', nextToken)
+  return parts.join(' ')
 }
 
 function resolveListFilters(

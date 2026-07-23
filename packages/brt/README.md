@@ -223,30 +223,55 @@ the complete stored span.
 brt conversations list
 brt conversations list limit=5 since=1h
 brt conversations show conv_123
+brt conversations show conv_123 since=24h limit=50
+brt conversations show conv_123 --until 2h --limit 100 --json
 
 # Attested development target; --local only selects the linked stack
 brt conversations list --dev
 brt conversations show conv_123 --dev --local
 
-# Stable machine output and resumable list pagination
+# Stable machine output and resumable pagination
 brt conversations list --limit 100 --json
 brt conversations list --limit 100 --next-token 456 --json
-brt conversations show conv_123 --json
+brt conversations show conv_123 --limit 100 --json
+brt conversations show conv_123 --limit 100 --next-token 456 --json
 ```
 
 `list` accepts Botpress-compatible `limit=<n>` and `since=<duration>` tokens;
 the equivalent named flags are also available. `--next-token` resumes from the
 strict positive-decimal server cursor. JSON list output contains only `id`,
-timestamps, `channel`, `integration`, and `messageCount`. JSON show output
-contains grouped trace IDs, timestamps, duration, typed status, typed trigger,
-tool metadata, and bounded error kinds. It never includes prompts, model
-responses, tool input/output, documents, message payloads, or conversation
-tags. Use `brt traces conversation=<id> trace=<traceId> --verbose` to inspect the
-full bounded exception diagnostics for a failed turn.
+timestamps, `channel`, `integration`, and `messageCount`.
 
-The Botpress local-only `--include-llm` option is absent because hosted
-`brt traces` already returns stored attributes/payload. Production and
-development use the same fail-loud canonical target and profile-auth rules.
+`show` reads at most 20 raw trace rows by default instead of draining the
+complete conversation. It accepts `since`, `until`, and `limit` as either
+`key=value` tokens or `--since`, `--until`, and `--limit` flags. `limit` is the
+number of trace rows fetched before grouping, not the number of turns; its
+range is 1–10000, matching `brt traces`. Values such as `30s`, `5m`, `1h`, or
+`2d` are look-back durations. Absolute RFC3339 timestamps are also accepted.
+Both bounds are resolved once from one command-scoped clock instant, so
+multi-page retrieval cannot move the window.
+
+Limits up to the 1000-row backend page maximum issue one timeline request.
+Larger explicit limits can issue sequential requests, but never read beyond the
+total row limit. JSON show output adds `traceCount`, `turnCount`, `nextToken`,
+and `truncated` while preserving `schemaVersion: 1`. Human output prints the
+next token and a continuation command. Reuse the same absolute time bounds and
+pass `--next-token <cursor>` to read the next, older window.
+
+The timeline contains grouped trace IDs, timestamps, duration, typed status,
+typed trigger, tool metadata, and bounded error kinds. It never includes
+prompts, model responses, tool input/output, documents, message payloads,
+conversation tags, or unfiltered trace attributes/payload. Use
+`brt traces conversation=<id> trace=<traceId> --verbose` to inspect the full
+bounded exception diagnostics for a failed turn.
+
+`conversations show` intentionally has neither `--follow` nor `--include-llm`:
+the hosted multi-tenant API is not the Botpress local developer store, and the
+timeline remains metadata-only. Production and development use the same
+filters and fail-loud profile-auth rules; only target resolution differs.
+Client-side bounding avoids downloading the whole timeline, but does not make
+the server project compact trace fields before transport. A compact hosted
+conversation projection remains a separate Botforge backend optimization.
 
 ## Hosted evals
 

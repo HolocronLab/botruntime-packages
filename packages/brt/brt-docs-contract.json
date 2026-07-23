@@ -263,7 +263,12 @@
         "conversationId",
         "dev",
         "json",
+        "limit",
+        "nextToken",
         "profile",
+        "since",
+        "tokens",
+        "until",
         "verbose",
         "workDir"
       ]
@@ -964,7 +969,11 @@
         "since"
       ],
       "conversations show": [
-        "dev"
+        "dev",
+        "limit",
+        "nextToken",
+        "since",
+        "until"
       ],
       "eval": [
         "dev",
@@ -1017,7 +1026,7 @@
         "[tokens..]"
       ],
       "conversations show": [
-        "<conversationId>"
+        "<conversationId> [tokens..]"
       ],
       "eval": [
         "[name]"
@@ -1096,6 +1105,14 @@
       {
         "id": "safe-secret-input",
         "assertion": "config, secret, and integration values use stdin or files instead of value argv",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "bounded-conversation-timeline",
+        "assertion": "brt conversations show reads at most 20 trace rows by default, supports shared since, until, and limit filters, and returns a resumable positive-decimal nextToken without exposing message or LLM content",
         "documents": [
           "overview",
           "reference"

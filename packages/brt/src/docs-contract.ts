@@ -83,7 +83,7 @@ const documentation: BrtDocsContract['documentation'] = {
       'workflow',
     ],
     'conversations list': ['dev', 'limit', 'nextToken', 'since'],
-    'conversations show': ['dev'],
+    'conversations show': ['dev', 'limit', 'nextToken', 'since', 'until'],
     eval: ['dev', 'judgeModel', 'maxConcurrency', 'minPassRate', 'repeat', 'tag', 'timeout', 'type'],
     'eval run': ['dev', 'judgeModel', 'maxConcurrency', 'minPassRate', 'repeat', 'tag', 'timeout', 'type'],
     'eval runs': ['dev', 'latest', 'limit', 'nextToken', 'status', 'verbose'],
@@ -95,7 +95,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'integrations upgrade': ['<name@version>'],
     traces: ['[tokens..]'],
     'conversations list': ['[tokens..]'],
-    'conversations show': ['<conversationId>'],
+    'conversations show': ['<conversationId> [tokens..]'],
     eval: ['[name]'],
     'eval run': ['[name]'],
     'eval runs': ['[runId]'],
@@ -148,6 +148,12 @@ const documentation: BrtDocsContract['documentation'] = {
     {
       id: 'safe-secret-input',
       assertion: 'config, secret, and integration values use stdin or files instead of value argv',
+      documents: ['overview', 'reference'],
+    },
+    {
+      id: 'bounded-conversation-timeline',
+      assertion:
+        'brt conversations show reads at most 20 trace rows by default, supports shared since, until, and limit filters, and returns a resumable positive-decimal nextToken without exposing message or LLM content',
       documents: ['overview', 'reference'],
     },
   ],

@@ -126,6 +126,14 @@ describe('brt conversations public contract', () => {
                 demandOption: true,
               }),
               dev: expect.objectContaining({ type: 'boolean' }),
+              limit: expect.objectContaining({ type: 'number' }),
+              nextToken: expect.objectContaining({ type: 'string', alias: 'next-token' }),
+              since: expect.objectContaining({ type: 'string' }),
+              tokens: expect.objectContaining({
+                positional: true,
+                array: true,
+              }),
+              until: expect.objectContaining({ type: 'string' }),
             }),
           }),
         }),
@@ -134,6 +142,9 @@ describe('brt conversations public contract', () => {
     const paths = buildBrtDocsContract(commandDefinitions).commands.map((entry) => entry.path)
     expect(paths).toContain('conversations list')
     expect(paths).toContain('conversations show')
+    expect(
+      buildBrtDocsContract(commandDefinitions).documentation.criticalUsages['conversations show']
+    ).toEqual(['<conversationId> [tokens..]'])
   })
 
   it('uses the canonical production workspace/bot route and PAT authority', async () => {
@@ -433,7 +444,8 @@ describe('brt conversations public contract', () => {
     const output = JSON.parse(stdout)
 
     expect(result.exitCode).toBe(0)
-    expect(calls[0]!.url).toBe(`${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=1000`)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe(`${API_URL}/v1/admin/workspaces/${WORKSPACE_ID}/bots/${PROD_BOT_ID}/traces?conversationId=conv%3A1&pageSize=20`)
     expect(output).toEqual({
       schemaVersion: 1,
       target: {
@@ -442,6 +454,7 @@ describe('brt conversations public contract', () => {
         botId: PROD_BOT_ID,
       },
       conversationId: 'conv:1',
+      traceCount: 1,
       turnCount: 1,
       turns: [
         {
@@ -454,8 +467,179 @@ describe('brt conversations public contract', () => {
           errorKinds: ['upstream'],
         },
       ],
+      nextToken: null,
+      truncated: false,
     })
     expect(stdout + stderr).not.toMatch(/raw stack|customer secret|raw prompt|raw model|secret tool input/i)
+  })
+
+  it.each([
+    [{ limit: 20 }, '20'],
+    [{ tokens: ['limit=20'] }, '20'],
+  ])('maps equivalent show limit syntax to the same bounded request: %j', async (overrides, expectedPageSize) => {
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await showCommand(overrides).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(new URL(calls[0]!.url).searchParams.get('pageSize')).toBe(expectedPageSize)
+  })
+
+  it('converts show durations from one captured instant and sends absolute bounds', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-10T10:00:00.000Z'))
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await showCommand({
+      tokens: ['since=2h'],
+      until: '30m',
+      limit: 7,
+    }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(Object.fromEntries(new URL(calls[0]!.url).searchParams)).toEqual({
+      conversationId: 'conv:1',
+      pageSize: '7',
+      since: '2026-07-10T08:00:00.000Z',
+      until: '2026-07-10T09:30:00.000Z',
+    })
+  })
+
+  it.each([
+    [{ tokens: ['limit=5'], limit: 5 }, /limit.*conflict|more than once/i],
+    [{ tokens: ['since=1h'], since: '2026-07-10T09:00:00Z' }, /since.*conflict|more than once/i],
+    [{ tokens: ['until=1h'], until: '2026-07-10T09:00:00Z' }, /until.*conflict|more than once/i],
+    [{ tokens: ['limit=5', 'limit=6'] }, /limit.*more than once/i],
+    [{ tokens: ['unknown=value'] }, /unknown conversation filter/i],
+    [{ tokens: ['include-llm'] }, /include-llm.*brt traces/i],
+    [{ tokens: ['follow'] }, /follow.*not supported/i],
+    [{ since: '1h', until: '2h' }, /since.*until/i],
+    [{ nextToken: '0' }, /next-token.*positive decimal/i],
+    [{ nextToken: 'cursor' }, /next-token.*positive decimal/i],
+    [{ limit: 10_001 }, /limit.*1.*10000/i],
+  ])('rejects invalid, unsupported, or duplicate show filters before network: %j', async (overrides, expected) => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-10T10:00:00.000Z'))
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await showCommand(overrides).handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(calls).toEqual([])
+    expect(stderr).toMatch(expected)
+  })
+
+  it('uses a supplied show cursor on the first bounded request', async () => {
+    stubFetch(async () => json({ traces: [], meta: {} }))
+
+    const result = await showCommand({ nextToken: '456', limit: 5 }).handler()
+
+    expect(result.exitCode).toBe(0)
+    expect(Object.fromEntries(new URL(calls[0]!.url).searchParams)).toEqual({
+      conversationId: 'conv:1',
+      pageSize: '5',
+      nextToken: '456',
+    })
+  })
+
+  it('does not fetch another page after a small show limit and exposes continuation metadata', async () => {
+    stubFetch(async () => json({ traces: [trace()], meta: { nextToken: '456' } }))
+
+    const result = await showCommand({ json: true, limit: 1 }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(new URL(calls[0]!.url).searchParams.get('pageSize')).toBe('1')
+    expect(output).toEqual(
+      expect.objectContaining({
+        traceCount: 1,
+        turnCount: 1,
+        nextToken: '456',
+        truncated: true,
+      })
+    )
+  })
+
+  it('loads multiple show pages only up to a large explicit row limit', async () => {
+    const firstPage = Array.from({ length: 1_000 }, (_, index) =>
+      trace({ id: String(2_000 - index) })
+    )
+    const secondPage = Array.from({ length: 500 }, (_, index) =>
+      trace({ id: String(1_000 - index) })
+    )
+    stubFetch(async (_url, index) =>
+      index === 0
+        ? json({ traces: firstPage, meta: { nextToken: '1000' } })
+        : json({ traces: secondPage, meta: { nextToken: '500' } })
+    )
+
+    const result = await showCommand({ json: true, limit: 1_500 }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(calls).toHaveLength(2)
+    expect(new URL(calls[0]!.url).searchParams.get('pageSize')).toBe('1000')
+    expect(new URL(calls[1]!.url).searchParams.get('pageSize')).toBe('500')
+    expect(new URL(calls[1]!.url).searchParams.get('nextToken')).toBe('1000')
+    expect(output.traceCount).toBe(1_500)
+    expect(output.nextToken).toBe('500')
+    expect(output.truncated).toBe(true)
+  })
+
+  it('continues a large show limit across short server pages until the row cap', async () => {
+    const pages = [
+      {
+        traces: Array.from({ length: 800 }, (_, index) => trace({ id: String(2_000 - index) })),
+        meta: { nextToken: '1200' },
+      },
+      {
+        traces: Array.from({ length: 100 }, (_, index) => trace({ id: String(1_200 - index) })),
+        meta: { nextToken: '1100' },
+      },
+      {
+        traces: Array.from({ length: 101 }, (_, index) => trace({ id: String(1_100 - index) })),
+        meta: { nextToken: '999' },
+      },
+    ]
+    stubFetch(async (_url, index) => json(pages[index]))
+
+    const result = await showCommand({ json: true, limit: 1_001 }).handler()
+    const output = JSON.parse(stdout)
+
+    expect(result.exitCode).toBe(0)
+    expect(calls).toHaveLength(3)
+    expect(calls.map((call) => new URL(call.url).searchParams.get('pageSize'))).toEqual([
+      '1000',
+      '201',
+      '101',
+    ])
+    expect(output.traceCount).toBe(1_001)
+    expect(output.nextToken).toBe('999')
+    expect(output.truncated).toBe(true)
+  })
+
+  it('fails loudly when show pagination repeats the supplied cursor', async () => {
+    stubFetch(async () => json({ traces: [trace()], meta: { nextToken: '456' } }))
+
+    const result = await showCommand({ nextToken: '456', limit: 2 }).handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(calls).toHaveLength(1)
+    expect(stderr).toMatch(/cursor loop/i)
+  })
+
+  it.each([
+    [{ traces: [], meta: { nextToken: '' } }, /malformed.*nextToken/i],
+    [{ traces: [], meta: { nextToken: 'cursor' } }, /malformed.*nextToken/i],
+    [{ traces: [], meta: { nextToken: '456' } }, /advanced pagination without returning rows/i],
+  ])('fails loudly on an invalid show pagination response: %j', async (body, expected) => {
+    stubFetch(async () => json(body))
+
+    const result = await showCommand({ limit: 2 }).handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(calls).toHaveLength(1)
+    expect(stderr).toMatch(expected)
   })
 
   it('shows an attested dev timeline without using a production route', async () => {
@@ -480,13 +664,26 @@ describe('brt conversations public contract', () => {
       return json({ traces: [trace()], meta: {} })
     })
 
-    const result = await showCommand({ dev: true }).handler()
+    const result = await showCommand({
+      dev: true,
+      since: '2026-07-10T09:00:00Z',
+      until: '2026-07-10T10:00:00Z',
+      limit: 5,
+      nextToken: '456',
+    }).handler()
 
     expect(result.exitCode).toBe(0)
     expect(calls.map((call) => decodeURIComponent(new URL(call.url).pathname))).toEqual([`/v1/admin/bots/${DEV_RUNTIME_BOT_ID}`, '/v1/traces'])
     expect(headers(calls[1]!)).toEqual({
       authorization: 'Bearer pat_secret',
       'x-bot-id': DEV_RUNTIME_BOT_ID,
+    })
+    expect(Object.fromEntries(new URL(calls[1]!.url).searchParams)).toEqual({
+      conversationId: 'conv:1',
+      pageSize: '5',
+      since: '2026-07-10T09:00:00Z',
+      until: '2026-07-10T10:00:00Z',
+      nextToken: '456',
     })
   })
 
@@ -527,14 +724,19 @@ describe('brt conversations public contract', () => {
     expect(stdout + stderr).not.toContain('customer secret')
   })
 
-  it('prints a readable metadata-only show timeline', async () => {
-    stubFetch(async () => json({ traces: [trace()], meta: {} }))
+  it('prints a readable metadata-only show timeline with a continuation command', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-10T10:00:00.000Z'))
+    stubFetch(async () => json({ traces: [trace()], meta: { nextToken: '456' } }))
 
-    const result = await showCommand().handler()
+    const result = await showCommand({ limit: 1, since: '1h' }).handler()
 
     expect(result.exitCode).toBe(0)
     expect(stdout).toMatch(/Conversation conv:1.*1 turn/i)
     expect(stdout).toMatch(/2026-07-10T10:00:00\.000Z.*OK.*handler\.conversation/i)
+    expect(stdout).toMatch(/Next token: 456/i)
+    expect(stdout).toContain(
+      'brt conversations show conv:1 --since 2026-07-10T09:00:00.000Z --limit 1 --next-token 456'
+    )
   })
 
   it('fails before network for a malformed show identity', async () => {
@@ -579,7 +781,15 @@ describe('brt conversations public contract', () => {
   }
 
   function showCommand(overrides: Record<string, unknown> = {}): ShowConversationCommand {
-    const argv = baseArgv({ conversationId: 'conv:1', ...overrides })
+    const argv = baseArgv({
+      conversationId: 'conv:1',
+      limit: undefined,
+      nextToken: undefined,
+      since: undefined,
+      tokens: [],
+      until: undefined,
+      ...overrides,
+    })
     return new ShowConversationCommand({} as any, {} as any, new Logger(argv as any), argv as any)
   }
 
