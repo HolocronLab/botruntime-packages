@@ -5,7 +5,12 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 An LLM-native TypeScript VM (code-generation agent framework) built on `@holocronlab/botruntime-zui`.
 See README.md.
 
-## 0.1.3 (current) — 2026-07-22
+## 0.1.4 (current) — 2026-07-23
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.2
+- Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.3
+
+## 0.1.3 — 2026-07-22
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.47.1
 - Обновлены внутренние зависимости: @holocronlab/botruntime-cognitive@0.8.2
