@@ -362,6 +362,7 @@ export type PatchState<TIntegration extends common.BaseIntegration> = <TState ex
 export type ConfigureIntegration<_TIntegration extends common.BaseIntegration> = client.Client['configureIntegration']
 
 export type UploadFile<_TIntegration extends common.BaseIntegration> = client.Client['uploadFile']
+export type DownloadFileRef<_TIntegration extends common.BaseIntegration> = client.Client['downloadFileRef']
 export type UpsertFile<_TIntegration extends common.BaseIntegration> = client.Client['upsertFile']
 export type DeleteFile<_TIntegration extends common.BaseIntegration> = client.Client['deleteFile']
 export type ListFiles<_TIntegration extends common.BaseIntegration> = client.Client['listFiles']
@@ -401,6 +402,7 @@ export type ClientOperations<TIntegration extends common.BaseIntegration> = {
   patchState: PatchState<TIntegration>
   configureIntegration: ConfigureIntegration<TIntegration>
   uploadFile: UploadFile<TIntegration>
+  downloadFileRef: DownloadFileRef<TIntegration>
   upsertFile: UpsertFile<TIntegration>
   deleteFile: DeleteFile<TIntegration>
   listFiles: ListFiles<TIntegration>

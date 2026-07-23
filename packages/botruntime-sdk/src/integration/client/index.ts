@@ -84,6 +84,7 @@ export class IntegrationSpecificClient<TIntegration extends common.BaseIntegrati
   public configureIntegration: types.ConfigureIntegration<TIntegration> = (x) => this._client.configureIntegration(x)
 
   public uploadFile: types.UploadFile<TIntegration> = (x) => this._client.uploadFile(x)
+  public downloadFileRef: types.DownloadFileRef<TIntegration> = (x) => this._client.downloadFileRef(x)
   public upsertFile: types.UpsertFile<TIntegration> = (x) => this._client.upsertFile(x)
   public deleteFile: types.DeleteFile<TIntegration> = (x) => this._client.deleteFile(x)
   public listFiles: types.ListFiles<TIntegration> = (x) => this._client.listFiles(x)

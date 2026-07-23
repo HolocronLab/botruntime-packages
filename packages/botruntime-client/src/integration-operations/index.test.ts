@@ -15,6 +15,13 @@ const operation: IntegrationOperation = {
   updatedAt: '2026-07-24T00:00:00Z',
 }
 
+const abandoned: IntegrationOperation = {
+  ...operation,
+  status: 'abandoned',
+}
+
+void abandoned
+
 const success = (
   config: InternalAxiosRequestConfig,
   status = 200

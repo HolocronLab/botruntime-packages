@@ -2,6 +2,17 @@
 
 HTTP client for TypeScript. Queries the botruntime API.
 
+## Exact FileRef streaming
+
+`client.downloadFileRef({ fileRef, signal? })` opens the complete immutable
+`FileRef` generation through the authenticated raw endpoint and returns a Web
+`ReadableStream<Uint8Array>`. The client does not decode base64 or materialize
+the response as a `Buffer`/`ArrayBuffer`; pipe the stream directly to the
+provider and use `AbortSignal` for cancellation. A stale generation fails
+closed instead of silently reading a newer upload under the same file key.
+Non-2xx responses throw `DownloadFileRefError` with the HTTP `status` and the
+platform `errorCode` when one is present.
+
 ## Installation
 
 ```bash

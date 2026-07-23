@@ -174,6 +174,7 @@ export type GetIntegrationOperation<_TBot extends common.BaseBot> = client.Clien
 export type CancelIntegrationOperation<_TBot extends common.BaseBot> = client.Client['cancelIntegrationOperation']
 
 export type UploadFile<_TBot extends common.BaseBot> = client.Client['uploadFile']
+export type DownloadFileRef<_TBot extends common.BaseBot> = client.Client['downloadFileRef']
 export type UpsertFile<_TBot extends common.BaseBot> = client.Client['upsertFile']
 export type DeleteFile<_TBot extends common.BaseBot> = client.Client['deleteFile']
 export type ListFiles<_TBot extends common.BaseBot> = client.Client['listFiles']
@@ -458,6 +459,7 @@ export type ClientOperations<TBot extends common.BaseBot> = {
   getIntegrationOperation: GetIntegrationOperation<TBot>
   cancelIntegrationOperation: CancelIntegrationOperation<TBot>
   uploadFile: UploadFile<TBot>
+  downloadFileRef: DownloadFileRef<TBot>
   upsertFile: UpsertFile<TBot>
   deleteFile: DeleteFile<TBot>
   listFiles: ListFiles<TBot>

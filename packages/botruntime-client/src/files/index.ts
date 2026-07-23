@@ -1,10 +1,14 @@
 import * as common from '../common'
 import * as gen from '../gen/files'
 import * as types from '../types'
+import * as downloadFileRef from './download-file-ref'
 import * as uploadFile from './upload-file'
 
 type IClient = common.types.Simplify<
   gen.Client & {
+    downloadFileRef: (
+      input: downloadFileRef.DownloadFileRefInput
+    ) => Promise<downloadFileRef.DownloadFileRefOutput>
     uploadFile: (input: uploadFile.UploadFileInput) => Promise<uploadFile.UploadFileOutput>
   }
 >
@@ -66,4 +70,20 @@ export class Client extends gen.Client implements IClient {
   public async uploadFile(input: uploadFile.UploadFileInput): Promise<uploadFile.UploadFileOutput> {
     return await uploadFile.upload(this, input)
   }
+
+  /**
+   * Stream the exact immutable FileRef generation without materializing it in memory.
+   */
+  public async downloadFileRef(
+    input: downloadFileRef.DownloadFileRefInput
+  ): Promise<downloadFileRef.DownloadFileRefOutput> {
+    return await downloadFileRef.downloadFileRef(this.config, input)
+  }
 }
+
+export type {
+  DownloadFileRefInput,
+  DownloadFileRefOutput,
+  ExactFileRef,
+} from './download-file-ref'
+export { DownloadFileRefError } from './download-file-ref'

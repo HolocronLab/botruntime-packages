@@ -10,6 +10,7 @@ export type IntegrationOperationStatus =
   | 'cancel_requested'
   | 'cancelled'
   | 'outcome_unknown'
+  | 'abandoned'
 
 export type IntegrationOperation = {
   operationId: string
