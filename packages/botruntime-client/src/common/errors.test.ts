@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import { isApiError, UnknownError } from '../errors'
 import { toApiError } from './errors'
 
@@ -140,5 +141,125 @@ describe('toApiError — errorFrom crash-proofing lives at the owned boundary (f
     circular.self = circular
     const apiErr = toApiError(circular) as UnknownError
     expect(apiErr.error?.cause).toBe(circular)
+  })
+})
+
+describe('toApiError — action execution outcome safety', () => {
+  const actionConfig = {
+    method: 'post',
+    url: '/v1/chat/actions',
+    headers: new AxiosHeaders(),
+  } as InternalAxiosRequestConfig
+
+  const fallbackMetadata = {
+    errorKind: 'integration_execution',
+    executionCode: 'transport_outcome_unknown',
+    executionState: 'outcome_unknown',
+    retryable: false,
+  }
+
+  it('maps a response-less action failure to a fresh frozen conservative outcome', () => {
+    const first = toApiError(
+      new AxiosError('socket hang up', AxiosError.ERR_NETWORK, actionConfig),
+    ) as UnknownError
+    const second = toApiError(
+      new AxiosError('socket hang up', AxiosError.ERR_NETWORK, actionConfig),
+    ) as UnknownError
+
+    expect(first.metadata).toEqual(fallbackMetadata)
+    expect(Object.isFrozen(first.metadata)).toBe(true)
+    expect(first.metadata).not.toBe(second.metadata)
+  })
+
+  it('maps a legacy untyped action response to the conservative outcome', () => {
+    const response = {
+      data: {
+        id: 'err_legacy',
+        code: 502,
+        type: 'Internal',
+        message: 'integration action failed',
+      },
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: {},
+      config: actionConfig,
+    }
+    const mapped = toApiError(
+      new AxiosError(
+        'Request failed with status code 502',
+        AxiosError.ERR_BAD_RESPONSE,
+        actionConfig,
+        undefined,
+        response,
+      ),
+    ) as UnknownError
+
+    expect(mapped.metadata).toEqual(fallbackMetadata)
+  })
+
+  it('preserves complete fixed not_started metadata', () => {
+    const metadata = {
+      errorKind: 'integration_execution',
+      executionCode: 'queue_timeout',
+      executionState: 'not_started',
+      retryable: true,
+    }
+    const response = {
+      data: {
+        id: 'err_not_started',
+        code: 503,
+        type: 'Internal',
+        message: 'integration action was not started',
+        metadata,
+      },
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: {},
+      config: actionConfig,
+    }
+    const mapped = toApiError(
+      new AxiosError(
+        'Request failed with status code 503',
+        AxiosError.ERR_BAD_RESPONSE,
+        actionConfig,
+        undefined,
+        response,
+      ),
+    ) as UnknownError
+
+    expect(mapped.metadata).toEqual(metadata)
+    expect(mapped.metadata).not.toBe(metadata)
+    expect(Object.isFrozen(mapped.metadata)).toBe(true)
+  })
+
+  it('fails closed when action response metadata is incomplete', () => {
+    const response = {
+      data: {
+        id: 'err_malformed',
+        code: 503,
+        type: 'Internal',
+        message: 'integration action was not started',
+        metadata: {
+          errorKind: 'integration_execution',
+          executionState: 'not_started',
+          retryable: true,
+        },
+      },
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: {},
+      config: actionConfig,
+    }
+    const mapped = toApiError(
+      new AxiosError(
+        'Request failed with status code 503',
+        AxiosError.ERR_BAD_RESPONSE,
+        actionConfig,
+        undefined,
+        response,
+      ),
+    ) as UnknownError
+
+    expect(mapped.metadata).toEqual(fallbackMetadata)
   })
 })

@@ -9,5 +9,7 @@ export type ClientConfig = {
   headers: Headers
   withCredentials: boolean
   timeout: number
+  actionTransportTimeoutMs?: number
+  actionTimeoutMs?: number | (() => number)
   debug: boolean
 }

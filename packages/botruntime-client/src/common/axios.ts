@@ -1,8 +1,17 @@
 import * as axios from 'axios'
 import axiosRetry from 'axios-retry'
 import * as consts from './consts'
+import { DEFAULT_ACTION_REQUEST_TIMEOUT_MS } from './config'
 import * as interceptors from './debug-interceptors'
 import * as types from './types'
+
+export const ACTION_TIMEOUT_HEADER = 'x-bp-action-timeout-ms'
+const CALL_ACTION_PATH = '/v1/chat/actions'
+const ACTION_TIMEOUT_APPLIED = 'botruntime-action-timeout-applied'
+
+type ActionRequestConfig = axios.InternalAxiosRequestConfig & {
+  [ACTION_TIMEOUT_APPLIED]?: true
+}
 
 const createAxios = (config: types.ClientConfig): axios.AxiosRequestConfig => ({
   baseURL: config.apiUrl,
@@ -15,6 +24,84 @@ const createAxios = (config: types.ClientConfig): axios.AxiosRequestConfig => ({
   httpsAgent: consts.httpsAgent,
 })
 
+const isCallActionRequest = (request: axios.InternalAxiosRequestConfig): boolean => {
+  if (request.method?.toLowerCase() !== 'post' || !request.url) {
+    return false
+  }
+
+  try {
+    return new URL(request.url, 'https://botruntime.invalid').pathname === CALL_ACTION_PATH
+  } catch {
+    return false
+  }
+}
+
+const boundedTransportTimeout = (timeout: unknown): number => {
+  // Axios uses zero to mean no transport timeout. Such a client can safely
+  // advertise the platform ceiling, but invalid or sub-millisecond values
+  // cannot support an honest positive millisecond budget and fail closed.
+  if (timeout === 0) {
+    return DEFAULT_ACTION_REQUEST_TIMEOUT_MS
+  }
+  if (typeof timeout !== 'number' || !Number.isFinite(timeout) || timeout < 1) {
+    return 0
+  }
+  return Math.min(Math.floor(timeout), DEFAULT_ACTION_REQUEST_TIMEOUT_MS)
+}
+
+const boundedActionTimeout = (value: number | (() => number) | undefined): number => {
+  if (value === undefined) {
+    return DEFAULT_ACTION_REQUEST_TIMEOUT_MS
+  }
+
+  let resolved: number
+  try {
+    resolved = typeof value === 'function' ? value() : value
+  } catch {
+    return 0
+  }
+  if (!Number.isFinite(resolved) || resolved < 1) {
+    return 0
+  }
+  return Math.min(Math.floor(resolved), DEFAULT_ACTION_REQUEST_TIMEOUT_MS)
+}
+
+const installActionTimeoutHeader = (
+  instance: axios.AxiosInstance,
+  config: types.ClientConfig,
+): void => {
+  instance.interceptors.request.use((request) => {
+    const actionRequest = request as ActionRequestConfig
+    const headers = axios.AxiosHeaders.from(request.headers)
+    // This is a platform-owned capability signal. Ignore a caller-supplied
+    // value and never leak it onto non-action endpoints.
+    headers.delete(ACTION_TIMEOUT_HEADER)
+    request.headers = headers
+
+    if (!isCallActionRequest(request)) {
+      return request
+    }
+
+    if (!actionRequest[ACTION_TIMEOUT_APPLIED]) {
+      // Generated calls inherit the ordinary instance timeout. Replace that
+      // inherited value with the action-specific transport budget, while
+      // preserving a lower-level caller's explicit per-request override.
+      if (request.timeout === config.timeout) {
+        request.timeout = config.actionTransportTimeoutMs ?? config.timeout
+      }
+      actionRequest[ACTION_TIMEOUT_APPLIED] = true
+    }
+
+    const transportTimeout = boundedTransportTimeout(request.timeout)
+    const actionTimeout = boundedActionTimeout(config.actionTimeoutMs)
+    // Relative milliseconds are deliberate: unlike an absolute timestamp,
+    // this remains correct across client/server clock skew. It is a bounded
+    // upper limit, not permission to truncate a handler after it has started.
+    headers.set(ACTION_TIMEOUT_HEADER, String(Math.min(transportTimeout, actionTimeout)))
+    return request
+  })
+}
+
 export const createAxiosInstance = (
   config: types.ClientConfig,
   retry?: types.RetryConfig,
@@ -25,6 +112,7 @@ export const createAxiosInstance = (
   if (config.debug) {
     interceptors.addDebugInterceptors(axiosInstance)
   }
+  installActionTimeoutHeader(axiosInstance, config)
   if (retry) {
     axiosRetry(axiosInstance, retry)
   }

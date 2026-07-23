@@ -249,6 +249,37 @@ const MIN_STEP_REMAINING_TIME_MS = 10_000
 
 const storage = getSingleton('__ADK_GLOBAL_CTX_WORKFLOW_STEP', () => new AsyncLocalStorage<WorkflowStepContext>())
 
+export function shouldRetryWorkflowStepError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return true
+  }
+
+  const metadata = (error as { metadata?: unknown }).metadata
+  if (typeof metadata !== 'object' || metadata === null) {
+    return true
+  }
+
+  const execution = metadata as {
+    errorKind?: unknown
+    executionCode?: unknown
+    executionState?: unknown
+    retryable?: unknown
+  }
+  if (execution.errorKind !== 'integration_execution') {
+    return true
+  }
+
+  // This is a strict allowlist: only fixed metadata proving that execution did
+  // not start permits replay. Unknown/new states, missing fields, and an
+  // outcome_unknown action are terminal because the provider may have changed.
+  return (
+    typeof execution.executionCode === 'string'
+    && execution.executionCode.length > 0
+    && execution.executionState === 'not_started'
+    && execution.retryable === true
+  )
+}
+
 async function _step<T>(
   name: string,
   run: ({ attempt }: { attempt: number }) => T | Promise<T>,
@@ -412,7 +443,10 @@ async function _step<T>(
             return
           }
 
-          if (steps[name]!.attempts >= maxAttempts - 1) {
+          const maxAttemptsReached = steps[name]!.attempts >= maxAttempts - 1
+          const retryable = shouldRetryWorkflowStepError(e)
+
+          if (maxAttemptsReached || !retryable) {
             // Store the safe message/stack plus allowlisted structured
             // diagnostics so a fresh generation can classify the same failure.
             // Use Errors.toErrorString for the message (handles Axios, AggregateError, non-Error throwables, etc.)
@@ -427,7 +461,7 @@ async function _step<T>(
               message: errorMessage,
               ...(rawStack !== undefined && { stack: rawStack }),
               failedAt: new Date().toISOString(),
-              maxAttemptsReached: true,
+              maxAttemptsReached,
             }
             steps[name]!.finishedAt = new Date().toISOString()
 
@@ -437,7 +471,9 @@ async function _step<T>(
             })
             stepSpan.setStatus({
               code: 2,
-              message: `Step "${name}" failed after max attempts (${maxAttempts}): ${errorMessage}`,
+              message: maxAttemptsReached
+                ? `Step "${name}" failed after max attempts (${maxAttempts}): ${errorMessage}`
+                : `Step "${name}" failed with a non-retryable integration execution error: ${errorMessage}`,
             })
 
             // Mark step as finished with error and persist state

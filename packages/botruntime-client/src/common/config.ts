@@ -2,10 +2,12 @@ import { isBrowser, isNode } from 'browser-or-node'
 import * as types from './types'
 
 const defaultApiUrl = 'https://botruntime.ru'
-// Cloud may spend up to 120 seconds serving a host call. The client must wait
-// slightly longer so the server owns that deadline and can return its terminal
-// response instead of being disconnected while valid work is still running.
-const defaultTimeout = 125_000
+export const DEFAULT_API_REQUEST_TIMEOUT_MS = 125_000
+// An action may spend up to 30s in the host queue, 30s in process startup, and
+// 119s in integration execution. The 190s transport budget covers that 179s
+// lifecycle with 11s left for request/response transit. This longer value is
+// action-specific; other API calls retain the released 125-second default.
+export const DEFAULT_ACTION_REQUEST_TIMEOUT_MS = 190_000
 const defaultDebug = false
 
 const apiUrlEnvName = 'BP_API_URL'
@@ -53,12 +55,15 @@ export function getClientConfig(clientProps: AnyClientProps): types.ClientConfig
   }
 
   const apiUrl = props.apiUrl ?? defaultApiUrl
-  const timeout = props.timeout ?? defaultTimeout
+  const timeout = props.timeout ?? DEFAULT_API_REQUEST_TIMEOUT_MS
+  const actionTransportTimeoutMs = props.timeout ?? DEFAULT_ACTION_REQUEST_TIMEOUT_MS
   const debug = props.debug ?? defaultDebug
 
   return {
     apiUrl,
     timeout,
+    actionTransportTimeoutMs,
+    actionTimeoutMs: props.actionTimeoutMs,
     withCredentials: isBrowser,
     headers,
     debug,

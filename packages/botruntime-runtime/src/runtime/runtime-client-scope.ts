@@ -23,3 +23,20 @@ export function runtimeClientCoordinates(
 
   return { botId: callbackBotId, workspaceId }
 }
+
+export const RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS = 5_000
+
+/**
+ * Returns the relative action-response budget that is still available inside
+ * the current invocation. Keeping this relative avoids cross-host wall-clock
+ * assumptions; the client transport applies its own independent timeout cap.
+ */
+export function runtimeActionTimeoutMs(remainingExecutionTimeMs: number): number {
+  if (!Number.isFinite(remainingExecutionTimeMs)) {
+    return 0
+  }
+  return Math.max(
+    Math.floor(remainingExecutionTimeMs) - RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS,
+    0,
+  )
+}

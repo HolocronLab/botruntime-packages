@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeClientCoordinates } from './runtime-client-scope'
+import {
+  RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS,
+  runtimeActionTimeoutMs,
+  runtimeClientCoordinates,
+} from './runtime-client-scope'
 
 describe('runtime client workspace scope', () => {
   it('uses the numeric storage target for opaque development callbacks', () => {
@@ -20,5 +24,15 @@ describe('runtime client workspace scope', () => {
       botId: '23',
       workspaceId: undefined,
     })
+  })
+
+  it('derives a clock-safe relative action budget with runtime cleanup margin', () => {
+    expect(runtimeActionTimeoutMs(270_000)).toBe(
+      270_000 - RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS
+    )
+    expect(runtimeActionTimeoutMs(RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS)).toBe(0)
+    expect(runtimeActionTimeoutMs(RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS - 1)).toBe(0)
+    expect(runtimeActionTimeoutMs(Number.NaN)).toBe(0)
+    expect(runtimeActionTimeoutMs(Number.POSITIVE_INFINITY)).toBe(0)
   })
 })

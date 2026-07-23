@@ -5,6 +5,16 @@ export * from '../types'
 export type CommonClientProps = {
   apiUrl?: string
   timeout?: number
+  /**
+   * Optional upper bound for the remaining action-response budget. A callback
+   * is evaluated when each action request is dispatched so runtimes can
+   * advertise their current invocation budget without using wall-clock time.
+   * The transport also clamps this value to its effective request timeout.
+   * An invalid configured value is advertised as zero so the platform can
+   * reject the action before execution instead of treating this as an old
+   * client that does not support the capability.
+   */
+  actionTimeoutMs?: number | (() => number)
   headers?: types.Headers
   retry?: types.RetryConfig
   debug?: boolean

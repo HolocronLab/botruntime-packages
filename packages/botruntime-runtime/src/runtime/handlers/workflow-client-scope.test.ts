@@ -16,4 +16,11 @@ describe('workflow handler client scope', () => {
     expect(contextSource.match(/scopedClient\n/g)?.length).toBeGreaterThanOrEqual(3)
     expect(contextSource).toContain('handler({ ...props, client: scopedClient })')
   })
+
+  it('binds action timeout advertisement to the live invocation budget', () => {
+    expect(contextSource).toContain(
+      'actionTimeoutMs: () => runtimeActionTimeoutMs(lambdaCtx.getRemainingTimeInMillis())'
+    )
+    expect(contextSource).toContain('RUNTIME_ACTION_TIMEOUT_SAFETY_MARGIN_MS')
+  })
 })
