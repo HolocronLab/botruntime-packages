@@ -8,7 +8,7 @@ against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
 ## 0.9.4 (current) — 2026-07-23
 
-- Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.5.5
+- Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.6.0
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.49.0
 - Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.26
 - Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.17.0

@@ -139,6 +139,51 @@ test('computeAutoBumps never adds an auto entry for a package with its own expli
   assert.equal(triggeredBy.has('@holocronlab/sdk'), false)
 })
 
+test('computeAutoBumps preserves the runtime/ADK lockstep bump level', () => {
+  const packages = [
+    { name: '@holocronlab/botruntime-runtime', localDependencies: [] },
+    {
+      name: '@holocronlab/botruntime-adk',
+      localDependencies: ['@holocronlab/botruntime-runtime'],
+    },
+    { name: '@holocronlab/brt', localDependencies: ['@holocronlab/botruntime-adk'] },
+  ]
+  const explicitBumps = new Map([['@holocronlab/botruntime-runtime', 'minor']])
+
+  const { allBumps } = computeAutoBumps(explicitBumps, packages)
+
+  assert.equal(allBumps.get('@holocronlab/botruntime-runtime'), 'minor')
+  assert.equal(allBumps.get('@holocronlab/botruntime-adk'), 'minor')
+  assert.equal(allBumps.get('@holocronlab/brt'), 'patch')
+})
+
+test('buildReleasePlan fails closed when an ADK-only bump would break runtime lockstep', () => {
+  const packages = [
+    {
+      name: '@holocronlab/botruntime-runtime',
+      dir: 'botruntime-runtime',
+      version: '2.5.4',
+      localDependencies: [],
+    },
+    {
+      name: '@holocronlab/botruntime-adk',
+      dir: 'botruntime-adk',
+      version: '2.5.4',
+      localDependencies: ['@holocronlab/botruntime-runtime'],
+    },
+  ]
+
+  assert.throws(
+    () =>
+      buildReleasePlan({
+        packages,
+        explicitBumps: new Map([['@holocronlab/botruntime-adk', 'patch']]),
+        summariesByPackage: new Map([['@holocronlab/botruntime-adk', ['Changed ADK.']]]),
+      }),
+    /lockstep release versions diverge/
+  )
+})
+
 test('buildReleasePlan fails closed before computing anything when a changeset references an unknown package', () => {
   assert.throws(
     () =>

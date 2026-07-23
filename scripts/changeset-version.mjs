@@ -14,6 +14,12 @@ import { parseChangesetFile } from './changeset-parse.mjs'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const SEVERITY = { patch: 1, minor: 2, major: 3 }
+const LOCKSTEP_RELEASE_GROUPS = [
+  ['@holocronlab/botruntime-runtime', '@holocronlab/botruntime-adk'],
+]
+const LOCKSTEP_DEPENDENCY_EDGES = new Set([
+  '@holocronlab/botruntime-runtime\0@holocronlab/botruntime-adk',
+])
 
 // Re-exported for changeset-version.test.mjs and any other existing importer:
 // the parser itself now lives in changeset-parse.mjs so changeset-lint.mjs can
@@ -85,12 +91,14 @@ function buildReverseDependents(packages) {
 }
 
 // Walks the reverse dependency graph outward from every explicitly-bumped
-// package (changesets), patch-bumping any transitive consumer that has no
-// changeset of its own. `triggeredBy` records, per auto-bumped package, which
-// of its direct dependencies changed — the CHANGELOG line names that specific
-// dependency, not the whole transitive chain. A package with its own explicit
-// changeset is never in `triggeredBy`: it keeps only its authored summary,
-// per DEVLP-174 review ("явно заявленный потребитель НЕ дублируется").
+// package (changesets), patch-bumping transitive consumers by default. The
+// runtime -> ADK edge inherits the dependency's bump level because those two
+// packages are a tested lockstep release pair. `triggeredBy` records, per
+// auto-bumped package, which of its direct dependencies changed — the
+// CHANGELOG line names that specific dependency, not the whole transitive
+// chain. A package with its own explicit changeset is never in `triggeredBy`:
+// it keeps only its authored summary, per DEVLP-174 review ("явно заявленный
+// потребитель НЕ дублируется").
 export function computeAutoBumps(explicitBumps, packages) {
   const reverseGraph = buildReverseDependents(packages)
   const allBumps = new Map(explicitBumps)
@@ -101,10 +109,16 @@ export function computeAutoBumps(explicitBumps, packages) {
   while (queue.length > 0) {
     const name = queue.shift()
     for (const consumer of reverseGraph.get(name) ?? []) {
+      const requiredLevel = LOCKSTEP_DEPENDENCY_EDGES.has(`${name}\0${consumer}`)
+        ? allBumps.get(name)
+        : 'patch'
       if (!explicitBumps.has(consumer)) {
         if (!triggeredBy.has(consumer)) triggeredBy.set(consumer, new Set())
         triggeredBy.get(consumer).add(name)
-        if (!allBumps.has(consumer)) allBumps.set(consumer, 'patch')
+      }
+      const currentLevel = allBumps.get(consumer)
+      if (!currentLevel || SEVERITY[requiredLevel] > SEVERITY[currentLevel]) {
+        allBumps.set(consumer, requiredLevel)
       }
       if (!queued.has(consumer)) {
         queued.add(consumer)
@@ -134,6 +148,16 @@ export function buildReleasePlan({ packages, explicitBumps, summariesByPackage }
   const newVersions = new Map()
   for (const [name, level] of allBumps) {
     newVersions.set(name, bumpVersion(byName.get(name).version, level))
+  }
+
+  for (const group of LOCKSTEP_RELEASE_GROUPS) {
+    const projected = group.map((name) => newVersions.get(name) ?? byName.get(name)?.version)
+    if (projected.some((version) => version === undefined)) continue
+    if (new Set(projected).size > 1) {
+      throw new Error(
+        `lockstep release versions diverge: ${group.map((name, index) => `${name}@${projected[index]}`).join(', ')}`
+      )
+    }
   }
 
   return [...allBumps.keys()].sort().map((name) => {
