@@ -3151,6 +3151,11 @@
             "format": "date-time",
             "description": "Updating date of the [State](#schema_state) in ISO 8601 format"
           },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Opaque optimistic-concurrency token. Present on CAS-capable servers; clients must not derive or increment it."
+          },
           "botId": {
             "type": "string",
             "minLength": 28,
@@ -5223,6 +5228,11 @@
                   "maximum": 2592000000,
                   "nullable": true,
                   "description": "Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire."
+                },
+                "expectedVersion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Expected opaque state version. Omit for legacy last-write-wins behavior; use 0 only when the state must not exist."
                 }
               },
               "required": [
@@ -5281,6 +5291,11 @@
                   "maximum": 2592000000,
                   "nullable": true,
                   "description": "Expiry of the [State](#schema_state) in milliseconds. The state will expire if it is idle for the configured value. By default, a state doesn't expire."
+                },
+                "expectedVersion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Expected opaque state version. Omit for legacy last-write-wins behavior; use 0 only when the state must not exist."
                 }
               },
               "required": [

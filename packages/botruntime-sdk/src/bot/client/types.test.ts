@@ -6,6 +6,17 @@ import { BaseBot } from '../common'
 import { FooBarBazBot, EmptyBot } from '../../fixtures'
 
 describe('ClientInputs', () => {
+  test('State CAS token remains available on the bot-specific client', () => {
+    type Input = types.ClientInputs<FooBarBazBot>['setState']
+    type Output = types.ClientOutputs<FooBarBazBot>['getState']
+    type _assertion = utils.AssertAll<
+      [
+        utils.AssertTrue<utils.IsEqual<Input['expectedVersion'], number | undefined>>,
+        utils.AssertTrue<utils.IsEqual<Output['state']['version'], number | undefined>>,
+      ]
+    >
+  })
+
   test('CreateMessage with implemented bot should require strict type', () => {
     type Actual = types.ClientInputs<FooBarBazBot>['createMessage']
     type Expected = utils.Merge<

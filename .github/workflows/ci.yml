@@ -151,6 +151,7 @@ jobs:
         run: |
           node --test scripts/apply-table-row-version-extension.test.mjs
           node --test scripts/apply-integration-network-extension.test.mjs
+          node --test scripts/apply-state-cas-extension.test.mjs
           node --test scripts/catalog-integration-network-policy.test.mjs
 
       - name: Type-check runtime row metadata contract

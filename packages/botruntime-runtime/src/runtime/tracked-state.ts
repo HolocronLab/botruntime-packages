@@ -20,6 +20,41 @@ const EMPTY_STATE = <TrackedStateValue>{
   location: { type: 'state' },
 }
 
+const isStateVersionConflict = (value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null) return false
+  const error = value as { code?: unknown; type?: unknown }
+  return error.code === 409 && error.type === 'ResourceLockedConflict'
+}
+
+const stateSwapIdentity = (
+  type: 'conversation' | 'user' | 'bot' | 'workflow',
+  id: string,
+  name: string
+): string => createHash('sha256').update(JSON.stringify([type, id, name])).digest('hex')
+
+const stateSwapPrefix = (
+  type: 'conversation' | 'user' | 'bot' | 'workflow',
+  id: string,
+  name: string
+): string => `swap/state/v2/${stateSwapIdentity(type, id, name)}/`
+
+const stateSwapKey = (
+  type: 'conversation' | 'user' | 'bot' | 'workflow',
+  id: string,
+  name: string,
+  expectedVersion: number | undefined,
+  serializedJSON: string
+): string => {
+  const contentHash = createHash('sha256').update(serializedJSON).digest('hex')
+  const generation = expectedVersion === undefined ? 'legacy' : `version-${expectedVersion}`
+  return `${stateSwapPrefix(type, id, name)}${generation}/${contentHash}.json`
+}
+
+type OwnedSwapFile = {
+  id: string
+  key: string
+}
+
 // Maximum size for state swapping - 100MB
 const MAX_SWAP_FILE_SIZE = bytes.parse('100MB')!
 
@@ -56,6 +91,9 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
 
   private _lastSavedHash: string | null = null
   private _lastSavedValue: unknown = undefined
+  private _version: number | undefined
+  private _versionConflict: unknown | undefined
+  private _loadedSwapFile: OwnedSwapFile | undefined
   private _isDirty: boolean = false
   private _loaded: boolean = false
 
@@ -145,6 +183,15 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
       },
       () => Promise.allSettled(dirtyStates.map((s) => s.save()))
     )
+
+    // A CAS conflict is an intentional fail-loud signal that another execution
+    // changed the same state. Swallowing it would report success after losing a
+    // mutation, while retrying the stale snapshot would overwrite the winner.
+    const conflict = results.find(
+      (result): result is PromiseRejectedResult =>
+        result.status === 'rejected' && isStateVersionConflict(result.reason)
+    )
+    if (conflict) throw conflict.reason
 
     if (opts?.throwOnError) {
       const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -247,32 +294,17 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
         name: this.name,
       },
       async (s) => {
-        const { location, value } = await this.client
-          .getOrSetState({
-            type: this.type,
-            name: this.name,
-            id: this.id,
-            payload: { ...EMPTY_STATE },
-          })
-          .then((x) => parseState(x.state.payload))
+        const response = await this.client.getOrSetState({
+          type: this.type,
+          name: this.name,
+          id: this.id,
+          payload: { ...EMPTY_STATE },
+        })
+        const { location, value } = await this._loadStoredState(response.state, true)
 
         s.setAttribute('has_value', value !== undefined)
         s.setAttribute('location', location.type)
-
-        if (location.type === 'file') {
-          try {
-            const { file } = await this.client.getFile({
-              id: location.key as FileId,
-            })
-            const { data } = await axios.get(file.url)
-            this.value = typeof data === 'string' ? JSON.parse(data) : data
-          } catch (err) {
-            console.error(`Failed to load swapped state from file: ${err instanceof Error ? err.message : String(err)}`)
-            this.value = undefined as typeof this.value
-          }
-        } else {
-          this.value = value
-        }
+        this.value = value as typeof this.value
 
         // Apply schema default if value is null/undefined
         // Track if we're applying defaults (only mark dirty if state was truly empty from API)
@@ -344,6 +376,14 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
   }
 
   private _assertCanSave(): void {
+    // Request cleanup can invoke saveAllDirty more than once. Once Cloud has
+    // rejected this snapshot as stale, every later pass in the same execution
+    // must rethrow locally instead of replaying it. A successful load refreshes
+    // the version and clears this latch.
+    if (this._versionConflict !== undefined) {
+      throw this._versionConflict
+    }
+
     const executionFinished = context.get('executionFinished', {
       optional: true,
     })
@@ -413,6 +453,9 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
 
         const tooBig = isStateTooBig(valueToSave)
 
+        const expectedVersion = this._version
+        const previousSwapFile = this._loadedSwapFile
+        let candidateSwapFile: OwnedSwapFile | undefined
         let payload: TrackedStateValue
 
         if (!tooBig) {
@@ -422,7 +465,10 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
           }
         } else {
           try {
-            const key = `swap/${this.type}/${this.id}/state.json`
+            // The file is uploaded before the state CAS. Its key must therefore
+            // be immutable: a losing writer must not overwrite the bytes that
+            // the winning state row already references.
+            const key = stateSwapKey(this.type, this.id, this.name, expectedVersion, serializedJSON)
             const { file } = await this.client.uploadFile({
               key,
               index: false,
@@ -434,6 +480,7 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
                 purpose: 'swap',
               },
             })
+            candidateSwapFile = { id: file.id, key }
 
             console.warn(
               `State for ${this.type}/${this.id} is too big (${tooBig.human}) for State API (max ${MaxStateSize.human}). ` +
@@ -462,12 +509,36 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
           }
         }
 
-        await this.client.setState({
-          type: this.type,
-          name: this.name,
-          id: this.id,
-          payload,
-        })
+        let response
+        try {
+          response = await this.client.setState({
+            type: this.type,
+            name: this.name,
+            id: this.id,
+            payload,
+            ...(expectedVersion === undefined ? {} : { expectedVersion }),
+          })
+        } catch (error: unknown) {
+          if (isStateVersionConflict(error)) {
+            this._versionConflict = error
+            if (expectedVersion !== undefined && candidateSwapFile) {
+              await this._cleanupRejectedSwapCandidate(candidateSwapFile)
+            }
+          }
+          throw error
+        }
+        this._rememberVersion(response?.state)
+        this._loadedSwapFile = candidateSwapFile
+        // Only a successful CAS proves that the previously loaded pointer was
+        // superseded by this write. Legacy LWW saves keep their files because a
+        // concurrent legacy writer can move the pointer again without fencing.
+        if (
+          expectedVersion !== undefined &&
+          previousSwapFile &&
+          previousSwapFile.id !== candidateSwapFile?.id
+        ) {
+          await this._deleteSwapFileBestEffort(previousSwapFile)
+        }
 
         // Set span attributes after successful save (skip value for swapped states to avoid bloating spans)
         const savedInline = payload.location.type === 'state'
@@ -545,6 +616,100 @@ export class TrackedState<Schema extends ZuiType = ZuiType> {
       }
     }
     return {} as typeof this.value
+  }
+
+  private _rememberVersion(state: { version?: unknown } | undefined): void {
+    const version = state?.version
+    this._version =
+      typeof version === 'number' && Number.isSafeInteger(version) && version > 0
+        ? version
+        : undefined
+    this._versionConflict = undefined
+  }
+
+  private async _loadStoredState(
+    state: { payload: unknown; version?: unknown },
+    refreshOnFileFailure: boolean
+  ): Promise<TrackedStateValue> {
+    this._rememberVersion(state)
+    const parsed = parseState(state.payload)
+    if (parsed.location.type !== 'file') {
+      this._loadedSwapFile = undefined
+      return parsed
+    }
+
+    try {
+      const { file } = await this.client.getFile({
+        id: parsed.location.key as FileId,
+      })
+      const { data } = await axios.get(file.url)
+      this._loadedSwapFile = this._ownedSwapFile(file.id, file.key)
+      return {
+        location: parsed.location,
+        value: typeof data === 'string' ? JSON.parse(data) : data,
+      }
+    } catch (error) {
+      if (refreshOnFileFailure) {
+        // A CAS winner may have flipped the row and removed the old owned file
+        // after this load read the stale pointer. Re-read the authoritative row
+        // exactly once; never loop or replay a user mutation from the load path.
+        try {
+          const refreshed = await this.client.getState({
+            type: this.type,
+            name: this.name,
+            id: this.id,
+          })
+          return await this._loadStoredState(refreshed.state, false)
+        } catch (refreshError) {
+          error = refreshError
+        }
+      }
+
+      this._loadedSwapFile = undefined
+      console.error(
+        `Failed to load swapped state from file: ${error instanceof Error ? error.message : String(error)}`
+      )
+      return {
+        location: parsed.location,
+        value: undefined,
+      }
+    }
+  }
+
+  private _ownedSwapFile(id: string, key: string): OwnedSwapFile | undefined {
+    return key.startsWith(stateSwapPrefix(this.type, this.id, this.name)) ? { id, key } : undefined
+  }
+
+  private async _cleanupRejectedSwapCandidate(candidate: OwnedSwapFile): Promise<void> {
+    // Same-version, same-content contenders intentionally share a candidate.
+    // A 409 loser may delete it only after the authoritative row proves that
+    // another pointer won.
+    try {
+      const current = await this.client.getState({
+        type: this.type,
+        name: this.name,
+        id: this.id,
+      })
+      const parsed = TrackedStateSchema.safeParse(current.state.payload)
+      if (!parsed.success) return
+      if (parsed.data.location.type === 'file' && parsed.data.location.key === candidate.id) return
+    } catch {
+      return
+    }
+
+    await this._deleteSwapFileBestEffort(candidate)
+  }
+
+  private async _deleteSwapFileBestEffort(file: OwnedSwapFile): Promise<void> {
+    try {
+      await this.client.deleteFile({ id: file.id as FileId })
+    } catch (error) {
+      console.warn(
+        `Failed to delete superseded swapped state file ${file.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
   }
 
   /**

@@ -18,11 +18,17 @@ echo "[regen] 1/3 botruntime-api: emit canonical OpenAPI spec and build the loca
 echo "[regen] applying integration network contract extension"
 node "$ROOT/scripts/apply-integration-network-extension.mjs" --openapi-only
 
+echo "[regen] applying state CAS contract extension"
+node "$ROOT/scripts/apply-state-cas-extension.mjs" --openapi-only
+
 echo "[regen] 2/3 botruntime-client: regenerate typed client (src/gen) via the botruntime-api seam"
 ( cd "$ROOT/packages/botruntime-client" && bun install >/dev/null 2>&1 && bun run generate )
 
 echo "[regen] applying integration network client extension"
 node "$ROOT/scripts/apply-integration-network-extension.mjs" --client-only
+
+echo "[regen] applying state CAS client extension"
+node "$ROOT/scripts/apply-state-cas-extension.mjs" --client-only
 
 echo "[regen] applying botruntime rowVersion contract extension"
 node "$ROOT/scripts/apply-table-row-version-extension.mjs"

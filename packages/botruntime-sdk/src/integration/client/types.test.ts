@@ -30,6 +30,17 @@ const _mockClient = <TIntegration extends BaseIntegration>() =>
   })
 
 describe.concurrent('ClientOperations', () => {
+  test('state CAS token remains available on the integration-specific client', () => {
+    type Input = types.ClientInputs<FooBarBazIntegration>['patchState']
+    type Output = types.ClientOutputs<FooBarBazIntegration>['getOrSetState']
+    type _assertion = utils.AssertAll<
+      [
+        utils.AssertTrue<utils.IsEqual<Input['expectedVersion'], number | undefined>>,
+        utils.AssertTrue<utils.IsEqual<Output['state']['version'], number | undefined>>,
+      ]
+    >
+  })
+
   test('createConversation of IntegrationSpecificClient extends general', () => {
     type Specific = types.ClientOperations<BaseIntegration>['createConversation']
     type General = client.Client['createConversation']
