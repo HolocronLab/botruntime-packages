@@ -63,6 +63,60 @@ describe('integration deployment bodies', () => {
     expect(body.maxExecutionTime).toBe(45)
   })
 
+  test('preserves the definition-owned integration concurrency limit', async () => {
+    const local = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({
+        name: 'parallel',
+        version: '1.0.0',
+        maxConcurrency: 4,
+        network: { providerHosts: [] },
+      }),
+    )
+    const body = prepareUpdateIntegrationBody(
+      { ...local, id: 'integration-id' },
+      {
+        actions: {},
+        events: {},
+        states: {},
+        entities: {},
+        user: { tags: {} },
+        channels: {},
+        interfaces: {},
+        configurations: {},
+        attributes: {},
+        configuration: { identifier: {} },
+        identifier: {},
+      } as unknown as Integration,
+    )
+
+    expect(body.maxConcurrency).toBe(4)
+  })
+
+  test('materializes the default concurrency limit so update can clear an old override', async () => {
+    const local = await prepareCreateIntegrationBody(
+      new IntegrationDefinition({ name: 'default', version: '1.0.0', network: { providerHosts: [] } }),
+    )
+    const body = prepareUpdateIntegrationBody(
+      { ...local, id: 'integration-id' },
+      {
+        actions: {},
+        events: {},
+        states: {},
+        entities: {},
+        user: { tags: {} },
+        channels: {},
+        interfaces: {},
+        configurations: {},
+        attributes: {},
+        configuration: { identifier: {} },
+        identifier: {},
+        maxConcurrency: 4,
+      } as unknown as Integration,
+    )
+
+    expect(body.maxConcurrency).toBe(1)
+  })
+
   test('preserves the platform network contract when classic deploy updates an integration', () => {
     const body = prepareUpdateIntegrationBody(
       {
@@ -71,6 +125,7 @@ describe('integration deployment bodies', () => {
         ingressRelayed: true,
         webhookAuthMode: 'provider_verified',
         maxExecutionTime: 119,
+        maxConcurrency: 4,
       },
       {
         actions: {},
@@ -92,6 +147,7 @@ describe('integration deployment bodies', () => {
       ingressRelayed: true,
       webhookAuthMode: 'provider_verified',
       maxExecutionTime: 119,
+      maxConcurrency: 4,
     })
   })
 

@@ -335,6 +335,10 @@ export interface UpdateIntegrationRequestBody {
   visibility?: "public" | "private" | "unlisted";
   layers?: string[];
   /**
+   * Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time.
+   */
+  maxConcurrency?: number;
+  /**
    * Outbound host allowlist declared by the integration.
    */
   providerHosts?: string[];
@@ -363,7 +367,7 @@ export const parseReq = (input: UpdateIntegrationInput): UpdateIntegrationReques
     headers: {  },
     query: {  },
     params: { 'id': input['id'] },
-    body: { 'configuration': input['configuration'], 'configurations': input['configurations'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'channels': input['channels'], 'maxExecutionTime': input['maxExecutionTime'], 'identifier': input['identifier'], 'actions': input['actions'], 'events': input['events'], 'states': input['states'], 'user': input['user'], 'entities': input['entities'], 'interfaces': input['interfaces'], 'attributes': input['attributes'], 'secrets': input['secrets'], 'code': input['code'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'url': input['url'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode'] },
+    body: { 'configuration': input['configuration'], 'configurations': input['configurations'], 'extraOperations': input['extraOperations'], 'sdkVersion': input['sdkVersion'], 'channels': input['channels'], 'maxExecutionTime': input['maxExecutionTime'], 'identifier': input['identifier'], 'actions': input['actions'], 'events': input['events'], 'states': input['states'], 'user': input['user'], 'entities': input['entities'], 'interfaces': input['interfaces'], 'attributes': input['attributes'], 'secrets': input['secrets'], 'code': input['code'], 'icon': input['icon'], 'readme': input['readme'], 'title': input['title'], 'description': input['description'], 'url': input['url'], 'public': input['public'], 'visibility': input['visibility'], 'layers': input['layers'], 'maxConcurrency': input['maxConcurrency'], 'providerHosts': input['providerHosts'], 'ingressRelayed': input['ingressRelayed'], 'webhookAuthMode': input['webhookAuthMode'] },
   }
 }
 

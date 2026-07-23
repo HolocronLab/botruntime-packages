@@ -27,6 +27,8 @@ export * from './types'
 
 export const DEFAULT_INTEGRATION_MAX_EXECUTION_TIME_SECONDS = 45
 export const MAX_INTEGRATION_MAX_EXECUTION_TIME_SECONDS = 119
+export const DEFAULT_INTEGRATION_MAX_CONCURRENCY = 1
+export const MAX_INTEGRATION_MAX_CONCURRENCY = 4
 
 export type IntegrationDefinitionProps<
   TName extends string = string,
@@ -48,6 +50,7 @@ export type IntegrationDefinitionProps<
   readme?: string
   /** Admission deadline for one integration operation, including queue and initialization. */
   maxExecutionTime?: number
+  maxConcurrency?: number
 
   attributes?: Record<string, string>
 
@@ -201,6 +204,7 @@ export class IntegrationDefinition<
   public readonly icon: this['props']['icon']
   public readonly readme: this['props']['readme']
   public readonly maxExecutionTime: number
+  public readonly maxConcurrency: number
   public readonly configuration: this['props']['configuration']
   public readonly configurations: this['props']['configurations']
   public readonly events: this['props']['events']
@@ -239,11 +243,20 @@ export class IntegrationDefinition<
         `maxExecutionTime must be an integer between 1 and ${MAX_INTEGRATION_MAX_EXECUTION_TIME_SECONDS} seconds`
       )
     }
+    if (
+      props.maxConcurrency !== undefined &&
+      (!Number.isInteger(props.maxConcurrency) ||
+        props.maxConcurrency < 1 ||
+        props.maxConcurrency > MAX_INTEGRATION_MAX_CONCURRENCY)
+    ) {
+      throw new DefinitionError(`maxConcurrency must be an integer between 1 and ${MAX_INTEGRATION_MAX_CONCURRENCY}`)
+    }
     this.name = props.name
     this.version = props.version
     this.icon = props.icon
     this.readme = props.readme
     this.maxExecutionTime = props.maxExecutionTime ?? DEFAULT_INTEGRATION_MAX_EXECUTION_TIME_SECONDS
+    this.maxConcurrency = props.maxConcurrency ?? DEFAULT_INTEGRATION_MAX_CONCURRENCY
     this.title = props.title
     this.identifier = props.identifier
     this.description = props.description

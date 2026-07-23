@@ -58,6 +58,31 @@ test.each([0, -1, 1.5, 120])('integration definition rejects invalid maxExecutio
   ).toThrow(/maxExecutionTime/i)
 })
 
+test('integration definition exposes maxConcurrency', () => {
+  expect(
+    new IntegrationDefinition({
+      name: 'parallel',
+      version: '1.0.0',
+      maxConcurrency: 4,
+    }).maxConcurrency
+  ).toBe(4)
+})
+
+test('integration definition materializes the default maxConcurrency', () => {
+  expect(new IntegrationDefinition({ name: 'default', version: '1.0.0' }).maxConcurrency).toBe(1)
+})
+
+test.each([0, -1, 1.5, 5])('integration definition rejects invalid maxConcurrency %p', (maxConcurrency) => {
+  expect(
+    () =>
+      new IntegrationDefinition({
+        name: 'parallel',
+        version: '1.0.0',
+        maxConcurrency,
+      })
+  ).toThrow(/maxConcurrency/i)
+})
+
 test('integration with channel extending an interface with same channel merges channel tags', () => {
   // arrange
   const intrface = new InterfaceDefinition({

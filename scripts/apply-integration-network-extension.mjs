@@ -46,6 +46,13 @@ const executionProperties = {
     description:
       "Admission deadline for one integration operation, including queue and initialization (seconds).",
   },
+  maxConcurrency: {
+    type: "integer",
+    minimum: 1,
+    maximum: 4,
+    description:
+      "Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time.",
+  },
 };
 
 function appendProperties(properties, additions) {
@@ -65,12 +72,11 @@ export function extendOpenApiDocument(document) {
       schema.properties = appendProperties(schema.properties, {
         ...networkProperties,
       });
-      // Upstream already exposes this field on some update schemas, but without
-      // the platform ceiling. Normalize every operation instead of preserving an
-      // unconstrained pre-existing definition.
-      schema.properties.maxExecutionTime = structuredClone(
-        executionProperties.maxExecutionTime,
-      );
+      // Upstream may expose execution fields without the platform ceilings.
+      // Normalize every operation instead of preserving unconstrained schemas.
+      for (const [name, property] of Object.entries(executionProperties)) {
+        schema.properties[name] = structuredClone(property);
+      }
     }
   }
   return document;
@@ -90,11 +96,18 @@ const requestTypeFields = `  /**
   webhookAuthMode?: "shared_secret" | "provider_verified" | "handler_verified";
 `;
 
-const executionRequestTypeField = `  /**
+const executionRequestTypeFields = {
+  maxExecutionTime: `  /**
    * Admission deadline for one integration operation, including queue and initialization (seconds).
    */
   maxExecutionTime?: number;
-`;
+`,
+  maxConcurrency: `  /**
+   * Maximum concurrent integration invocations. Definitions that omit this field run one invocation at a time.
+   */
+  maxConcurrency?: number;
+`,
+};
 
 export function extendGeneratedClientSource(source, operationName) {
   let output = source;
@@ -116,8 +129,10 @@ export function extendGeneratedClientSource(source, operationName) {
   }
   const requestBodySource = output.slice(0, inputBoundary);
   let requestFields = "";
-  if (!requestBodySource.includes("maxExecutionTime?: number;")) {
-    requestFields += executionRequestTypeField;
+  for (const [name, field] of Object.entries(executionRequestTypeFields)) {
+    if (!requestBodySource.includes(`${name}?: number;`)) {
+      requestFields += field;
+    }
   }
   if (!requestBodySource.includes("webhookAuthMode?:")) {
     requestFields += requestTypeFields;
@@ -131,6 +146,7 @@ export function extendGeneratedClientSource(source, operationName) {
 
   const serializerFields = [
     "'maxExecutionTime': input['maxExecutionTime']",
+    "'maxConcurrency': input['maxConcurrency']",
     "'providerHosts': input['providerHosts']",
     "'ingressRelayed': input['ingressRelayed']",
     "'webhookAuthMode': input['webhookAuthMode']",
