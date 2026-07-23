@@ -1,10 +1,20 @@
 import * as common from '../common'
+import * as integrationOperations from '../integration-operations'
 import * as uploadFile from '../files/upload-file'
 import * as gen from '../gen/public'
 import * as types from '../types'
 
 type IClient = common.types.Simplify<
   gen.Client & {
+    startIntegrationOperation: (
+      input: integrationOperations.StartIntegrationOperationInput
+    ) => Promise<integrationOperations.IntegrationOperation>
+    getIntegrationOperation: (
+      input: integrationOperations.GetIntegrationOperationInput
+    ) => Promise<integrationOperations.IntegrationOperation>
+    cancelIntegrationOperation: (
+      input: integrationOperations.CancelIntegrationOperationInput
+    ) => Promise<integrationOperations.IntegrationOperation>
     uploadFile: (input: uploadFile.UploadFileInput) => Promise<uploadFile.UploadFileOutput>
   }
 >
@@ -22,6 +32,7 @@ export type ClientProps = common.types.CommonClientProps & {
 
 export class Client extends gen.Client implements IClient {
   public readonly config: Readonly<types.ClientConfig>
+  private readonly _customAxiosInstance: ReturnType<typeof common.axios.createAxiosInstance>
 
   public constructor(clientProps: ClientProps = {}) {
     const clientConfig = common.config.getClientConfig(clientProps)
@@ -32,6 +43,7 @@ export class Client extends gen.Client implements IClient {
     })
 
     this.config = clientConfig
+    this._customAxiosInstance = axiosInstance
   }
 
   public get list() {
@@ -145,5 +157,23 @@ export class Client extends gen.Client implements IClient {
    */
   public readonly uploadFile = async (input: uploadFile.UploadFileInput): Promise<uploadFile.UploadFileOutput> => {
     return await uploadFile.upload(this, input)
+  }
+
+  public readonly startIntegrationOperation = async (
+    input: integrationOperations.StartIntegrationOperationInput
+  ): Promise<integrationOperations.IntegrationOperation> => {
+    return await integrationOperations.start(this._customAxiosInstance, input)
+  }
+
+  public readonly getIntegrationOperation = async (
+    input: integrationOperations.GetIntegrationOperationInput
+  ): Promise<integrationOperations.IntegrationOperation> => {
+    return await integrationOperations.get(this._customAxiosInstance, input)
+  }
+
+  public readonly cancelIntegrationOperation = async (
+    input: integrationOperations.CancelIntegrationOperationInput
+  ): Promise<integrationOperations.IntegrationOperation> => {
+    return await integrationOperations.cancel(this._customAxiosInstance, input)
   }
 }

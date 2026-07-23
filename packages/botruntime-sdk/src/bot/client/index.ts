@@ -55,6 +55,12 @@ export class BotSpecificClient<TBot extends common.BaseBot> implements types.Cli
   public getOrSetState: types.GetOrSetState<TBot> = ((x) => this._run('getOrSetState', x)) as types.GetOrSetState<TBot>
   public patchState: types.PatchState<TBot> = ((x) => this._run('patchState', x)) as types.PatchState<TBot>
   public callAction: types.CallAction<TBot> = ((x) => this._run('callAction', x)) as types.CallAction<TBot>
+  public startIntegrationOperation: types.StartIntegrationOperation<TBot> = ((x) =>
+    this._run('startIntegrationOperation', x)) as types.StartIntegrationOperation<TBot>
+  public getIntegrationOperation: types.GetIntegrationOperation<TBot> = ((x) =>
+    this._run('getIntegrationOperation', x)) as types.GetIntegrationOperation<TBot>
+  public cancelIntegrationOperation: types.CancelIntegrationOperation<TBot> = ((x) =>
+    this._run('cancelIntegrationOperation', x)) as types.CancelIntegrationOperation<TBot>
   public uploadFile: types.UploadFile<TBot> = ((x) => this._run('uploadFile', x)) as types.UploadFile<TBot>
   public upsertFile: types.UpsertFile<TBot> = ((x) => this._run('upsertFile', x)) as types.UpsertFile<TBot>
   public deleteFile: types.DeleteFile<TBot> = ((x) => this._run('deleteFile', x)) as types.DeleteFile<TBot>
