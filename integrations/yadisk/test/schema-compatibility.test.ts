@@ -26,6 +26,7 @@ describe('public catalog schema compatibility', () => {
 
   test('v0.3 exposes only the native durable upload capability', () => {
     expect(definition.version).toBe('0.3.0')
+    expect(definition.maxConcurrency).toBe(4)
     expect(actions.uploadDocument.attributes).toEqual({
       'botruntime.durableOperation': 'v1',
     })

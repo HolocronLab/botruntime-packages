@@ -4,7 +4,7 @@
 // живут в actions.ts/config.ts). Только actions — входящих вебхуков нет.
 import { Integration, type IntegrationProps } from '@holocronlab/botruntime-sdk'
 import { createCaseFolder, getLink, uploadDocument } from './actions'
-import { handleDurableOperation, type FileStreamClient } from './durable-operation'
+import { handleDurableOperation } from './durable-operation'
 import { onRegister } from './setup'
 
 const integration: IntegrationProps = {
@@ -30,9 +30,7 @@ const integration: IntegrationProps = {
         req.headers['x-bp-type'],
         req.body,
         ctx.configuration,
-        // v0.3.0 is published only after SDK 6.19.0; the repository lock stays
-        // on the last public SDK until that immutable release exists.
-        { files: client as unknown as FileStreamClient },
+        { files: client },
         logger,
       )
       return {

@@ -9,7 +9,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@holocronlab/botruntime-sdk": "^6.15.0",
+    "@holocronlab/botruntime-sdk": "^6.19.0",
     "@holocronlab/botruntime-zui": "^2.3.0"
   },
   "devDependencies": {

@@ -14,6 +14,7 @@ export default new IntegrationDefinition({
   // Legacy short actions retain their released admission cap. uploadDocument
   // uses the separate durableOperation=v1 business deadline instead.
   maxExecutionTime: 119,
+  maxConcurrency: 4,
   configuration,
   actions,
   network: {
