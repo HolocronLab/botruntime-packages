@@ -24,7 +24,7 @@ const expectedPolicies = [
     hosts: ["cloud-api.yandex.net", "*.disk.yandex.net", "*.disk.yandex.ru"],
     ingressRelayed: false,
     webhookAuthMode: "shared_secret",
-    sdkSpec: "^6.19.0",
+    sdkSpec: "^6.19.1",
     maxExecutionTime: 119,
     maxConcurrency: 4,
   },

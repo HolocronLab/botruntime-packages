@@ -81,12 +81,19 @@ const operation = await client.startIntegrationOperation({
 - На хост-сторадж по подписанному href OAuth-токен НЕ уходит. Короткие control
   calls имеют bounded timeout; потоковый PUT ограничен business deadline
   durable operation и может работать несколько минут.
+- В 0.3.1 runtime-host передаёт cooperative-cancellation через
+  `IntegrationLambdaContext.abortSignal`. Интеграция объединяет этот сигнал с
+  business deadline и передаёт один `AbortSignal` в FileRef download, provider
+  control calls и PUT. До начала PUT остановка остаётся `retry_safe`; после
+  начала PUT результат остаётся `outcome_unknown` и сверяется без повтора.
 - `getLink` публикует и читает ссылку через `stat` (`fields=public_url,path&limit=0`
   — иначе листинг папки `_embedded` пробил бы лимит тела). В TS-доноре `stat` не
   было — портирован из Go, без него ссылку не прочитать.
 
 ## Версия
 
-0.3.0 требует runtime с native durable operation v1 и exact FileRef endpoint.
-Обновление устанавливается как новая integration version; существующие
-инсталляции 0.2.3 не переназначаются автоматически.
+0.3.1 требует runtime с native durable operation v1, exact FileRef endpoint и
+cooperative operation cancellation, а также SDK с
+`IntegrationLambdaContext.abortSignal`. Обновление устанавливается как новая
+integration version; существующие инсталляции 0.2.3 и 0.3.0 не переназначаются
+автоматически.
