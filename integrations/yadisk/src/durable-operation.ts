@@ -171,13 +171,23 @@ const parseRequest = (body: string | undefined): DurableOperationRequest => {
   }
 }
 
-const deadlineController = (deadline: string): { signal: AbortSignal; dispose: () => void } => {
+const operationController = (
+  deadline: string,
+  hostSignal?: AbortSignal,
+): { signal: AbortSignal; dispose: () => void } => {
   const controller = new AbortController()
   const remaining = Math.max(0, Date.parse(deadline) - Date.now())
   const timer = setTimeout(() => controller.abort(new Error('operation deadline reached')), remaining)
+  const onHostAbort = () => controller.abort(hostSignal?.reason)
+  if (hostSignal?.aborted) onHostAbort()
+  else hostSignal?.addEventListener('abort', onHostAbort, { once: true })
+
   return {
     signal: controller.signal,
-    dispose: () => clearTimeout(timer),
+    dispose: () => {
+      clearTimeout(timer)
+      hostSignal?.removeEventListener('abort', onHostAbort)
+    },
   }
 }
 
@@ -275,6 +285,7 @@ export async function handleDurableOperation(
   configuration: YadiskConfiguration,
   dependencies: DurableOperationDependencies,
   logger: IntegrationLogger,
+  hostSignal?: AbortSignal,
 ): Promise<DurableOperationOutcome> {
   let request: DurableOperationRequest
   let diskPath: string
@@ -296,16 +307,16 @@ export async function handleDurableOperation(
     return failed('invalid_configuration', 'Конфигурация Яндекс.Диска недоступна')
   }
 
-  const deadline = deadlineController(request.deadline)
+  const operation = operationController(request.deadline, hostSignal)
   try {
     if (phase === 'execute') {
-      return await execute(request, diskPath, provider, dependencies.files, deadline.signal, logger)
+      return await execute(request, diskPath, provider, dependencies.files, operation.signal, logger)
     }
-    if (await verify(provider, diskPath, request.input.fileRef, deadline.signal)) {
+    if (await verify(provider, diskPath, request.input.fileRef, operation.signal)) {
       return succeeded(diskPath, request.input.fileRef)
     }
     return unknown('still_unknown')
   } finally {
-    deadline.dispose()
+    operation.dispose()
   }
 }

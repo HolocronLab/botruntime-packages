@@ -24,8 +24,8 @@ describe('public catalog schema compatibility', () => {
     expect(schema.safeParse({ path: 'lead-1/ .. /outside' }).success).toBe(false)
   })
 
-  test('v0.3 exposes only the native durable upload capability', () => {
-    expect(definition.version).toBe('0.3.0')
+  test('v0.3.1 exposes only the native durable upload capability', () => {
+    expect(definition.version).toBe('0.3.1')
     expect(definition.maxConcurrency).toBe(4)
     expect(actions.uploadDocument.attributes).toEqual({
       'botruntime.durableOperation': 'v1',

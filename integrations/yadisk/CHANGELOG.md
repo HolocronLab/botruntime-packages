@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Composes runtime-host cancellation with the durable operation business deadline.
+- Keeps cancellation before provider handoff `retry_safe`; cancellation after PUT starts remains `outcome_unknown` and is never replayed.
+
 ## 0.3.0
 
 - Replaced JSON/base64 document uploads with native durable-operation v1.

@@ -20,7 +20,7 @@ export async function createCaseFolder(
   })
 }
 
-// uploadDocument is capability-only in v0.3.0. CloudAPI starts it through the
+// uploadDocument is capability-only since v0.3.0. CloudAPI starts it through the
 // durable operation API; ordinary action_triggered calls must never become an
 // implicit base64 or retry fallback.
 export async function uploadDocument(): Promise<never> {

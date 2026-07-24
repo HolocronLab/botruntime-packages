@@ -24,7 +24,7 @@ const integration: IntegrationProps = {
     // Интеграция только actions — входящих сообщений/вебхуков нет.
   },
   __advanced: {
-    unknownOperationHandler: async ({ ctx, req, client, logger }) => {
+    unknownOperationHandler: async ({ ctx, req, client, logger, abortSignal }) => {
       if (ctx.operation !== 'integration_operation') return
       const outcome = await handleDurableOperation(
         req.headers['x-bp-type'],
@@ -32,6 +32,7 @@ const integration: IntegrationProps = {
         ctx.configuration,
         { files: client },
         logger,
+        abortSignal,
       )
       return {
         status: 200,
@@ -48,11 +49,11 @@ type LambdaRequest = Parameters<typeof sdkHandler>[0]
 // The SDK requires webhook identity in every context, while action-only
 // installations do not own a webhook. Fill the neutral alias before the SDK
 // dispatches the native durable operation.
-const lambdaHandler = async (req: LambdaRequest) => {
+const lambdaHandler: typeof sdkHandler = async (req: LambdaRequest, lambdaCtx) => {
   const headers: Record<string, string | undefined> = { ...req.headers }
   const integrationId = headers['x-integration-id']
   if (!headers['x-webhook-id']) headers['x-webhook-id'] = integrationId ?? 'operation'
-  return sdkHandler({ ...req, headers })
+  return sdkHandler({ ...req, headers }, lambdaCtx)
 }
 
 Object.defineProperty(instance, 'handler', { value: lambdaHandler })

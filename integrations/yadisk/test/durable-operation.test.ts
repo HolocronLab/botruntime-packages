@@ -195,6 +195,106 @@ describe('native durable uploadDocument', () => {
     expect(puts).toBe(0)
   })
 
+  test('composes host cancellation before provider handoff and remains retry_safe', async () => {
+    const controller = new AbortController()
+    let puts = 0
+    let prepareSignal: AbortSignal | undefined
+    const outcome = await handleDurableOperation(
+      'execute',
+      request(),
+      { yadiskToken: 'secret' },
+      {
+        provider: {
+          prepareUpload: async (_path, _overwrite, signal) => {
+            prepareSignal = signal
+            throw signal?.reason
+          },
+          uploadStreamOnce: async () => {
+            puts++
+          },
+          stat: async () => {
+            controller.abort(new Error('host cancelled operation'))
+            throw new YadiskApiError(404, 'not found')
+          },
+        },
+        files: {
+          downloadFileRef: async () => {
+            throw new Error('must not open')
+          },
+        },
+      },
+      logger,
+      controller.signal,
+    )
+
+    expect(outcome).toEqual({ kind: 'retry_safe' })
+    expect(prepareSignal?.aborted).toBe(true)
+    expect(prepareSignal?.reason).toEqual(new Error('host cancelled operation'))
+    expect(puts).toBe(0)
+  })
+
+  test('host cancellation after PUT starts remains outcome_unknown without replay', async () => {
+    const controller = new AbortController()
+    let puts = 0
+    let stats = 0
+    let prepareSignal: AbortSignal | undefined
+    let fileRefSignal: AbortSignal | undefined
+    let putSignal: AbortSignal | undefined
+    let verificationSignal: AbortSignal | undefined
+    const outcome = await handleDurableOperation(
+      'execute',
+      request(),
+      { yadiskToken: 'secret' },
+      {
+        provider: {
+          prepareUpload: async (_path, _overwrite, signal) => {
+            prepareSignal = signal
+            return 'https://storage.example/put'
+          },
+          uploadStreamOnce: async (_href, _stream, { signal }) => {
+            puts++
+            putSignal = signal
+            controller.abort(new Error('caller disconnected'))
+            signal?.throwIfAborted()
+          },
+          stat: async (_path, signal) => {
+            stats++
+            if (stats === 1) throw new YadiskApiError(404, 'not found')
+            verificationSignal = signal
+            throw signal?.reason
+          },
+        },
+        files: {
+          downloadFileRef: async ({ signal }) => {
+            fileRefSignal = signal
+            return {
+              stream: new ReadableStream<Uint8Array>({
+                start(streamController) {
+                  streamController.enqueue(new Uint8Array([1, 2, 3]))
+                  streamController.close()
+                },
+              }),
+            }
+          },
+        },
+      },
+      logger,
+      controller.signal,
+    )
+
+    expect(outcome).toMatchObject({
+      kind: 'outcome_unknown',
+      errorCode: 'provider_outcome_unknown',
+    })
+    expect(putSignal?.aborted).toBe(true)
+    expect(putSignal?.reason).toEqual(new Error('caller disconnected'))
+    expect(prepareSignal).toBe(putSignal)
+    expect(fileRefSignal).toBe(putSignal)
+    expect(verificationSignal).toBe(putSignal)
+    expect(puts).toBe(1)
+    expect(stats).toBe(2)
+  })
+
   test('rejects inline/base64 payloads before any network access', async () => {
     let providerCalls = 0
     const outcome = await handleDurableOperation(
