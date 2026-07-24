@@ -35,6 +35,7 @@ export type StartIntegrationOperationInput = {
   idempotencyKey: string
   type: string
   input: Record<string, unknown>
+  resourceKey?: string
   timeoutSeconds?: number
 }
 
@@ -107,7 +108,7 @@ const integrationOperationConflictFrom = (error: unknown): IntegrationOperationC
 
 export const start = async (
   transport: AxiosInstance,
-  { idempotencyKey, type, input, timeoutSeconds }: StartIntegrationOperationInput
+  { idempotencyKey, type, input, resourceKey, timeoutSeconds }: StartIntegrationOperationInput
 ): Promise<IntegrationOperation> =>
   request(transport, {
     method: 'POST',
@@ -118,6 +119,7 @@ export const start = async (
     data: {
       type,
       input,
+      ...(resourceKey === undefined ? {} : { resourceKey }),
       ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
     },
   })
