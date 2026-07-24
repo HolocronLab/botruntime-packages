@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.19.1 (current) — 2026-07-24
+## 6.19.2 (current) — 2026-07-24
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.52.0
+
+## 6.19.1 — 2026-07-24
 
 - Forward the runtime-host abort signal to native integration operation handlers so long-running providers can stop cooperatively without changing delivery outcome classification.
 
