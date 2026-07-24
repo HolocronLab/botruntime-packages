@@ -649,8 +649,15 @@ describe('brt eval public contract', () => {
   it('continues bounded terminal polling after one idempotent GET exhausts transient retries', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     try {
+      let signalFirstFetch!: () => void
+      const firstFetch = new Promise<void>((resolve) => {
+        signalFirstFetch = resolve
+      })
       stubFetch(async (_url, index) => {
-        if (index === 0) return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        if (index === 0) {
+          signalFirstFetch()
+          return json({ workflow: { id: 'workflow_1', status: 'pending', output: {} } }, 201)
+        }
         if (index <= 3) throw new TypeError('network request failed')
         if (index === 4) {
           return json({
@@ -665,9 +672,7 @@ describe('brt eval public contract', () => {
       })
 
       const pending = runCommand({ json: true }).handler()
-      for (let index = 0; index < 200 && calls.length === 0; index++) {
-        await new Promise<void>((resolve) => setImmediate(resolve))
-      }
+      await firstFetch
       expect(calls.length).toBeGreaterThanOrEqual(1)
 
       for (let index = 0; index < 20 && calls.length < 6; index++) {
