@@ -51,6 +51,7 @@ describe('integration operation client', () => {
         idempotencyKey: 'claim-document-42',
         type: 'yadisk:uploadDocument',
         input: { fileRef: { id: 'file-42' } },
+        resourceKey: 'disk:/claims/42/document.pdf',
         timeoutSeconds: 600,
       })
     ).resolves.toEqual(operation)
@@ -64,6 +65,7 @@ describe('integration operation client', () => {
       data: JSON.stringify({
         type: 'yadisk:uploadDocument',
         input: { fileRef: { id: 'file-42' } },
+        resourceKey: 'disk:/claims/42/document.pdf',
         timeoutSeconds: 600,
       }),
     })
@@ -83,7 +85,7 @@ describe('integration operation client', () => {
     })
   })
 
-  it('omits the default timeout from the start body', async () => {
+  it('omits optional resource and timeout fields from the start body', async () => {
     let request: InternalAxiosRequestConfig | undefined
     const api = new Client({ apiUrl: 'https://botruntime.example', botId: 'bot-42' })
     ;(api as any)._customAxiosInstance.defaults.adapter = async (config: InternalAxiosRequestConfig) => {
