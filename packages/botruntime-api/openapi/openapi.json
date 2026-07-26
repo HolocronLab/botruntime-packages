@@ -9567,6 +9567,91 @@
           "$ref": "#/components/requestBodies/upsertTableRowsBody"
         }
       }
+    },
+    "/v1/tables/atomic": {
+      "post": {
+        "operationId": "atomicTables",
+        "summary": "Execute atomic table operations",
+        "description": "Executes 1 to 50 ordered table operations in one READ COMMITTED PostgreSQL transaction. The required Idempotency-Key replays the exact original result. A failure rolls back every operation. Values may reference earlier named results with {$ref:{operation,path}} and an RFC 6901 path.",
+        "tags": [
+          "documented"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^[!-~]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operations"
+                ],
+                "properties": {
+                  "operations": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "$ref": "#/components/schemas/AtomicTableOperation"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The exact ordered batch result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "results"
+                  ],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 50,
+                      "items": {
+                        "$ref": "#/components/schemas/AtomicTableOperationResult"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid batch, idempotency key, filter, unique key, or result reference. Per-operation failures identify metadata.operationIndex."
+          },
+          "409": {
+            "description": "Idempotency-key reuse, row-version conflict, or unique-key conflict. Per-operation failures identify metadata.operationIndex."
+          },
+          "503": {
+            "description": "Bounded timeout, exhausted serialization/deadlock retry, or unknown commit outcome. Retry only as directed by metadata.retryable and metadata.recovery."
+          },
+          "default": {
+            "description": "Botruntime error envelope. Atomic operation failures include metadata.operationIndex and optional metadata.operationId."
+          }
+        }
+      }
     }
   },
   "components": {
@@ -13129,6 +13214,556 @@
           "owner"
         ],
         "additionalProperties": false
+      },
+      "TableSystemFilter": {
+        "type": "object",
+        "description": "Mongo-like filter. System fields use a closed registry: id and rowVersion are positive safe integers; createdAt and updatedAt are RFC 3339 timestamps. Their only operators are $eq, $ne, $gt, $gte, $lt, $lte, $in and $nin. Other keys are declared user columns.",
+        "properties": {
+          "id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "$eq": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$ne": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$gt": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$gte": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$lt": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$lte": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$in": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "$nin": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "rowVersion": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "$eq": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$ne": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$gt": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$gte": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$lt": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$lte": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "$in": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "$nin": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "createdAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "$eq": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$ne": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$gt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$gte": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$lt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$lte": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$in": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "$nin": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "updatedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "$eq": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$ne": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$gt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$gte": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$lt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$lte": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "$in": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "$nin": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "$and": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableSystemFilter"
+            }
+          },
+          "$or": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableSystemFilter"
+            }
+          },
+          "$not": {
+            "$ref": "#/components/schemas/TableSystemFilter"
+          }
+        },
+        "additionalProperties": true
+      },
+      "AtomicTableReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "$ref"
+        ],
+        "properties": {
+          "$ref": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operation",
+              "path"
+            ],
+            "properties": {
+              "operation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "path": {
+                "type": "string",
+                "description": "RFC 6901 pointer into the result of an earlier named operation."
+              }
+            }
+          }
+        }
+      },
+      "AtomicTableOperation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "table",
+              "row"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+                "description": "Optional name used by later RFC 6901 result references."
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "reserveKey"
+                ]
+              },
+              "row": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "table",
+              "rows"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+                "description": "Optional name used by later RFC 6901 result references."
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "createRows"
+                ]
+              },
+              "rows": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "table",
+              "rows"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+                "description": "Optional name used by later RFC 6901 result references."
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "updateRows"
+                ]
+              },
+              "rows": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "table",
+              "rows"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+                "description": "Optional name used by later RFC 6901 result references."
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "upsertRows"
+                ]
+              },
+              "rows": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "keyColumn": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "table",
+              "ids"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+                "description": "Optional name used by later RFC 6901 result references."
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "deleteRows"
+                ]
+              },
+              "ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "$ref": "#/components/schemas/AtomicTableReference"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "table",
+              "filter"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+                "description": "Optional name used by later RFC 6901 result references."
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "deleteRows"
+                ]
+              },
+              "filter": {
+                "$ref": "#/components/schemas/TableSystemFilter"
+              }
+            }
+          }
+        ]
+      },
+      "AtomicTableOperationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationIndex",
+          "op"
+        ],
+        "properties": {
+          "operationIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 49
+          },
+          "id": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "reserveKey",
+              "createRows",
+              "updateRows",
+              "upsertRows",
+              "deleteRows"
+            ]
+          },
+          "row": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "inserted": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "deletedRows": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "responses": {
@@ -31091,9 +31726,7 @@
                   "description": "Offset for pagination, specifying where to start returning rows from."
                 },
                 "filter": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "description": "Provide a mongodb-like filter to apply to the query. Example: \\{ \"name\": \\{ \"$eq\": \"John\" \\} \\}"
+                  "$ref": "#/components/schemas/TableSystemFilter"
                 },
                 "group": {
                   "type": "object",
@@ -31115,7 +31748,13 @@
                 "orderBy": {
                   "default": "id",
                   "type": "string",
-                  "description": "Specifies the column by which to order the results. By default it is ordered by id. Build-in columns: id, createdAt, updatedAt"
+                  "description": "User column or system field. System registry: id, rowVersion, createdAt, updatedAt. row_id remains a deprecated order-only alias for id. Non-id ordering appends id in the same direction as a deterministic tie-breaker.",
+                  "x-botruntime-system-values": [
+                    "id",
+                    "rowVersion",
+                    "createdAt",
+                    "updatedAt"
+                  ]
                 },
                 "orderDirection": {
                   "default": "asc",
@@ -31180,9 +31819,7 @@
                   "maxItems": 1000
                 },
                 "filter": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "description": "Filter to apply when deleting rows. Deletion with a filter is performed asynchronously in batches and returns a job object to track progress. Example: \\{ \"createdAt\": \\{ \"$lt\": \"2026-01-01\" \\} \\}"
+                  "$ref": "#/components/schemas/TableSystemFilter"
                 },
                 "deleteAllRows": {
                   "type": "boolean",

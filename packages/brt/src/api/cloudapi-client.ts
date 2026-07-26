@@ -116,9 +116,12 @@ export type BotDeploymentPhase =
   | 'activated'
   | 'failed'
 
+export type BotDeploymentTransitionMode = 'fence'
+
 export interface BotDeployment {
   id: string
   phase: BotDeploymentPhase
+  transitionMode: BotDeploymentTransitionMode
   expectedCurrentVersionId: number
   stagedVersionId: number
   finalVersionId: number
@@ -533,6 +536,7 @@ export class CloudapiClient {
     workspaceId: string
     idempotencyKey: string
     deploymentId: string
+    transitionMode: BotDeploymentTransitionMode
     expectedCurrentVersionId: number
     name: string
     code: string
@@ -546,6 +550,7 @@ export class CloudapiClient {
       workspaceId: input.workspaceId,
       body: {
         deploymentId: input.deploymentId,
+        transitionMode: input.transitionMode,
         expectedCurrentVersionId: input.expectedCurrentVersionId,
         name: input.name,
         code: input.code,

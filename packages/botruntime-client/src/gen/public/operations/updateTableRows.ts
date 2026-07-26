@@ -94,4 +94,3 @@ export interface UpdateTableRowsResponse {
    */
   errors?: string[];
 }
-

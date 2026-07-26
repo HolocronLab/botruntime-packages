@@ -131,4 +131,3 @@ export interface UpsertTableRowsResponse {
    */
   errors?: string[];
 }
-

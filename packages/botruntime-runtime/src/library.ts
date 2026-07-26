@@ -32,6 +32,11 @@ export {
   Reference,
 } from './primitives'
 export type { Asset, AssetsGlobal } from './primitives'
+export type {
+  TableRowMetadata,
+  TableRowUpdateMetadata,
+  TableSystemFields,
+} from './primitives/table'
 
 export { Chat } from './runtime/chat'
 
@@ -59,6 +64,17 @@ export { plugins } from './runtime/plugins'
 export { bot, user } from './runtime/state'
 export { configuration } from './runtime/configuration'
 export { secrets } from './runtime/secrets'
+export { tables } from './runtime/tables'
+export type {
+  AtomicCreateRowsOperation,
+  AtomicDeleteRowsOperation,
+  AtomicOperationResult,
+  AtomicReserveKeyOperation,
+  AtomicTableOperation,
+  AtomicTablesResult,
+  AtomicUpdateRowsOperation,
+  AtomicUpsertRowsOperation,
+} from './runtime/tables'
 
 export { defineConfig } from './define-config'
 export type { AgentConfig, EventDefinition } from './define-config'

@@ -111,6 +111,13 @@ export type TableFilter<TColumns, TName extends string = string> = {
 
 export type OrderDirection = 'asc' | 'desc'
 
+export type TableSystemFields = {
+  id: number
+  rowVersion: number
+  createdAt: Date
+  updatedAt: Date
+}
+
 // Aggregation operations available for different column types
 type NumberAggregations = 'key' | 'count' | 'sum' | 'avg' | 'max' | 'min' | 'unique'
 type StringAggregations = 'key' | 'count' | 'max' | 'min' | 'unique'
@@ -200,8 +207,8 @@ type GroupResultShape<TColumns, TGroup> =
     : never
 
 export interface FindRowsOptions<TName extends string> {
-  filter?: TableFilter<TableDefinitions[TName]['Input'], TName>
-  orderBy?: keyof TableDefinitions[TName]['Output']
+  filter?: TableFilter<TableDefinitions[TName]['Input'] & TableSystemFields, TName>
+  orderBy?: keyof TableDefinitions[TName]['Output'] | keyof TableSystemFields | 'row_id'
   orderDirection?: OrderDirection
   limit?: number
   offset?: number
@@ -221,6 +228,10 @@ type SearchResult<Shape> = TableRowMetadata & {
 } & Shape
 
 export class BaseTable<TName extends string = string> implements Definitions.Primitive {
+  /** @internal Type-only carrier used by cross-table operations. */
+  public declare readonly __tableInput?: TableDefinitions[TName]['Input']
+  /** @internal Type-only carrier used by cross-table operations. */
+  public declare readonly __tableOutput?: TableDefinitions[TName]['Output']
   public readonly name: TName
   public readonly description?: string
   public readonly factor: number

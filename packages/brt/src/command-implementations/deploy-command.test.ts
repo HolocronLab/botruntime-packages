@@ -73,15 +73,18 @@ function capturePutBundles(calls: CapturedPut[]) {
       recurringEvents?: Parameters<CloudapiClient['putBundle']>[5]
       maxExecutionTime?: number
     }
-    const args: Parameters<CloudapiClient['putBundle']> = [
+    const baseArgs = [
       input.botId,
       input.name,
       input.code,
       definition.commands ?? [],
       input.workspaceId,
       definition.recurringEvents ?? {},
-      ...(definition.maxExecutionTime === undefined ? [] : [definition.maxExecutionTime]),
-    ]
+    ] as const
+    const args: Parameters<CloudapiClient['putBundle']> =
+      definition.maxExecutionTime === undefined
+        ? [...baseArgs]
+        : [...baseArgs, definition.maxExecutionTime]
     calls.push({
       baseUrl: (client as CloudapiClient).base,
       apiKey: (client as unknown as { apiKey: string }).apiKey,
@@ -90,6 +93,7 @@ function capturePutBundles(calls: CapturedPut[]) {
     return {
       id: '00000000-0000-5000-8000-000000000000',
       phase: 'activated',
+      transitionMode: 'fence',
       expectedCurrentVersionId: 1,
       stagedVersionId: 2,
       finalVersionId: 2,
@@ -123,6 +127,7 @@ describe('DeployCommand ADK watch routing', () => {
     vi.spyOn(stagedDeployment, 'runStagedDeployment').mockResolvedValue({
       id: '00000000-0000-5000-8000-000000000000',
       phase: 'activated',
+      transitionMode: 'fence',
       expectedCurrentVersionId: 1,
       stagedVersionId: 2,
       finalVersionId: 2,
@@ -838,6 +843,7 @@ describe('DeployCommand ADK watch routing', () => {
       return {
         id: '00000000-0000-5000-8000-000000000000',
         phase: 'activated',
+        transitionMode: 'fence',
         expectedCurrentVersionId: 1,
         stagedVersionId: 2,
         finalVersionId: 2,

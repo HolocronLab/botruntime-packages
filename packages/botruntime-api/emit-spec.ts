@@ -41,6 +41,308 @@ const SERVER_URL = 'https://botruntime.ru'
 
 type JsonRecord = Record<string, unknown>
 
+const systemNumberCondition: JsonRecord = {
+  oneOf: [
+    { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+    {
+      type: 'object',
+      additionalProperties: false,
+      minProperties: 1,
+      properties: {
+        $eq: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        $ne: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        $gt: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        $gte: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        $lt: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        $lte: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        $in: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        },
+        $nin: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+        },
+      },
+    },
+  ],
+}
+
+const systemDateCondition: JsonRecord = {
+  oneOf: [
+    { type: 'string', format: 'date-time' },
+    {
+      type: 'object',
+      additionalProperties: false,
+      minProperties: 1,
+      properties: {
+        $eq: { type: 'string', format: 'date-time' },
+        $ne: { type: 'string', format: 'date-time' },
+        $gt: { type: 'string', format: 'date-time' },
+        $gte: { type: 'string', format: 'date-time' },
+        $lt: { type: 'string', format: 'date-time' },
+        $lte: { type: 'string', format: 'date-time' },
+        $in: { type: 'array', items: { type: 'string', format: 'date-time' } },
+        $nin: { type: 'array', items: { type: 'string', format: 'date-time' } },
+      },
+    },
+  ],
+}
+
+function addSystemFilterContract(doc: JsonRecord): void {
+  const components = doc.components as JsonRecord
+  const schemas = components.schemas as JsonRecord
+  schemas.TableSystemFilter = {
+    type: 'object',
+    description:
+      'Mongo-like filter. System fields use a closed registry: id and rowVersion are positive safe integers; createdAt and updatedAt are RFC 3339 timestamps. Their only operators are $eq, $ne, $gt, $gte, $lt, $lte, $in and $nin. Other keys are declared user columns.',
+    properties: {
+      id: systemNumberCondition,
+      rowVersion: systemNumberCondition,
+      createdAt: systemDateCondition,
+      updatedAt: systemDateCondition,
+      $and: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/TableSystemFilter' },
+      },
+      $or: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/TableSystemFilter' },
+      },
+      $not: { $ref: '#/components/schemas/TableSystemFilter' },
+    },
+    additionalProperties: true,
+  }
+
+  const requestBodies = components.requestBodies as JsonRecord
+  for (const name of ['findTableRowsBody', 'deleteTableRowsBody']) {
+    const requestBody = requestBodies[name] as JsonRecord | undefined
+    const content = requestBody?.content as JsonRecord | undefined
+    const media = content?.['application/json'] as JsonRecord | undefined
+    const schema = media?.schema as JsonRecord | undefined
+    const properties = schema?.properties as JsonRecord | undefined
+    if (!properties?.filter) {
+      throw new Error(`local Tables contract drift: ${name}.filter is missing`)
+    }
+    properties.filter = { $ref: '#/components/schemas/TableSystemFilter' }
+  }
+
+  const findBody = requestBodies.findTableRowsBody as JsonRecord
+  const findContent = findBody.content as JsonRecord
+  const findMedia = findContent['application/json'] as JsonRecord
+  const findSchema = findMedia.schema as JsonRecord
+  const findProperties = findSchema.properties as JsonRecord
+  const orderBy = findProperties.orderBy as JsonRecord
+  orderBy.description =
+    'User column or system field. System registry: id, rowVersion, createdAt, updatedAt. row_id remains a deprecated order-only alias for id. Non-id ordering appends id in the same direction as a deterministic tie-breaker.'
+  orderBy['x-botruntime-system-values'] = [
+    'id',
+    'rowVersion',
+    'createdAt',
+    'updatedAt',
+  ]
+}
+
+function addAtomicTablesContract(doc: JsonRecord): void {
+  const components = doc.components as JsonRecord
+  const schemas = components.schemas as JsonRecord
+  schemas.AtomicTableReference = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['$ref'],
+    properties: {
+      $ref: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['operation', 'path'],
+        properties: {
+          operation: { type: 'string', minLength: 1, maxLength: 64 },
+          path: {
+            type: 'string',
+            description: 'RFC 6901 pointer into the result of an earlier named operation.',
+          },
+        },
+      },
+    },
+  }
+  const baseProperties = {
+    id: {
+      type: 'string',
+      pattern: '^[A-Za-z][A-Za-z0-9_-]{0,63}$',
+      description: 'Optional name used by later RFC 6901 result references.',
+    },
+    table: { type: 'string', minLength: 1 },
+  }
+  const operation = (
+    op: string,
+    requiredField: string,
+    fieldSchema: JsonRecord,
+    optional: JsonRecord = {},
+  ): JsonRecord => ({
+    type: 'object',
+    additionalProperties: false,
+    required: ['op', 'table', requiredField],
+    properties: {
+      ...baseProperties,
+      op: { type: 'string', enum: [op] },
+      [requiredField]: fieldSchema,
+      ...optional,
+    },
+  })
+  schemas.AtomicTableOperation = {
+    oneOf: [
+      operation('reserveKey', 'row', {
+        type: 'object',
+        additionalProperties: true,
+      }),
+      operation('createRows', 'rows', {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'object', additionalProperties: true },
+      }),
+      operation('updateRows', 'rows', {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'object', additionalProperties: true },
+      }),
+      operation(
+        'upsertRows',
+        'rows',
+        {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'object', additionalProperties: true },
+        },
+        { keyColumn: { type: 'string' } },
+      ),
+      operation('deleteRows', 'ids', {
+        type: 'array',
+        minItems: 1,
+        items: {
+          oneOf: [
+            { type: 'integer', minimum: 1, maximum: 9_007_199_254_740_991 },
+            { $ref: '#/components/schemas/AtomicTableReference' },
+          ],
+        },
+      }),
+      operation('deleteRows', 'filter', {
+        $ref: '#/components/schemas/TableSystemFilter',
+      }),
+    ],
+  }
+  schemas.AtomicTableOperationResult = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['operationIndex', 'op'],
+    properties: {
+      operationIndex: { type: 'integer', minimum: 0, maximum: 49 },
+      id: { type: 'string' },
+      op: {
+        type: 'string',
+        enum: ['reserveKey', 'createRows', 'updateRows', 'upsertRows', 'deleteRows'],
+      },
+      row: { type: 'object', additionalProperties: true },
+      rows: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      created: { type: 'boolean' },
+      inserted: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      updated: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      deletedRows: { type: 'integer', minimum: 0 },
+    },
+  }
+
+  const paths = doc.paths as JsonRecord
+  const findPath = paths['/v1/tables/{table}/rows/find'] as JsonRecord
+  const findPost = findPath.post as JsonRecord
+  const authParameters = (findPost.parameters as unknown[]).slice(1)
+  paths['/v1/tables/atomic'] = {
+    post: {
+      operationId: 'atomicTables',
+      summary: 'Execute atomic table operations',
+      description:
+        'Executes 1 to 50 ordered table operations in one READ COMMITTED PostgreSQL transaction. The required Idempotency-Key replays the exact original result. A failure rolls back every operation. Values may reference earlier named results with {$ref:{operation,path}} and an RFC 6901 path.',
+      tags: ['documented'],
+      parameters: [
+        {
+          name: 'Idempotency-Key',
+          in: 'header',
+          required: true,
+          schema: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 255,
+            pattern: '^[!-~]+$',
+          },
+        },
+        ...authParameters,
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['operations'],
+              properties: {
+                operations: {
+                  type: 'array',
+                  minItems: 1,
+                  maxItems: 50,
+                  items: { $ref: '#/components/schemas/AtomicTableOperation' },
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'The exact ordered batch result.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['results'],
+                properties: {
+                  results: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 50,
+                    items: { $ref: '#/components/schemas/AtomicTableOperationResult' },
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description:
+            'Invalid batch, idempotency key, filter, unique key, or result reference. Per-operation failures identify metadata.operationIndex.',
+        },
+        409: {
+          description:
+            'Idempotency-key reuse, row-version conflict, or unique-key conflict. Per-operation failures identify metadata.operationIndex.',
+        },
+        503: {
+          description:
+            'Bounded timeout, exhausted serialization/deadlock retry, or unknown commit outcome. Retry only as directed by metadata.retryable and metadata.recovery.',
+        },
+        default: {
+          description:
+            'Botruntime error envelope. Atomic operation failures include metadata.operationIndex and optional metadata.operationId.',
+        },
+      },
+    },
+  }
+}
+
+function applyLocalContracts(name: string, doc: JsonRecord): void {
+  if (name !== 'public' && name !== 'tables') return
+  addSystemFilterContract(doc)
+  addAtomicTablesContract(doc)
+}
+
 function rewriteServers(doc: JsonRecord): void {
   const servers = doc.servers as Array<{ url?: string }> | undefined
   if (!Array.isArray(servers)) return
@@ -58,6 +360,7 @@ function exportSection(name: string, instance: OpenApiExporter): JsonRecord {
     const raw = fs.readFileSync(path.join(tmpDir, 'openapi.json'), 'utf8')
     const doc = JSON.parse(raw) as JsonRecord
     rewriteServers(doc)
+    applyLocalContracts(name, doc)
     fs.writeFileSync(path.join(OUT_DIR, `${name}.json`), `${JSON.stringify(doc, null, 2)}\n`)
     return doc
   } finally {

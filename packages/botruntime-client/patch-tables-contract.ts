@@ -3,6 +3,9 @@ import { resolve } from 'node:path'
 
 const root = resolve(__dirname, 'src/gen')
 
+const withSingleTrailingNewline = (source: string): string =>
+  `${source.trimEnd()}\n`
+
 const patch = async (
   relativePath: string,
   before: string,
@@ -17,7 +20,7 @@ const patch = async (
       `tables contract patch drift in ${relativePath}: expected one marker, found ${occurrences}`
     )
   }
-  await writeFile(path, source.replace(before, after))
+  await writeFile(path, withSingleTrailingNewline(source.replace(before, after)))
 }
 
 const patchFirst = async (
@@ -31,11 +34,46 @@ const patchFirst = async (
   if (!source.includes(before)) {
     throw new Error(`tables contract patch drift in ${relativePath}: marker missing`)
   }
-  await writeFile(path, source.replace(before, after))
+  await writeFile(path, withSingleTrailingNewline(source.replace(before, after)))
 }
 
 const main = async (): Promise<void> => {
   for (const section of ['public', 'tables']) {
+    for (const operation of ['findTableRows', 'deleteTableRows']) {
+      const path = `${section}/operations/${operation}.ts`
+      await patchFirst(
+        path,
+        '/* eslint-disable */\n',
+        `/* eslint-disable */
+
+import type { TableSystemFilter } from '../../../tables/system-fields'
+`
+      )
+      await patch(
+        path,
+        `  filter?: {
+    [k: string]: any;
+  };
+`,
+        '  filter?: TableSystemFilter;\n'
+      )
+    }
+
+    await patchFirst(
+      `${section}/operations/findTableRows.ts`,
+      'import type { TableSystemFilter } from \'../../../tables/system-fields\'\n',
+      `import type {
+  TableSystemFilter,
+  TableSystemOrderBy,
+} from '../../../tables/system-fields'
+`
+    )
+    await patch(
+      `${section}/operations/findTableRows.ts`,
+      '  orderBy?: string;\n',
+      '  orderBy?: TableSystemOrderBy;\n'
+    )
+
     await patch(
       `${section}/models.ts`,
       '  keyColumn?: string | null;\n',
@@ -90,7 +128,7 @@ const main = async (): Promise<void> => {
         throw new Error(`tables row metadata patch drift in ${section}/${operation}`)
       }
       if (next !== source) {
-        await writeFile(path, next)
+        await writeFile(path, withSingleTrailingNewline(next))
       }
     }
   }

@@ -44,6 +44,10 @@ export interface StagedTableTarget {
   isComputeEnabled?: boolean
 }
 
+export type StagedTableDeclaration = Omit<StagedTableTarget, 'schema'> & {
+  schema: unknown
+}
+
 export interface TableSyncPlan {
   items: TableSyncItem[]
 }
@@ -60,7 +64,7 @@ export interface TableSyncManager {
 }
 
 export interface StagedTablePlan {
-  tables: StagedTableTarget[]
+  tables: StagedTableDeclaration[]
   changed: boolean
 }
 
@@ -131,7 +135,7 @@ function isDestructive(c: TableSyncColumnChange): boolean {
   return c.type === 'remove' || c.type === 'modify'
 }
 
-function stagedTarget(table: StagedTableTarget): StagedTableTarget {
+function stagedTarget(table: StagedTableTarget): StagedTableDeclaration {
   if (!table.schema) {
     throw new errors.BotpressCLIError(`table "${table.name}" has no schema in the staged deployment plan`)
   }
@@ -186,7 +190,7 @@ export async function prepareStagedTablePlan(
     )
   }
 
-  const tables: StagedTableTarget[] = []
+  const tables: StagedTableDeclaration[] = []
   for (const item of plan.items) {
     switch (item.operation) {
       case 'create':

@@ -1,6 +1,11 @@
 // this file was automatically generated, do not edit
 /* eslint-disable */
 
+import type {
+  TableSystemFilter,
+  TableSystemOrderBy,
+} from '../../../tables/system-fields'
+
 export interface FindTableRowsRequestHeaders {}
 
 export interface FindTableRowsRequestQuery {}
@@ -21,9 +26,7 @@ export interface FindTableRowsRequestBody {
   /**
    * Provide a mongodb-like filter to apply to the query. Example: \{ "name": \{ "$eq": "John" \} \}
    */
-  filter?: {
-    [k: string]: any;
-  };
+  filter?: TableSystemFilter;
   /**
    * Group the rows by a specific column and apply aggregations to them. Allowed values: key, avg, max, min, sum, count. Example: \{ "someId": "key", "orders": ["sum", "avg"] \}
    */
@@ -41,7 +44,7 @@ export interface FindTableRowsRequestBody {
   /**
    * Specifies the column by which to order the results. By default it is ordered by id. Build-in columns: id, createdAt, updatedAt
    */
-  orderBy?: string;
+  orderBy?: TableSystemOrderBy;
   /**
    * Specifies the direction of sorting, either ascending or descending.
    */
@@ -114,4 +117,3 @@ export interface FindTableRowsResponse {
    */
   warnings?: string[];
 }
-

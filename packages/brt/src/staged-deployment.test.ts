@@ -31,6 +31,7 @@ function deployment(phase: string, extra: Record<string, unknown> = {}) {
   return {
     id: deploymentIdentity(input).deploymentId,
     phase,
+    transitionMode: 'fence',
     expectedCurrentVersionId: 10,
     stagedVersionId: 11,
     finalVersionId: 11,
@@ -126,6 +127,7 @@ describe('staged deployment orchestration', () => {
     expect(client.stageBotDeployment).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedCurrentVersionId: 10,
+        transitionMode: 'fence',
         tables: input.tables,
         idempotencyKey: expect.stringMatching(/^brt-staged-/),
       })
@@ -201,6 +203,80 @@ describe('staged deployment orchestration', () => {
     expect(client.setBotDeploymentFence).not.toHaveBeenCalled()
     expect(client.syncBotDeploymentSchema).toHaveBeenCalledTimes(2)
     expect(client.activateBotDeployment).toHaveBeenCalledTimes(1)
+  })
+
+  for (const crashPhase of ['staged', 'fenced', 'schema_synced', 'activated'] as const) {
+    it(`resumes safely after process death immediately after durable ${crashPhase}`, async () => {
+      let durable: ReturnType<typeof deployment> | undefined
+      let crashed = false
+      const mutationCounts = {
+        staged: 0,
+        fenced: 0,
+        schema_synced: 0,
+        activated: 0,
+      }
+      const persist = (phase: keyof typeof mutationCounts, extra: Record<string, unknown> = {}) => {
+        durable = deployment(phase, extra)
+        mutationCounts[phase]++
+        if (phase === crashPhase && !crashed) {
+          crashed = true
+          throw new Error('simulated process kill after durable response was lost')
+        }
+        return { deployment: durable }
+      }
+      const client = fakeClient({
+        getBotDeployment: vi.fn().mockImplementation(async () => {
+          if (!durable) throw new errors.HTTPError(404, 'not found')
+          return { deployment: durable }
+        }),
+        stageBotDeployment: vi.fn().mockImplementation(async () => persist('staged')),
+        setBotDeploymentFence: vi
+          .fn()
+          .mockImplementation(async () => persist('fenced', { fenceGeneration: 5 })),
+        getBotDeploymentDrain: vi.fn().mockResolvedValue({
+          drain: {
+            beforeVersionId: 10,
+            fenceGeneration: 5,
+            counts: {},
+            unitIds: [],
+            drained: true,
+          },
+        }),
+        syncBotDeploymentSchema: vi
+          .fn()
+          .mockImplementation(async () => persist('schema_synced', { fenceGeneration: 5 })),
+        activateBotDeployment: vi
+          .fn()
+          .mockImplementation(async () => persist('activated', { fenceGeneration: 6 })),
+      })
+
+      await expect(runStagedDeployment(client, input)).rejects.toThrow(
+        'simulated process kill'
+      )
+      await expect(runStagedDeployment(client, input)).resolves.toMatchObject({
+        phase: 'activated',
+        transitionMode: 'fence',
+      })
+
+      expect(mutationCounts[crashPhase]).toBe(1)
+      expect(durable).toMatchObject({ phase: 'activated' })
+    })
+  }
+
+  it('fails closed when a durable deployment advertises an unsupported transition mode', async () => {
+    const client = fakeClient({
+      getBotDeployment: vi.fn().mockResolvedValue({
+        deployment: {
+          ...deployment('staged'),
+          transitionMode: 'bridge',
+        },
+      }),
+    })
+
+    await expect(runStagedDeployment(client, input)).rejects.toThrow(
+      'unsupported transition mode bridge'
+    )
+    expect(client.setBotDeploymentFence).not.toHaveBeenCalled()
   })
 
   it('leaves the durable fence in place when old executions miss the observation deadline', async () => {

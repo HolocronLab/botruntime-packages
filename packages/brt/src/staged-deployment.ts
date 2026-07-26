@@ -9,6 +9,8 @@ import type {
   StagedTableDeclaration,
 } from './api/cloudapi-client'
 
+const TRANSITION_MODE = 'fence' as const
+
 export interface StagedDeploymentInput {
   botId: string
   workspaceId: string
@@ -86,7 +88,8 @@ export function stateCodecDigest(manifest: Record<string, unknown>): string {
   return createHash('sha256')
     .update(
       canonical({
-        protocol: 1,
+        protocol: 2,
+        transitionMode: TRANSITION_MODE,
         schemaVersion: manifest.schemaVersion,
         agent: manifest.agent,
         primitives,
@@ -199,8 +202,22 @@ export async function runStagedDeployment(
     if (!isNotFound(error)) throw error
   }
   if (deployment?.phase === 'activated') {
+    if (deployment.transitionMode !== TRANSITION_MODE) {
+      throw new errors.BotpressCLIError(
+        `deployment ${deployment.id} uses unsupported transition mode ${String(
+          deployment.transitionMode
+        )}`
+      )
+    }
     log(`deployment ${deployment.id}: already activated`)
     return deployment
+  }
+  if (deployment && deployment.transitionMode !== TRANSITION_MODE) {
+    throw new errors.BotpressCLIError(
+      `deployment ${deployment.id} uses unsupported transition mode ${String(
+        deployment.transitionMode
+      )}`
+    )
   }
 
   let environment: DeploymentEnvironment | undefined
@@ -209,6 +226,7 @@ export async function runStagedDeployment(
     ;({ deployment } = await client.stageBotDeployment({
       ...scoped,
       idempotencyKey: identity.idempotencyKey,
+      transitionMode: TRANSITION_MODE,
       expectedCurrentVersionId: environment?.currentVersionId ?? 0,
       name: input.name,
       code: input.code,

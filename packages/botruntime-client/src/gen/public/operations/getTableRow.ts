@@ -69,4 +69,3 @@ export interface GetTableRowResponse {
     [k: string]: any;
   };
 }
-

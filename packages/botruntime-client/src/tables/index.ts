@@ -1,8 +1,16 @@
 import * as common from '../common'
 import * as gen from '../gen/tables'
+import * as atomic from './atomic'
 import * as reserveKey from './reserve-key'
 import * as types from '../types'
 
+export * from './atomic'
+export type {
+  TableSystemDateCondition,
+  TableSystemFilter,
+  TableSystemNumberCondition,
+  TableSystemOrderBy,
+} from './system-fields'
 export type {
   ReserveTableKeyInput,
   ReserveTableKeyOutput,
@@ -11,6 +19,9 @@ export type {
 
 type IClient = common.types.Simplify<
   gen.Client & {
+    atomicTables: (
+      input: atomic.AtomicTablesInput
+    ) => Promise<atomic.AtomicTablesOutput>
     reserveTableKey: (
       input: reserveKey.ReserveTableKeyInput
     ) => Promise<reserveKey.ReserveTableKeyOutput>
@@ -47,5 +58,13 @@ export class Client extends gen.Client {
     input: reserveKey.ReserveTableKeyInput<TRow>
   ): Promise<reserveKey.ReserveTableKeyOutput<TRow>> => {
     return await reserveKey.reserveTableKey(this._customAxiosInstance, input)
+  }
+
+  public readonly atomicTables = async <
+    const TOperations extends readonly atomic.AtomicTableOperation[],
+  >(
+    input: atomic.AtomicTablesInput<TOperations>
+  ): Promise<atomic.AtomicTablesOutput<TOperations>> => {
+    return await atomic.atomicTables(this._customAxiosInstance, input)
   }
 }

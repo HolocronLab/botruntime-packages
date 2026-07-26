@@ -268,6 +268,7 @@ describe('CloudapiClient', () => {
         deployment: {
           id: '00000000-0000-5000-8000-000000000001',
           phase: 'staged',
+          transitionMode: 'fence',
           expectedCurrentVersionId: 7,
           stagedVersionId: 8,
           finalVersionId: 8,
@@ -283,6 +284,7 @@ describe('CloudapiClient', () => {
       workspaceId: 'ws_123',
       idempotencyKey: 'brt-staged-proof',
       deploymentId: '00000000-0000-5000-8000-000000000001',
+      transitionMode: 'fence',
       expectedCurrentVersionId: 7,
       name: 'lawyer',
       code: 'module.exports = {}',
@@ -308,6 +310,7 @@ describe('CloudapiClient', () => {
     })
     expect(JSON.parse(String(call!.init.body))).toMatchObject({
       deploymentId: '00000000-0000-5000-8000-000000000001',
+      transitionMode: 'fence',
       expectedCurrentVersionId: 7,
       tables: [{ name: 'Claims', keyColumnUnique: true }],
     })

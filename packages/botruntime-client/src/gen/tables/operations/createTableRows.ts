@@ -87,4 +87,3 @@ export interface CreateTableRowsResponse {
    */
   errors?: string[];
 }
-
