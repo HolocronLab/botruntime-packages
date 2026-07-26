@@ -197,6 +197,36 @@ describe('brt workflows public contract', () => {
     expect(Date.parse(body.timeoutAt)).toBeLessThanOrEqual(Date.now() + 60_000)
   })
 
+  it('does not reuse the observation timeout as the create request deadline', async () => {
+    vi.useFakeTimers()
+    stubFetch(async (_url, _index, init) => {
+      const body = JSON.parse(String(init.body))
+      await new Promise((resolve) => setTimeout(resolve, 1_500))
+      return json({
+        workflow: workflow({ status: 'pending', completedAt: undefined, tags: body.tags }),
+        meta: { created: true },
+      })
+    })
+
+    const pending = runCommand({
+      json: true,
+      wait: false,
+      timeout: 1_000,
+      idempotencyKey: 'create-deadline-key',
+    }).handler()
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    await vi.advanceTimersByTimeAsync(1_500)
+    const response = await pending
+
+    expect(response.exitCode, stderr).toBe(0)
+    expect(JSON.parse(stdout)).toMatchObject({
+      observation: {
+        status: 'not_requested',
+        durableWorkflowContinues: true,
+      },
+    })
+  })
+
   it('fails closed when an idempotency key resolves to a different request fingerprint', async () => {
     stubFetch(async () =>
       json({
@@ -417,7 +447,7 @@ describe('brt workflows public contract', () => {
     const response = await pending
 
     expect(response.exitCode).toBe(2)
-    expect(calls).toHaveLength(1)
+    expect(calls.length).toBeGreaterThanOrEqual(1)
     expect(JSON.parse(stdout)).toMatchObject({
       observation: {
         status: 'deadline_reached',

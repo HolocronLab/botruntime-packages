@@ -21,7 +21,8 @@ const MAX_PAGE_SIZE = 100
 const MAX_OBSERVATION_MS = 86_400_000
 const MAX_WORKFLOW_TIMEOUT_MS = 2_592_000_000
 const CREATE_DEADLINE_MS = 120_000
-const POLL_INTERVAL_MS = 3_000
+const MIN_POLL_INTERVAL_MS = 1_000
+const MAX_POLL_INTERVAL_MS = 15_000
 const MAX_PROJECTED_STEPS = 1_000
 const MAX_STEP_DEPTH = 8
 
@@ -231,7 +232,7 @@ export class WorkflowsRunCommand extends WorkflowsCloudCommand<WorkflowsRunComma
             discriminateByTags: ['brt.idempotencyKey'],
           },
           target.runtimeHeader,
-          now + Math.min(timeout, CREATE_DEADLINE_MS)
+          now + CREATE_DEADLINE_MS
         )
       )
     } catch (thrown) {
@@ -401,8 +402,15 @@ async function observeWorkflow(
 ): Promise<{ workflow: WorkflowRecord; deadlineReached: boolean }> {
   const deadline = Date.now() + timeoutMs
   let current = initial
+  let attempt = 0
   while (Date.now() < deadline) {
-    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
+    const remaining = Math.max(0, deadline - Date.now())
+    const exponentialCap = Math.min(
+      MAX_POLL_INTERVAL_MS,
+      MIN_POLL_INTERVAL_MS * (2 ** Math.min(attempt, 4))
+    )
+    const jitteredDelay = Math.floor(exponentialCap / 2 + Math.random() * exponentialCap / 2)
+    await sleep(Math.min(jitteredDelay, remaining))
     if (Date.now() >= deadline) break
     try {
       current = parseWorkflowResponse(
@@ -415,6 +423,7 @@ async function observeWorkflow(
       if (!(thrown instanceof errors.TransientRequestError)) throw thrown
       debug(`Workflow polling remains transiently unavailable: ${thrown.message}`)
     }
+    attempt++
   }
   return { workflow: current, deadlineReached: true }
 }

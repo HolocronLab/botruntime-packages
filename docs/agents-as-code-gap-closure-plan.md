@@ -321,6 +321,8 @@ control-plane discovery, а не новой execution policy.
 
 - [x] typed create/get/list client methods;
 - [x] run/show/wait/list commands with bounded polling;
+- [x] observation timeout does not shorten create deadline; polling uses capped
+  exponential jitter instead of a synchronized fixed interval;
 - [x] typed status and timestamp validation;
 - [x] safe default output and stable `--json` schema;
 - [x] dev opaque target and prod bot target tests;
@@ -427,3 +429,7 @@ control-plane discovery, а не новой execution policy.
   privacy-safe step projection и durable start idempotency record с
   fingerprint/409/retention. Текущие CLI bounds/requestHash остаются
   migration guardrails, а не полной платформенной приёмкой.
+- Pre-push review устранил два локальных риска переходного CLI: create request
+  получил самостоятельный bounded deadline, а wait polling — jittered
+  exponential interval. Polling полного workflow record остаётся временным
+  fallback до metadata-only status/history backend contract.
