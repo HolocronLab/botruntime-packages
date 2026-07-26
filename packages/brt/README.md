@@ -30,8 +30,8 @@ The full upstream command set is preserved:
 
 ```
 login  logout  bots  integrations  interfaces  plugins  init  generate(gen)
-bundle  build  read  serve  deploy  add(i/install)  remove(rm)  dev  lint  chat
-profiles  link  logs  traces  conversations  eval  config  secret
+bundle  build  read  serve  deploy  add(i/install)  remove(rm)  dev  run  lint  chat
+profiles  link  logs  traces  conversations  workflows  eval  config  secret
 ```
 
 `brt build` runs the **native** pipeline — `generate` (typings codegen into
@@ -50,6 +50,77 @@ brt deploy                # build + publish to our cloud (PUT /v1/admin/bots/{id
 For an integration project (with `integration.definition.ts`), `brt build`
 produces a runnable `.botpress/dist/index.cjs` exporting `{ default, handler }`,
 and `brt deploy` publishes the integration.
+
+## One-shot agent scripts
+
+`brt run` executes a TypeScript file locally with the selected agent runtime
+context. Unlike `brt dev`, it starts no worker, watcher, reverse tunnel or
+callback receiver and exits with the script process code.
+
+```bash
+# Uses the attested development target previously prepared by brt dev
+brt run scripts/reconcile.ts claimant-42
+
+# Regenerate target-specific script artifacts before running
+brt run scripts/reconcile.ts --force
+
+# Uses the canonical agent.json production target
+brt run scripts/audit.ts --prod
+```
+
+Development scripts receive config variables with the same precedence as the
+`brt dev` worker: cloud values first, then the caller's local environment, then
+immutable runtime identity variables. Public agent configuration is fetched
+strictly; auth or network failure stops before user code runs. Stored
+production secrets are never downloaded to a developer machine, so a
+production script receives only explicitly supplied local environment values.
+`--local` selects a development stack and is rejected with `--prod`.
+
+## Durable workflows
+
+`brt workflows` starts and observes the persisted workflow engine; it does not
+run a second workflow implementation inside the CLI.
+
+```bash
+# Idempotent creation. Input must be a bounded JSON object in a file.
+brt workflows run collectDocuments --input-file ./input.json
+
+# Return after durable creation instead of waiting in this terminal.
+brt workflows run collectDocuments --input-file ./input.json --no-wait
+
+# Reconcile an unknown create outcome by reusing the exact key.
+brt workflows run collectDocuments --input-file ./input.json \
+  --idempotency-key 9d36a8e9-63f3-48e6-a355-e796175d31a2
+
+# Cursor-paginated metadata history and one-run inspection.
+brt workflows list --status listening --status paused --limit 20
+brt workflows list --next-token 123 --json
+brt workflows show wkflow_0123456789abcdef01234567 --steps
+brt workflows wait wkflow_0123456789abcdef01234567 --timeout 300000
+
+# The same operations against the attested target kept by brt dev.
+brt workflows list --dev
+brt workflows show wkflow_0123456789abcdef01234567 --dev --local
+```
+
+Creation uses a per-run idempotency key and request fingerprint. If the network
+outcome is unknown, rerun the original command on the same target with the same
+input and printed key; a new key means an intentionally new workflow run.
+
+`--timeout` bounds only how long this CLI invocation observes the workflow.
+Reaching it exits with code 2 and never cancels the durable process.
+`--workflow-timeout` is the separate, optional execution deadline persisted by
+the workflow engine. A terminal failed, timed-out, or cancelled workflow exits
+with code 1; completed and successfully created `--no-wait` runs exit with
+code 0.
+
+List/show/wait omit arbitrary input, output, tags, raw failure reasons, step
+outputs and error text by default. `--include-data` explicitly includes only
+workflow input/output/tags. `--steps` returns bounded metadata and safe error
+diagnostics. A large swapped step state is not downloaded through the CLI; it
+is reported as requiring the server-side bounded projection endpoint. Workflow
+responses are capped at 2 MiB and list pages at 100 runs, so one tenant cannot
+make a developer process consume unbounded memory.
 
 ## Upgrade an installed integration
 

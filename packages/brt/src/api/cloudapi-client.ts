@@ -206,6 +206,29 @@ export interface EvalRunListParams {
   nextToken?: string
 }
 
+export const WORKFLOW_STATUSES = [
+  'pending',
+  'in_progress',
+  'listening',
+  'paused',
+  'completed',
+  'failed',
+  'timedout',
+  'cancelled',
+] as const
+
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number]
+
+export interface WorkflowListParams {
+  pageSize: number
+  name?: string
+  conversationId?: string
+  userId?: string
+  parentWorkflowId?: string
+  statuses?: WorkflowStatus[]
+  nextToken?: string
+}
+
 interface RequestOpts {
   method: string
   path: string
@@ -216,7 +239,8 @@ interface RequestOpts {
   timeoutMs?: number
   deadlineAtMs?: number
   idempotent?: boolean // retry on 5xx/network
-  privacySensitive?: 'trace' | 'conversation' | 'eval' // never reflect response bodies or transport errors into CLI errors
+  privacySensitive?: 'trace' | 'conversation' | 'eval' | 'workflow' // never reflect response bodies or transport errors into CLI errors
+  maxResponseBytes?: number
   errorBodyPolicy?: 'integration-repoint' // only render Botforge's public message from the error envelope
 }
 
@@ -277,7 +301,7 @@ export class CloudapiClient {
           signal: ctrl.signal,
         })
         clearTimeout(timer)
-        const text = await res.text()
+        const text = await readResponseText(res, opts)
         if (!res.ok) {
           // 4xx is never retried; 5xx is retried only for idempotent calls.
           if (res.status >= 500 && opts.idempotent && attempt < attempts) {
@@ -807,6 +831,81 @@ export class CloudapiClient {
     })
   }
 
+  public async getOrCreateWorkflow(
+    body: {
+      name: string
+      status: 'pending'
+      input: Record<string, unknown>
+      timeoutAt?: string
+      conversationId?: string
+      userId?: string
+      parentWorkflowId?: string
+      tags: Record<string, string>
+      discriminateByTags: string[]
+    },
+    runtimeBotId?: string,
+    deadlineAtMs?: number,
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'POST',
+      path: '/v1/chat/workflows/get-or-create',
+      body,
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'workflow',
+      maxResponseBytes: MAX_WORKFLOW_RESPONSE_BYTES,
+      deadlineAtMs,
+    })
+  }
+
+  public async getWorkflow(
+    workflowId: string,
+    runtimeBotId?: string,
+    deadlineAtMs?: number,
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/chat/workflows/${encodeURIComponent(workflowId)}`,
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'workflow',
+      maxResponseBytes: MAX_WORKFLOW_RESPONSE_BYTES,
+      deadlineAtMs,
+    })
+  }
+
+  public async listWorkflows(
+    params: WorkflowListParams,
+    runtimeBotId?: string,
+    deadlineAtMs?: number,
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: workflowListPath('/v1/chat/workflows', params),
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'workflow',
+      maxResponseBytes: MAX_WORKFLOW_RESPONSE_BYTES,
+      deadlineAtMs,
+    })
+  }
+
+  public async getWorkflowSteps(
+    workflowId: string,
+    runtimeBotId?: string,
+    deadlineAtMs?: number,
+  ): Promise<unknown> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/chat/states/workflow/${encodeURIComponent(workflowId)}/workflowSteps`,
+      botId: runtimeBotId,
+      idempotent: true,
+      privacySensitive: 'workflow',
+      maxResponseBytes: MAX_WORKFLOW_RESPONSE_BYTES,
+      deadlineAtMs,
+    })
+  }
+
   public async listEvalRuns(
     selector: string,
     params: EvalRunListParams,
@@ -879,6 +978,51 @@ async function backoff(attempt: number, deadlineAtMs?: number): Promise<void> {
   const delay = 250 * 2 ** (attempt - 1)
   const remaining = deadlineAtMs === undefined ? delay : Math.max(0, deadlineAtMs - Date.now())
   await new Promise((resolve) => setTimeout(resolve, Math.min(delay, remaining)))
+}
+
+const MAX_WORKFLOW_RESPONSE_BYTES = 2 * 1024 * 1024
+
+async function readResponseText(response: Response, opts: RequestOpts): Promise<string> {
+  const limit = opts.maxResponseBytes
+  if (limit === undefined) return response.text()
+
+  const declaredLength = response.headers.get('content-length')
+  if (
+    declaredLength !== null
+    && /^[0-9]+$/.test(declaredLength)
+    && Number(declaredLength) > limit
+  ) {
+    await response.body?.cancel()
+    throw new errors.BotpressCLIError(
+      `${requestLabel(opts)}: ${opts.privacySensitive ?? 'API'} response exceeds the ${limit}-byte CLI safety limit`
+    )
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    size += value.byteLength
+    if (size > limit) {
+      await reader.cancel()
+      throw new errors.BotpressCLIError(
+        `${requestLabel(opts)}: ${opts.privacySensitive ?? 'API'} response exceeds the ${limit}-byte CLI safety limit`
+      )
+    }
+    chunks.push(value)
+  }
+
+  const body = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(body)
 }
 
 function httpMessage(opts: RequestOpts, status: number, text: string): string {
@@ -970,6 +1114,17 @@ function conversationPath(
 function evalRunsPath(basePath: string, params: EvalRunListParams): string {
   const query = new URLSearchParams({ limit: String(params.limit) })
   if (params.status !== undefined) query.set('status', params.status)
+  if (params.nextToken !== undefined) query.set('nextToken', params.nextToken)
+  return `${basePath}?${query.toString()}`
+}
+
+function workflowListPath(basePath: string, params: WorkflowListParams): string {
+  const query = new URLSearchParams({ pageSize: String(params.pageSize) })
+  if (params.name !== undefined) query.set('name', params.name)
+  if (params.conversationId !== undefined) query.set('conversationId', params.conversationId)
+  if (params.userId !== undefined) query.set('userId', params.userId)
+  if (params.parentWorkflowId !== undefined) query.set('parentWorkflowId', params.parentWorkflowId)
+  for (const status of params.statuses ?? []) query.append('statuses', status)
   if (params.nextToken !== undefined) query.set('nextToken', params.nextToken)
   return `${basePath}?${query.toString()}`
 }

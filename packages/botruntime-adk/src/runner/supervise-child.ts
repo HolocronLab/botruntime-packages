@@ -45,12 +45,14 @@ export function superviseChild(child: ChildProcess, options: SuperviseChildOptio
     let forwardedSignal: NodeJS.Signals | undefined
     const signalNames = ['SIGINT', 'SIGTERM'] as const
     const previousListeners = new Map<NodeJS.Signals, Function[]>()
+    const forwardingListeners = new Map<NodeJS.Signals, SignalListener>()
 
     const teardown = () => {
       if (tornDown) return
       tornDown = true
       for (const signal of signalNames) {
-        signals.removeListener(signal, onSignal)
+        const listener = forwardingListeners.get(signal)
+        if (listener) signals.removeListener(signal, listener)
         for (const listener of previousListeners.get(signal) ?? []) {
           signals.on(signal, listener as SignalListener)
         }
@@ -77,7 +79,9 @@ export function superviseChild(child: ChildProcess, options: SuperviseChildOptio
       for (const listener of listeners) {
         signals.removeListener(signal, listener as SignalListener)
       }
-      signals.on(signal, onSignal)
+      const forwardingListener = () => onSignal(signal)
+      forwardingListeners.set(signal, forwardingListener)
+      signals.on(signal, forwardingListener)
     }
 
     child.on('error', (error) => {

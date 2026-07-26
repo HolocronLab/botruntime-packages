@@ -809,6 +809,24 @@
       ]
     },
     {
+      "path": "run",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "force",
+        "json",
+        "prod",
+        "profile",
+        "scriptArgs",
+        "scriptPath",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
       "path": "secret set",
       "aliases": [],
       "options": [
@@ -867,6 +885,92 @@
         "workDir",
         "workflow"
       ]
+    },
+    {
+      "path": "workflows list",
+      "aliases": [
+        "ls"
+      ],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "conversationId",
+        "dev",
+        "json",
+        "limit",
+        "name",
+        "nextToken",
+        "parentWorkflowId",
+        "profile",
+        "status",
+        "userId",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
+      "path": "workflows run",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "conversationId",
+        "dev",
+        "idempotencyKey",
+        "includeData",
+        "inputFile",
+        "json",
+        "name",
+        "parentWorkflowId",
+        "profile",
+        "timeout",
+        "userId",
+        "verbose",
+        "wait",
+        "workDir",
+        "workflowTimeout"
+      ]
+    },
+    {
+      "path": "workflows show",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "includeData",
+        "json",
+        "profile",
+        "steps",
+        "verbose",
+        "workDir",
+        "workflowId"
+      ]
+    },
+    {
+      "path": "workflows wait",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "dev",
+        "includeData",
+        "json",
+        "profile",
+        "steps",
+        "timeout",
+        "verbose",
+        "workDir",
+        "workflowId"
+      ]
     }
   ],
   "documentation": {
@@ -880,9 +984,14 @@
       "link",
       "login",
       "logs",
+      "run",
       "traces",
       "conversations list",
       "conversations show",
+      "workflows run",
+      "workflows list",
+      "workflows show",
+      "workflows wait",
       "eval",
       "eval run",
       "eval runs",
@@ -946,6 +1055,10 @@
         "follow",
         "limit"
       ],
+      "run": [
+        "force",
+        "prod"
+      ],
       "traces": [
         "action",
         "conversationId",
@@ -974,6 +1087,32 @@
         "nextToken",
         "since",
         "until"
+      ],
+      "workflows run": [
+        "dev",
+        "idempotencyKey",
+        "includeData",
+        "inputFile",
+        "timeout",
+        "wait",
+        "workflowTimeout"
+      ],
+      "workflows list": [
+        "dev",
+        "limit",
+        "nextToken",
+        "status"
+      ],
+      "workflows show": [
+        "dev",
+        "includeData",
+        "steps"
+      ],
+      "workflows wait": [
+        "dev",
+        "includeData",
+        "steps",
+        "timeout"
       ],
       "eval": [
         "dev",
@@ -1019,6 +1158,9 @@
       "integrations upgrade": [
         "<name@version>"
       ],
+      "run": [
+        "<scriptPath> [scriptArgs..]"
+      ],
       "traces": [
         "[tokens..]"
       ],
@@ -1027,6 +1169,15 @@
       ],
       "conversations show": [
         "<conversationId> [tokens..]"
+      ],
+      "workflows run": [
+        "<name>"
+      ],
+      "workflows show": [
+        "<workflowId>"
+      ],
+      "workflows wait": [
+        "<workflowId>"
       ],
       "eval": [
         "[name]"
@@ -1117,6 +1268,22 @@
           "overview",
           "reference"
         ]
+      },
+      {
+        "id": "one-shot-agent-scripts",
+        "assertion": "brt run is a one-shot local script process over the selected agent context; brt dev remains the long-lived worker, watch, tunnel, and callback command",
+        "documents": [
+          "overview",
+          "reference"
+        ]
+      },
+      {
+        "id": "durable-workflow-observation",
+        "assertion": "brt workflows uses idempotent durable creation, cursor history, privacy-safe bounded projections, and an observation timeout that never cancels the workflow execution",
+        "documents": [
+          "overview",
+          "reference"
+        ]
       }
     ],
     "workflows": [
@@ -1203,6 +1370,19 @@
         "commandPaths": [
           "conversations list",
           "conversations show"
+        ]
+      },
+      {
+        "id": "durable-workflows",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "workflows run",
+          "workflows list",
+          "workflows show",
+          "workflows wait"
         ]
       },
       {

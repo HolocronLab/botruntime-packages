@@ -162,6 +162,22 @@ const cloudDevTarget = {
   default: false,
 } satisfies CommandOption
 
+const scriptPath = {
+  type: 'string',
+  description: 'Path to the TypeScript script to execute',
+  positional: true,
+  idx: 0,
+  demandOption: true,
+} satisfies CommandOption
+
+const scriptArgs = {
+  type: 'string',
+  description: 'Arguments passed to the script entrypoint',
+  array: true,
+  positional: true,
+  idx: 1,
+} satisfies CommandOption
+
 // brt logs — GET /v1/admin/bots/{id}/logs with the selected workspace/profile
 // PAT, not the per-bot key. timeStart is required server-side; `since` defaults
 // client-side to now-1h so a bare `brt logs` works (see logs-command.ts).
@@ -396,6 +412,99 @@ const cloudEvalRunsNextToken = {
   type: 'string',
   alias: 'next-token',
   description: 'Resume listing from the opaque server-issued cursor',
+} satisfies CommandOption
+
+const cloudWorkflowName = {
+  type: 'string',
+  description: 'Deployed workflow name',
+  positional: true,
+  idx: 0,
+  demandOption: true,
+} satisfies CommandOption
+
+const cloudWorkflowId = {
+  type: 'string',
+  description: 'Workflow run ID',
+  positional: true,
+  idx: 0,
+  demandOption: true,
+} satisfies CommandOption
+
+const cloudWorkflowConversationId = {
+  type: 'string',
+  alias: 'conversation-id',
+  description: 'Associate with or filter by this conversation ID',
+} satisfies CommandOption
+
+const cloudWorkflowInputFile = {
+  type: 'string',
+  alias: 'input-file',
+  description: 'Read the workflow input JSON object from this file',
+} satisfies CommandOption
+
+const cloudWorkflowObservationTimeout = {
+  type: 'number',
+  description: 'Maximum time to observe this command in milliseconds; it never cancels the durable workflow',
+  default: 300_000,
+} satisfies CommandOption
+
+const cloudWorkflowExecutionTimeout = {
+  type: 'number',
+  alias: 'workflow-timeout',
+  description: 'Optional durable workflow execution deadline in milliseconds (1000-2592000000)',
+} satisfies CommandOption
+
+const cloudWorkflowWait = {
+  type: 'boolean',
+  description: 'Wait for a terminal workflow status after creation; use --no-wait to return immediately',
+  default: true,
+} satisfies CommandOption
+
+const cloudWorkflowIdempotencyKey = {
+  type: 'string',
+  alias: 'idempotency-key',
+  description: 'Stable retry key; reuse it when a create outcome is unknown',
+} satisfies CommandOption
+
+const cloudWorkflowIncludeData = {
+  type: 'boolean',
+  alias: 'include-data',
+  description: 'Include arbitrary workflow input, output, and tags in the result',
+  default: false,
+} satisfies CommandOption
+
+const cloudWorkflowSteps = {
+  type: 'boolean',
+  description: 'Include a bounded privacy-safe workflow step projection',
+  default: false,
+} satisfies CommandOption
+
+const cloudWorkflowLimit = {
+  type: 'number',
+  description: 'Maximum workflow runs to return (1-100; default: 20)',
+  default: 20,
+} satisfies CommandOption
+
+const cloudWorkflowStatuses = {
+  type: 'string',
+  choices: [
+    'pending',
+    'in_progress',
+    'listening',
+    'paused',
+    'completed',
+    'failed',
+    'timedout',
+    'cancelled',
+  ] as const,
+  array: true,
+  description: 'Filter by workflow status; repeat the flag for multiple statuses',
+} satisfies CommandOption
+
+const cloudWorkflowNextToken = {
+  type: 'string',
+  alias: 'next-token',
+  description: 'Resume listing from the positive decimal server-issued cursor',
 } satisfies CommandOption
 
 const cloudIntegrationRef = {
@@ -834,6 +943,22 @@ const cloudProjectSchema = {
   local: cloudLocal,
 } satisfies CommandSchema
 
+const runSchema = {
+  ...cloudProjectSchema,
+  scriptPath,
+  scriptArgs,
+  prod: {
+    type: 'boolean',
+    description: 'Run against the canonical production target instead of the prepared development target',
+    default: false,
+  },
+  force: {
+    type: 'boolean',
+    description: 'Regenerate the script runtime artifacts before execution',
+    default: false,
+  },
+} satisfies CommandSchema
+
 const chatSchema = {
   ...cloudProjectSchema,
   botId: {
@@ -1001,6 +1126,69 @@ const evalRunsSchema = {
   nextToken: cloudEvalRunsNextToken,
 } satisfies CommandSchema
 
+const workflowsRunSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  name: cloudWorkflowName,
+  inputFile: cloudWorkflowInputFile,
+  timeout: cloudWorkflowObservationTimeout,
+  workflowTimeout: cloudWorkflowExecutionTimeout,
+  wait: cloudWorkflowWait,
+  idempotencyKey: cloudWorkflowIdempotencyKey,
+  conversationId: cloudWorkflowConversationId,
+  userId: {
+    type: 'string',
+    alias: 'user-id',
+    description: 'Associate the workflow with this user ID',
+  },
+  parentWorkflowId: {
+    type: 'string',
+    alias: 'parent-workflow-id',
+    description: 'Associate the workflow with this parent workflow ID',
+  },
+  includeData: cloudWorkflowIncludeData,
+} satisfies CommandSchema
+
+const workflowsListSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  name: {
+    type: 'string',
+    description: 'Filter by deployed workflow name',
+  },
+  status: cloudWorkflowStatuses,
+  conversationId: cloudWorkflowConversationId,
+  userId: {
+    type: 'string',
+    alias: 'user-id',
+    description: 'Filter by user ID',
+  },
+  parentWorkflowId: {
+    type: 'string',
+    alias: 'parent-workflow-id',
+    description: 'Filter by parent workflow ID',
+  },
+  limit: cloudWorkflowLimit,
+  nextToken: cloudWorkflowNextToken,
+} satisfies CommandSchema
+
+const workflowsShowSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  workflowId: cloudWorkflowId,
+  steps: cloudWorkflowSteps,
+  includeData: cloudWorkflowIncludeData,
+} satisfies CommandSchema
+
+const workflowsWaitSchema = {
+  ...cloudProjectSchema,
+  dev: cloudDevTarget,
+  workflowId: cloudWorkflowId,
+  timeout: cloudWorkflowObservationTimeout,
+  steps: cloudWorkflowSteps,
+  includeData: cloudWorkflowIncludeData,
+} satisfies CommandSchema
+
 // brt integrations install|register|upgrade use the project-target Cloud API channel.
 // Publishing is intentionally different: it is an integration-only alias for
 // the canonical Botpress-shaped deploy path so catalog metadata, runtime
@@ -1083,6 +1271,7 @@ export const schemas = {
   add: addSchema,
   remove: removeSchema,
   dev: devSchema,
+  run: runSchema,
   check: checkSchema,
   lint: lintSchema,
   chat: chatSchema,
@@ -1104,6 +1293,10 @@ export const schemas = {
   botVersionsDeploy: botVersionsDeploySchema,
   evalRun: evalRunSchema,
   evalRuns: evalRunsSchema,
+  workflowsRun: workflowsRunSchema,
+  workflowsList: workflowsListSchema,
+  workflowsShow: workflowsShowSchema,
+  workflowsWait: workflowsWaitSchema,
   cloudIntegrationInstall: cloudIntegrationInstallSchema,
   cloudIntegrationRegister: cloudIntegrationRegisterSchema,
   cloudIntegrationUpgrade: cloudIntegrationUpgradeSchema,

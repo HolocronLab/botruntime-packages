@@ -57,6 +57,7 @@ export default {
   add: commandImplementations.add,
   remove: commandImplementations.remove,
   dev: commandImplementations.dev,
+  run: commandImplementations.run,
   check: commandImplementations.check,
   lint: commandImplementations.lint,
   chat: commandImplementations.chat,
@@ -77,6 +78,12 @@ export default {
     default: commandImplementations.eval.default,
     run: commandImplementations.eval.subcommands.run,
     runs: commandImplementations.eval.subcommands.runs,
+  },
+  workflows: {
+    run: commandImplementations.workflows.subcommands.run,
+    list: commandImplementations.workflows.subcommands.list,
+    show: commandImplementations.workflows.subcommands.show,
+    wait: commandImplementations.workflows.subcommands.wait,
   },
   config: {
     set: commandImplementations.config.subcommands.set,

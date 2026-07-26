@@ -32,7 +32,14 @@ import * as plugins from './plugin-commands'
 import * as profiles from './profile-commands'
 import { ReadCommand } from './read-command'
 import { RemoveCommand } from './remove-command'
+import { RunCommand } from './run-command'
 import { ServeCommand } from './serve-command'
+import {
+  WorkflowsListCommand,
+  WorkflowsRunCommand,
+  WorkflowsShowCommand,
+  WorkflowsWaitCommand,
+} from './workflows-command'
 
 type GlobalCtor<C extends GlobalCommandDefinition> = new (
   ...args: ConstructorParameters<typeof GlobalCommand<C>>
@@ -98,6 +105,7 @@ export default {
   add: getHandler(AddCommand),
   remove: getHandler(RemoveCommand),
   dev: getHandler(DevCommand),
+  run: getHandler(RunCommand),
   check: getHandler(CheckCommand),
   lint: getHandler(LintCommand),
   chat: getHandler(ChatCommand),
@@ -123,6 +131,14 @@ export default {
     subcommands: {
       run: getHandler(EvalRunCommand),
       runs: getHandler(EvalRunsCommand),
+    },
+  },
+  workflows: {
+    subcommands: {
+      run: getHandler(WorkflowsRunCommand),
+      list: getHandler(WorkflowsListCommand),
+      show: getHandler(WorkflowsShowCommand),
+      wait: getHandler(WorkflowsWaitCommand),
     },
   },
   config: {
