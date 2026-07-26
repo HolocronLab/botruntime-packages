@@ -6,7 +6,15 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.9.8 (current) — 2026-07-24
+## 0.10.0 (current) — 2026-07-26
+
+- Added `brt run` for one-shot agent scripts with explicit dev/prod target
+selection, development config-var inheritance and child exit-code propagation.
+- Added `brt workflows run|list|show|wait` over the existing durable workflow
+engine with idempotent starts, separate observation and execution deadlines,
+bounded history, and privacy-safe default projections.
+
+## 0.9.8 — 2026-07-24
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.6.4
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.52.0
