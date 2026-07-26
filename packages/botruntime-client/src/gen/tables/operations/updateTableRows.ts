@@ -62,11 +62,11 @@ export interface UpdateTableRowsResponse {
     /**
      * Timestamp of row creation.
      */
-    createdAt?: string;
+    createdAt: string;
     /**
      * Timestamp of the last row update.
      */
-    updatedAt?: string;
+    updatedAt: string;
     computed: {
       [k: string]: {
         status: string;

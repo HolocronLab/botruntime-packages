@@ -14,6 +14,7 @@ export interface LocalTable {
   schema: JSONSchema7
   isComputeEnabled?: boolean
   keyColumn?: string
+  keyColumnUnique?: boolean
   tags?: Record<string, string>
 }
 
@@ -25,6 +26,8 @@ export interface RemoteTable {
   schema: JSONSchema7
   factor?: number
   keyColumn?: string
+  keyColumnUnique?: boolean
+  keyColumnUniqueState?: string
   tags?: Record<string, string>
 }
 

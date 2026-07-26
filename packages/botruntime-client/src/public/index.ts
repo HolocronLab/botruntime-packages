@@ -1,6 +1,7 @@
 import * as common from '../common'
 import * as downloadFileRef from '../files/download-file-ref'
 import * as integrationOperations from '../integration-operations'
+import * as reserveKey from '../tables/reserve-key'
 import * as uploadFile from '../files/upload-file'
 import * as gen from '../gen/public'
 import * as types from '../types'
@@ -20,6 +21,9 @@ type IClient = common.types.Simplify<
       input: integrationOperations.CancelIntegrationOperationInput
     ) => Promise<integrationOperations.IntegrationOperation>
     uploadFile: (input: uploadFile.UploadFileInput) => Promise<uploadFile.UploadFileOutput>
+    reserveTableKey: (
+      input: reserveKey.ReserveTableKeyInput
+    ) => Promise<reserveKey.ReserveTableKeyOutput>
   }
 >
 export type Operation = common.types.Operation<IClient>
@@ -188,5 +192,11 @@ export class Client extends gen.Client implements IClient {
     input: integrationOperations.CancelIntegrationOperationInput
   ): Promise<integrationOperations.IntegrationOperation> => {
     return await integrationOperations.cancel(this._customAxiosInstance, input)
+  }
+
+  public readonly reserveTableKey = async <TRow extends Record<string, unknown>>(
+    input: reserveKey.ReserveTableKeyInput<TRow>
+  ): Promise<reserveKey.ReserveTableKeyOutput<TRow>> => {
+    return await reserveKey.reserveTableKey(this._customAxiosInstance, input)
   }
 }

@@ -21,6 +21,11 @@ export type {
   DownloadFileRefOutput,
   ExactFileRef,
 } from './files/download-file-ref'
+export type {
+  ReserveTableKeyInput,
+  ReserveTableKeyOutput,
+  TableRowMetadata,
+} from './tables/reserve-key'
 export { DownloadFileRefError } from './files/download-file-ref'
 export * from './gen/public/models'
 export { installAxiosErrorFidelity } from './common/axios'
