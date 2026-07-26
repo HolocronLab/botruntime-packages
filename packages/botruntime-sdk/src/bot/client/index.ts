@@ -120,7 +120,16 @@ export class BotSpecificClient<TBot extends common.BaseBot> implements types.Cli
       req = await before(req)
     }
 
-    let res = (await this._client[operation](req as any)) as client.ClientOutputs[K]
+    // The generated client now also contains generic operations (for example
+    // reserveTableKey<Row>). Indexing the class by a generic operation key
+    // produces a union that TypeScript cannot call, even though ClientInputs
+    // and ClientOutputs already preserve the exact K correlation. Keep the
+    // unavoidable assertion at this single dynamic-dispatch boundary and
+    // retain the client as `this` for generated methods.
+    const invoke = this._client[operation] as unknown as (
+      input: client.ClientInputs[K]
+    ) => Promise<client.ClientOutputs[K]>
+    let res = await invoke.call(this._client, req)
 
     const after = this._hooks.after[operation]
     if (after) {

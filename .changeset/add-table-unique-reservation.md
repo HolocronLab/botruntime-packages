@@ -1,5 +1,6 @@
 ---
 "@holocronlab/botruntime-client": minor
+"@holocronlab/botruntime-sdk": patch
 "@holocronlab/botruntime-runtime": minor
 "@holocronlab/botruntime-adk": minor
 "@holocronlab/brt": minor
@@ -25,3 +26,7 @@ Table filters and ordering now accept the physical system fields `id`,
 `rowVersion`, and `createdAt` through a closed typed allowlist. BRT deploys
 table contract changes through the durable stage, fence, drain, transition,
 schema, and activation protocol instead of exposing an intermediate contract.
+
+The SDK dynamic client dispatcher now preserves its operation-specific
+input/output correlation when the underlying client exposes generic table
+operations.
