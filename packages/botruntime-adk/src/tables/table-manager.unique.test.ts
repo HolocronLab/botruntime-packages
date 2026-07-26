@@ -84,6 +84,18 @@ describe('TableManager unique key contract', () => {
     ])
   })
 
+  it('fails closed when the remote catalog cannot be read', async () => {
+    authMocks.getProjectClient.mockResolvedValue({
+      listTables: vi.fn().mockRejectedValue(new Error('catalog unavailable')),
+    })
+    const manager = new TableManager({
+      project: projectWithUniqueTable() as never,
+      botId: 'bot_1',
+    })
+
+    await expect(manager.getRemoteTables()).rejects.toThrow('catalog unavailable')
+  })
+
   it('forwards the unique contract when creating a new table', async () => {
     const createTable = vi.fn().mockResolvedValue({})
     authMocks.getProjectClient.mockResolvedValue({ createTable })

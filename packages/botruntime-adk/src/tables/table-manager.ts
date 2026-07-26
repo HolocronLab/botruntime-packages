@@ -417,10 +417,9 @@ export class TableManager {
 
     const client = await this.getClient()
 
-    try {
-      const response = await client.listTables({})
+    const response = await client.listTables({})
 
-      return response.tables.map((table) => {
+    return response.tables.map((table) => {
         const contract = table as typeof table & {
           keyColumnUnique?: boolean
           keyColumnUniqueState?: string
@@ -437,11 +436,7 @@ export class TableManager {
           keyColumnUniqueState: contract.keyColumnUniqueState ?? 'disabled',
           tags: table.tags || {},
         } satisfies RemoteTable
-      })
-    } catch (error) {
-      console.error('Failed to list remote tables:', error instanceof Error ? error.message : String(error))
-      return []
-    }
+    })
   }
 
   async createSyncPlan(): Promise<TableSyncPlan> {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createDestructiveTableConfirm,
+  prepareStagedTablePlan,
   syncAdkTables,
   type TableSyncItem,
   type TableSyncManager,
@@ -190,6 +191,66 @@ describe('syncAdkTables', () => {
 
     expect(executeSync).not.toHaveBeenCalled()
     expect(lines).toEqual(['tables: none declared'])
+  })
+})
+
+describe('prepareStagedTablePlan', () => {
+  const schema = { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] }
+
+  it('returns an exact sorted target and marks approved changes', async () => {
+    const manager = fakeManager([
+      { operation: 'create', localTable: { name: 'Zed', schema } },
+      {
+        operation: 'none',
+        localTable: { name: 'Alpha', schema, keyColumn: 'key', keyColumnUnique: true },
+      },
+    ]).manager
+    const { log, lines } = collectLog()
+
+    const result = await prepareStagedTablePlan(manager, vi.fn(), log)
+
+    expect(result).toEqual({
+      changed: true,
+      tables: [
+        { name: 'Alpha', schema, keyColumn: 'key', keyColumnUnique: true },
+        { name: 'Zed', schema },
+      ],
+    })
+    expect(lines.at(-1)).toBe('tables staged (2 target, contract change)')
+  })
+
+  it('retains the exact remote declaration when a destructive update is declined', async () => {
+    const remote = { name: 'Claims', schema, factor: 2, keyColumn: 'key', tags: { source: 'remote' } }
+    const manager = fakeManager([
+      {
+        operation: 'update',
+        localTable: { name: 'Claims', schema: { ...schema, required: [] } },
+        remoteTable: remote,
+        columnChanges: [{ type: 'modify', columnName: 'key' }],
+      },
+    ]).manager
+
+    const result = await prepareStagedTablePlan(manager, vi.fn().mockResolvedValue(false), vi.fn())
+
+    expect(result).toEqual({ changed: false, tables: [remote] })
+  })
+
+  it('retains a remote table when deletion is declined and omits it when approved', async () => {
+    const remote = { name: 'Orphan', schema }
+    const manager = fakeManager([{ operation: 'delete', remoteTable: remote }]).manager
+
+    await expect(
+      prepareStagedTablePlan(manager, vi.fn().mockResolvedValue(false), vi.fn())
+    ).resolves.toEqual({ changed: false, tables: [remote] })
+    await expect(
+      prepareStagedTablePlan(manager, vi.fn().mockResolvedValue(true), vi.fn())
+    ).resolves.toEqual({ changed: true, tables: [] })
+  })
+
+  it('fails closed if any selected declaration lacks a schema', async () => {
+    const manager = fakeManager([{ operation: 'create', localTable: { name: 'Broken' } }]).manager
+
+    await expect(prepareStagedTablePlan(manager, vi.fn(), vi.fn())).rejects.toThrow(/has no schema/)
   })
 })
 

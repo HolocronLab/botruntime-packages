@@ -77,6 +77,65 @@ export interface BotCommand {
   description: string
 }
 
+export interface DeploymentReadiness {
+  activeManifestValid: boolean
+  newAdmissionUnpinnedRows: number
+  legacyNonterminalUnclassified: number
+  unknownExecutionDomains: number
+  ready: boolean
+}
+
+export interface DeploymentEnvironment {
+  runtimeId: number
+  currentVersionId: number
+  currentContentHash: string
+  fenceGeneration: number
+  trafficFenced: boolean
+  enforcementState: 'legacy' | 'contract_unknown' | 'ready' | 'enforced'
+  pinDualWriteStartedAt: string
+  readiness: DeploymentReadiness
+}
+
+export interface StagedTableDeclaration {
+  name: string
+  factor?: number
+  frozen?: boolean
+  keyColumn?: string
+  keyColumnUnique?: boolean
+  schema: unknown
+  tags?: Record<string, string>
+  isComputeEnabled?: boolean
+}
+
+export type BotDeploymentPhase =
+  | 'staged'
+  | 'fenced'
+  | 'draining'
+  | 'transitioning'
+  | 'schema_synced'
+  | 'activated'
+  | 'failed'
+
+export interface BotDeployment {
+  id: string
+  phase: BotDeploymentPhase
+  expectedCurrentVersionId: number
+  stagedVersionId: number
+  finalVersionId: number
+  fenceGeneration?: number
+  targetTableContracts: unknown
+  lastErrorCode?: string
+  schemaMutated: boolean
+}
+
+export interface BotDeploymentDrain {
+  beforeVersionId: number
+  fenceGeneration: number
+  counts: Record<string, number>
+  unitIds: string[]
+  drained: boolean
+}
+
 export interface DevBotReadinessIntegration {
   id?: string
   installationId?: string
@@ -242,6 +301,7 @@ interface RequestOpts {
   privacySensitive?: 'trace' | 'conversation' | 'eval' | 'workflow' // never reflect response bodies or transport errors into CLI errors
   maxResponseBytes?: number
   errorBodyPolicy?: 'integration-repoint' // only render Botforge's public message from the error envelope
+  idempotencyKey?: string
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -281,6 +341,7 @@ export class CloudapiClient {
     if (opts.botId) headers['x-bot-id'] = opts.botId
     if (opts.internalToken) headers['x-internal-token'] = opts.internalToken
     if (opts.workspaceId) headers['x-workspace-id'] = opts.workspaceId
+    if (opts.idempotencyKey) headers['idempotency-key'] = opts.idempotencyKey
 
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const attempts = opts.idempotent ? MAX_RETRIES : 1
@@ -421,6 +482,166 @@ export class CloudapiClient {
       workspaceId,
       body: { name, code, type: 'adk', commands, recurringEvents, maxExecutionTime },
       timeoutMs: BUNDLE_TIMEOUT_MS,
+      idempotent: true,
+    })
+  }
+
+  public async getDeploymentEnvironment(
+    botId: string,
+    workspaceId: string,
+  ): Promise<{ environment: DeploymentEnvironment }> {
+    return this.raw({
+      method: 'GET',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}/deployment-environment`,
+      workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async bootstrapDeploymentEnvironment(input: {
+    botId: string
+    workspaceId: string
+    stateCodecDigest: string
+    expectedCurrentContentHash: string
+  }): Promise<{ environment: DeploymentEnvironment }> {
+    return this.raw({
+      method: 'POST',
+      path: `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployment-environment/bootstrap`,
+      workspaceId: input.workspaceId,
+      body: {
+        stateCodecDigest: input.stateCodecDigest,
+        expectedCurrentContentHash: input.expectedCurrentContentHash,
+      },
+      idempotent: true,
+    })
+  }
+
+  public async enforceDeploymentEnvironment(
+    botId: string,
+    workspaceId: string,
+  ): Promise<{ environment: DeploymentEnvironment }> {
+    return this.raw({
+      method: 'POST',
+      path: `/v1/admin/bots/${encodeURIComponent(botId)}/deployment-environment/enforce`,
+      workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async stageBotDeployment(input: {
+    botId: string
+    workspaceId: string
+    idempotencyKey: string
+    deploymentId: string
+    expectedCurrentVersionId: number
+    name: string
+    code: string
+    definition: Record<string, unknown>
+    tables: StagedTableDeclaration[]
+    stateCodecDigest: string
+  }): Promise<{ deployment: BotDeployment }> {
+    return this.raw({
+      method: 'POST',
+      path: `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments`,
+      workspaceId: input.workspaceId,
+      body: {
+        deploymentId: input.deploymentId,
+        expectedCurrentVersionId: input.expectedCurrentVersionId,
+        name: input.name,
+        code: input.code,
+        definition: input.definition,
+        tables: input.tables,
+        stateCodecDigest: input.stateCodecDigest,
+      },
+      timeoutMs: BUNDLE_TIMEOUT_MS,
+      idempotent: true,
+      idempotencyKey: input.idempotencyKey,
+    })
+  }
+
+  public async getBotDeployment(input: {
+    botId: string
+    workspaceId: string
+    deploymentId: string
+  }): Promise<{ deployment: BotDeployment }> {
+    return this.raw({
+      method: 'GET',
+      path:
+        `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
+        encodeURIComponent(input.deploymentId),
+      workspaceId: input.workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async setBotDeploymentFence(input: {
+    botId: string
+    workspaceId: string
+    deploymentId: string
+    expectedFenceGeneration: number
+    enabled: boolean
+  }): Promise<{ deployment: BotDeployment }> {
+    return this.raw({
+      method: 'PUT',
+      path:
+        `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
+        `${encodeURIComponent(input.deploymentId)}/fence`,
+      workspaceId: input.workspaceId,
+      body: {
+        expectedFenceGeneration: input.expectedFenceGeneration,
+        enabled: input.enabled,
+      },
+      idempotent: true,
+    })
+  }
+
+  public async getBotDeploymentDrain(input: {
+    botId: string
+    workspaceId: string
+    deploymentId: string
+    beforeVersionId: number
+    fenceGeneration: number
+  }): Promise<{ drain: BotDeploymentDrain }> {
+    const query = new URLSearchParams({
+      beforeVersionId: String(input.beforeVersionId),
+      fenceGeneration: String(input.fenceGeneration),
+    })
+    return this.raw({
+      method: 'GET',
+      path:
+        `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
+        `${encodeURIComponent(input.deploymentId)}/drain?${query.toString()}`,
+      workspaceId: input.workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async syncBotDeploymentSchema(input: {
+    botId: string
+    workspaceId: string
+    deploymentId: string
+  }): Promise<{ deployment: BotDeployment }> {
+    return this.raw({
+      method: 'POST',
+      path:
+        `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
+        `${encodeURIComponent(input.deploymentId)}/schema-sync`,
+      workspaceId: input.workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async activateBotDeployment(input: {
+    botId: string
+    workspaceId: string
+    deploymentId: string
+  }): Promise<{ deployment: BotDeployment }> {
+    return this.raw({
+      method: 'POST',
+      path:
+        `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
+        `${encodeURIComponent(input.deploymentId)}/activate`,
+      workspaceId: input.workspaceId,
       idempotent: true,
     })
   }

@@ -25,6 +25,7 @@ import {
 } from '../toolchain-contract'
 import { pendingIntegrationRegistrationCommands } from '../integration-guidance'
 import * as tableSync from '../adk-table-sync'
+import * as stagedDeployment from '../staged-deployment'
 import * as tables from '../tables'
 import * as utils from '../utils'
 import { AddCommand, type AddCommandDefinition } from './add-command'
@@ -1094,18 +1095,41 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       commands.length === 0 ? 'commands: none declared' : `commands: ${commands.map((c) => '/' + c.command).join(', ')}`
     )
 
-    // 3. PUT bundle under the workspace PAT (profile.token) — Botpress parity.
-    // The server resolves the bot by its numeric id within profile.workspaceId
-    // and gates owner|admin; the CLI no longer reads the per-bot key to deploy.
+    // 3. Resolve and confirm the exact table target before staging anything.
+    // The control plane, not this CLI process, owns the durable phase machine.
     const bot = new CloudapiClient(apiUrl, profile.token)
-    cloudInfo(`deploy -> PUT ${apiUrl}/v1/admin/bots/${botId} (workspace ${workspaceId})`)
-    if (maxExecutionTime === undefined) {
-      await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId, recurringEvents)
-    } else {
-      await bot.putBundle(botId, this.argv.name ?? botId, code, commands, workspaceId, recurringEvents, maxExecutionTime)
+    const prepared = await this._prepareAdkStagedDeployment(
+      dir,
+      apiUrl,
+      botId,
+      { ...profile, apiUrl, workspaceId },
+      { botId, workspaceId, apiUrl }
+    )
+    const definition = {
+      name: this.argv.name ?? botId,
+      type: 'adk',
+      commands,
+      recurringEvents,
+      ...(maxExecutionTime === undefined ? {} : { maxExecutionTime }),
     }
+    cloudInfo(`deploy -> staged ${apiUrl}/v1/admin/bots/${botId} (workspace ${workspaceId})`)
+    await stagedDeployment.runStagedDeployment(
+      bot,
+      {
+        botId,
+        workspaceId,
+        name: this.argv.name ?? botId,
+        code,
+        contentHash: localHash,
+        definition,
+        tables: prepared.tables,
+        tableContractChanged: prepared.changed,
+        stateCodecDigest: prepared.stateCodecDigest,
+      },
+      { log: cloudInfo }
+    )
 
-    // 4. verify round-trip by sha256 (length alone would pass on a corrupt/raced copy)
+    // 4. verify the atomically activated pointer by sha256.
     const internalToken = profile.internalToken
     if (internalToken) {
       const pulled = await bot.getBundle(botId, internalToken)
@@ -1121,17 +1145,6 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       )
     }
 
-    // 5. synchronize tables (mirrors the Botpress-shaped deploy's own
-    // bundle-then-tables order above): without this step the bot's first
-    // table write 404s and the web console shows no tables.
-    await this._syncAdkTables(
-      dir,
-      apiUrl,
-      botId,
-      { ...profile, apiUrl, workspaceId },
-      { botId, workspaceId, apiUrl }
-    )
-
     this._writeAdkLastDeploy(dir, { botId, sha256: localHash, at: new Date().toISOString() })
 
     cloudInfo('deploy OK.')
@@ -1142,6 +1155,47 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       }
     } catch (thrown) {
       cloudWarn(`integration registration status unavailable: ${thrown instanceof Error ? thrown.message : String(thrown)}`)
+    }
+  }
+
+  private async _prepareAdkStagedDeployment(
+    dir: string,
+    apiUrl: string,
+    botId: string,
+    profile: ProfileCredentials,
+    agentInfo: agentLink.AgentInfo | undefined
+  ): Promise<tableSync.StagedTablePlan & { stateCodecDigest: string }> {
+    const { AgentProject, TableManager, createDeployedAgentManifest } =
+      await adkBundle.loadAdkTableManager()
+    const workspaceId = profile.workspaceId
+    if (!workspaceId) {
+      throw new errors.BotpressCLIError('ADK staged deployment requires an authoritative workspaceId')
+    }
+    const credentials = { token: profile.token, apiUrl, workspaceId }
+    const project = await AgentProject.load(dir, {
+      adkCommand: 'adk-build',
+      configTarget: { environment: 'prod', botId, credentials },
+    })
+    const targetProject = Object.create(project) as typeof project
+    Object.defineProperty(targetProject, 'agentInfo', {
+      value: agentInfo,
+      enumerable: true,
+    })
+    const manager = new TableManager({ project: targetProject, botId, credentials })
+    const confirmDestructive = tableSync.createDestructiveTableConfirm({
+      allowDestructive: Boolean(this.argv.allowDestructiveTableChanges),
+      isTTY: Boolean(process.stdin.isTTY),
+      promptConfirm: (message) => this.prompt.confirmInteractive(message),
+    })
+    const plan = await tableSync.prepareStagedTablePlan(manager, confirmDestructive, cloudInfo)
+    const manifest = createDeployedAgentManifest(project, {
+      generatedAt: '1970-01-01T00:00:00.000Z',
+    })
+    return {
+      ...plan,
+      stateCodecDigest: stagedDeployment.stateCodecDigest(
+        manifest as unknown as Record<string, unknown>
+      ),
     }
   }
 
