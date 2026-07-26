@@ -34,6 +34,8 @@ export interface ConfigManagerOptions {
   credentials?: Credentials
   apiUrl?: string
   workspaceId?: string
+  /** Refuse to substitute an empty configuration when the target cannot be read. */
+  failOnLoadError?: boolean
 }
 
 export class ConfigManager {
@@ -71,6 +73,14 @@ export class ConfigManager {
       const { bot } = await client.getBot({ id: this.botId })
       return (bot.configuration?.data as StoredConfig) || {}
     } catch (error) {
+      if (this.options.failOnLoadError) {
+        throw new AdkError({
+          code: 'BOT_CONFIG_LOAD_FAILED',
+          message: `Failed to load configuration from bot ${this.botId}.`,
+          expected: true,
+          cause: error,
+        })
+      }
       console.warn(`Failed to load configuration from bot ${this.botId}:`, error)
       return {}
     }

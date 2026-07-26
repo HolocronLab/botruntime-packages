@@ -493,21 +493,16 @@ export class ScriptRunner {
       })
     }
 
-    // Fetch configuration if bot ID is available
-    let configuration: Record<string, unknown> | undefined
-    try {
-      const manager = new ConfigManager(botId, {
-        project,
-        credentials: this.credentials,
-        apiUrl: this.credentials.apiUrl,
-        workspaceId: this.credentials.workspaceId,
-      })
-      configuration = await manager.getAll()
-    } catch {
-      // A real auth/network failure here leaves the script config-less.
-      // TODO(ADK-638): warn via the injected logger once adk has one —
-      // include the fetch error.
-    }
+    // Script execution must never continue with an accidentally empty
+    // configuration after an auth/network failure.
+    const manager = new ConfigManager(botId, {
+      project,
+      credentials: this.credentials,
+      apiUrl: this.credentials.apiUrl,
+      workspaceId: this.credentials.workspaceId,
+      failOnLoadError: true,
+    })
+    const configuration = await manager.getAll()
 
     // Set environment variables in the current process
     const envVars: Record<string, string> = {
@@ -520,7 +515,7 @@ export class ScriptRunner {
       ADK_SCRIPT_MODE: 'true',
       ADK_TOKEN: this.credentials.token,
       ADK_API_URL: this.credentials.apiUrl,
-      ...(configuration && { BOTRUNTIME_CONFIGURATION: JSON.stringify(configuration) }),
+      BOTRUNTIME_CONFIGURATION: JSON.stringify(configuration),
       ...options.env,
     }
 
@@ -630,21 +625,14 @@ export class ScriptRunner {
     // Build the command arguments
     const args = ['run', runnerPath, absoluteScriptPath, ...(options.args || [])]
 
-    // Fetch configuration if bot ID is available
-    let configuration: Record<string, unknown> | undefined
-    try {
-      const manager = new ConfigManager(botId, {
-        project,
-        credentials: this.credentials,
-        apiUrl: this.credentials.apiUrl,
-        workspaceId: this.credentials.workspaceId,
-      })
-      configuration = await manager.getAll()
-    } catch {
-      // A real auth/network failure here leaves the script config-less.
-      // TODO(ADK-638): warn via the injected logger once adk has one —
-      // include the fetch error.
-    }
+    const manager = new ConfigManager(botId, {
+      project,
+      credentials: this.credentials,
+      apiUrl: this.credentials.apiUrl,
+      workspaceId: this.credentials.workspaceId,
+      failOnLoadError: true,
+    })
+    const configuration = await manager.getAll()
 
     // Merge environment variables
     const env: Record<string, string> = {
@@ -665,7 +653,7 @@ export class ScriptRunner {
       ADK_TOKEN: this.credentials.token,
       ADK_API_URL: this.credentials.apiUrl,
       // Bootstrap the script context; runtime configuration never reads env.
-      ...(configuration && { BOTRUNTIME_CONFIGURATION: JSON.stringify(configuration) }),
+      BOTRUNTIME_CONFIGURATION: JSON.stringify(configuration),
     }
 
     const child = spawn('bun', args, {

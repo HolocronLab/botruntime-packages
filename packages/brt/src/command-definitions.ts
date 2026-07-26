@@ -88,6 +88,10 @@ export default {
     alias: 'rm',
   },
   dev: { description: 'Run your project in dev mode', schema: config.schemas.dev },
+  run: {
+    description: 'Run a one-shot TypeScript script with the selected agent runtime context',
+    schema: config.schemas.run,
+  },
   check: { description: 'Validate an ADK project offline, including primitive discovery', schema: config.schemas.check },
   lint: { description: 'EXPERIMENTAL: Lint an integration definition', schema: config.schemas.lint },
   chat: { description: 'EXPERIMENTAL: Chat with a bot directly from the CLI', schema: config.schemas.chat },
@@ -149,6 +153,28 @@ export default {
       runs: {
         description: 'List or show hosted eval run history',
         schema: config.schemas.evalRuns,
+      },
+    },
+  },
+  workflows: {
+    description: 'Run and inspect durable workflow executions on the selected target',
+    subcommands: {
+      run: {
+        description: 'Idempotently start a durable workflow and optionally observe it',
+        schema: config.schemas.workflowsRun,
+      },
+      list: {
+        description: 'List cursor-paginated workflow run history',
+        schema: config.schemas.workflowsList,
+        alias: 'ls',
+      },
+      show: {
+        description: 'Show one workflow run with privacy-safe metadata',
+        schema: config.schemas.workflowsShow,
+      },
+      wait: {
+        description: 'Observe an existing workflow until terminal status or a bounded deadline',
+        schema: config.schemas.workflowsWait,
       },
     },
   },

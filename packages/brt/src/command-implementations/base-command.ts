@@ -3,6 +3,8 @@ import type { Logger } from '../logger'
 import type { CommandArgv, CommandDefinition } from '../typings'
 
 export abstract class BaseCommand<C extends CommandDefinition> {
+  private _exitCode = 0
+
   public constructor(
     protected readonly logger: Logger,
     protected readonly argv: CommandArgv<C>
@@ -11,6 +13,13 @@ export abstract class BaseCommand<C extends CommandDefinition> {
   protected abstract run(): Promise<void>
   protected bootstrap?(): Promise<void>
   protected teardown?(): Promise<void>
+
+  protected setExitCode(exitCode: number): void {
+    if (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255) {
+      throw new Error(`Invalid command exit code: ${exitCode}`)
+    }
+    this._exitCode = exitCode
+  }
 
   private get _cmdName(): string {
     return this.constructor.name
@@ -23,6 +32,7 @@ export abstract class BaseCommand<C extends CommandDefinition> {
         await this.bootstrap()
       }
       await this.run()
+      exitCode = this._exitCode
     } catch (thrown) {
       const error = errors.BotpressCLIError.map(thrown)
 

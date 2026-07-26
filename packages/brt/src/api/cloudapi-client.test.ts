@@ -133,6 +133,59 @@ describe('CloudapiClient', () => {
     }
   })
 
+  it('retries workflow get-or-create with the same idempotent body', async () => {
+    stubFetch((_call, attempt) =>
+      attempt === 1
+        ? new Response('unavailable', { status: 503 })
+        : Response.json({
+            workflow: {
+              id: 'wkflow_1',
+              name: 'collect',
+              status: 'pending',
+              input: {},
+              output: {},
+              tags: { 'brt.idempotencyKey': 'retry-key' },
+              createdAt: '2026-07-26T10:00:00.000Z',
+              updatedAt: '2026-07-26T10:00:00.000Z',
+            },
+            meta: { created: false },
+          })
+    )
+    const client = new CloudapiClient('https://cloud.example', 'bot-key')
+    const body = {
+      name: 'collect',
+      status: 'pending' as const,
+      input: {},
+      tags: { 'brt.idempotencyKey': 'retry-key' },
+      discriminateByTags: ['brt.idempotencyKey'],
+    }
+
+    await client.getOrCreateWorkflow(body)
+
+    expect(calls).toHaveLength(2)
+    expect(calls.map((call) => call.init.body)).toEqual([
+      JSON.stringify(body),
+      JSON.stringify(body),
+    ])
+  })
+
+  it('rejects an oversized workflow response without reflecting its content', async () => {
+    const privateBody = JSON.stringify({
+      workflow: {
+        output: 'customer-secret-'.repeat(150_000),
+      },
+    })
+    stubFetch(() => new Response(privateBody, { status: 200 }))
+    const client = new CloudapiClient('https://cloud.example', 'bot-key')
+
+    const error = (await client.getWorkflow('wkflow_1').catch((thrown) => thrown)) as Error
+
+    expect(error).toBeInstanceOf(errors.BotpressCLIError)
+    expect(error.message).toMatch(/workflow response exceeds.*safety limit/i)
+    expect(error.message).not.toContain('customer-secret')
+    expect(calls).toHaveLength(1)
+  })
+
   it('does not retry a non-idempotent call on 5xx', async () => {
     stubFetch(() => new Response('boom', { status: 503 }))
     const client = new CloudapiClient('https://cloud.example', 'my-key')
