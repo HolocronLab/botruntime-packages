@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.9.0 (current) — 2026-07-27
+## 2.9.1 (current) — 2026-07-27
+
+- Kept the runtime release in lockstep with the ADK patch release.
+
+## 2.9.0 — 2026-07-27
 
 - Raised the Tables schema limit from 20 to 64 user-defined columns. The four system fields (`id`, `rowVersion`, `createdAt`, and `updatedAt`) do not count toward this limit.
 
