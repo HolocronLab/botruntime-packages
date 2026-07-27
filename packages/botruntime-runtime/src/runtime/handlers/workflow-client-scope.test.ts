@@ -15,6 +15,8 @@ describe('workflow handler client scope', () => {
     expect(contextSource).toContain("context.get('client', { optional: true }) ??")
     expect(contextSource.match(/scopedClient\n/g)?.length).toBeGreaterThanOrEqual(3)
     expect(contextSource).toContain('handler({ ...props, client: scopedClient })')
+    expect(contextSource).toContain('const handlerWorkflow = getHandlerWorkflowContext(props)')
+    expect(contextSource).toContain('contextData.workflow = handlerWorkflow')
   })
 
   it('binds action timeout advertisement to the live invocation budget', () => {

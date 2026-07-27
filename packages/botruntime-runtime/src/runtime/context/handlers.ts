@@ -19,7 +19,7 @@ import { BotContext, context, InternalClient } from './context'
 
 import { IntegrationInterfaceMappings, interfaceMappings } from '../interfaces'
 import { parseHttpRequest, RawHttpRequest } from './http'
-import { Client } from '@holocronlab/botruntime-client'
+import { Client, type Workflow } from '@holocronlab/botruntime-client'
 import { Defined } from '../../utilities/types'
 import { agentRegistry } from '../agent-registry'
 import { TrackedState } from '../tracked-state'
@@ -39,6 +39,22 @@ import {
 } from '../runtime-client-scope'
 
 export type { RawHttpRequest } from './http'
+
+export const getHandlerWorkflowContext = (props: HandlerProps): Workflow | undefined => {
+  if (props.event.type !== 'workflow_update') {
+    return undefined
+  }
+
+  if ('workflow' in props && props.workflow) {
+    return props.workflow
+  }
+
+  if ('workflow' in props.event.payload) {
+    return props.event.payload.workflow
+  }
+
+  return undefined
+}
 
 type LambdaContext = {
   functionName: string
@@ -309,8 +325,9 @@ export const patchHandlers = (bot: sdk.Bot<any, any>): any => {
         contextData.user = props.user
       }
 
-      if (props.event.type === 'workflow_update' && 'workflow' in props.event.payload) {
-        contextData.workflow = props.event.payload.workflow
+      const handlerWorkflow = getHandlerWorkflowContext(props)
+      if (handlerWorkflow) {
+        contextData.workflow = handlerWorkflow
       }
 
       if (props.event && typeof props.event.id === 'string') {

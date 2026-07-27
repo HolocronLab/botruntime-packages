@@ -7,6 +7,12 @@ import type { BaseBot } from '../common'
 import * as botServerTypes from '../server/types'
 import type { WorkflowProxy, ActionableWorkflow } from './types'
 
+export const WORKFLOW_STATE_REPORTER = Symbol.for(
+  '@holocronlab/botruntime-sdk/workflow-state-reporter'
+)
+
+export type WorkflowStateReporter = (newState: client.Workflow) => Promise<void>
+
 // FIXME: Plugin (and bot) workflow definitions are currently being created on
 //        the fly at run time. However, they should be part of the bot/plugin
 //        definition. The SDK currently gives the illusion that they are defined
@@ -73,66 +79,95 @@ export const wrapWorkflowInstance = <
   pluginAlias?: string
 }): ActionableWorkflow<TBot, TWorkflowName> => {
   let isAcknowledged = false
+  let currentWorkflow = props.workflow
+  let actionableWorkflow: ActionableWorkflow<TBot, TWorkflowName>
 
-  return {
-    ...(unprefixTagsOwnedByPlugin(props.workflow, { alias: undefined /* props.pluginAlias */ }) as ActionableWorkflow<
-      TBot,
-      TWorkflowName
-    >),
+  const reportWorkflowState: WorkflowStateReporter = async (newState) => {
+    currentWorkflow = newState
+    Object.assign(
+      actionableWorkflow,
+      unprefixTagsOwnedByPlugin(newState, { alias: undefined /* props.pluginAlias */ })
+    )
+    await props.onWorkflowUpdate?.(newState)
+  }
+
+  actionableWorkflow = {
+    ...(unprefixTagsOwnedByPlugin(currentWorkflow, {
+      alias: undefined /* props.pluginAlias */,
+    }) as ActionableWorkflow<TBot, TWorkflowName>),
 
     async update(x) {
       const { workflow } = await props.client.updateWorkflow({
-        id: props.workflow.id,
+        id: currentWorkflow.id,
         ...prefixTagsIfNeeded(x, { alias: undefined /* props.pluginAlias */ }),
       })
-      await props.onWorkflowUpdate?.(workflow)
+      await reportWorkflowState(workflow)
 
       return { workflow: wrapWorkflowInstance<TBot, TWorkflowName>({ ...props, workflow }) }
     },
 
     async acknowledgeStartOfProcessing() {
-      if (!props.event || props.workflow.status !== 'pending' || isAcknowledged) {
+      if (!props.event || currentWorkflow.status !== 'pending' || isAcknowledged) {
         return {
-          workflow: wrapWorkflowInstance<TBot, TWorkflowName>(props),
+          workflow: wrapWorkflowInstance<TBot, TWorkflowName>({
+            ...props,
+            workflow: currentWorkflow,
+          }),
         }
       }
 
       const { workflow } = await props.client.updateWorkflow({
-        id: props.workflow.id,
+        id: currentWorkflow.id,
         status: 'in_progress',
         eventId: props.event.id,
       })
       isAcknowledged = true
 
-      await props.onWorkflowUpdate?.(workflow)
+      await reportWorkflowState(workflow)
 
       return { workflow: wrapWorkflowInstance<TBot, TWorkflowName>({ ...props, workflow }) }
     },
 
     async setFailed({ failureReason }) {
       const { workflow } = await props.client.updateWorkflow({
-        id: props.workflow.id,
+        id: currentWorkflow.id,
         status: 'failed',
         failureReason,
       })
 
-      await props.onWorkflowUpdate?.(workflow)
+      await reportWorkflowState(workflow)
 
       return { workflow: wrapWorkflowInstance<TBot, TWorkflowName>({ ...props, workflow }) }
     },
 
     async setCompleted({ output } = {}) {
-      const { workflow } = await props.client.updateWorkflow({ id: props.workflow.id, status: 'completed', output })
-      await props.onWorkflowUpdate?.(workflow)
+      const { workflow } = await props.client.updateWorkflow({
+        id: currentWorkflow.id,
+        status: 'completed',
+        output,
+      })
+      await reportWorkflowState(workflow)
 
       return { workflow: wrapWorkflowInstance<TBot, TWorkflowName>({ ...props, workflow }) }
     },
 
     async cancel() {
-      const { workflow } = await props.client.updateWorkflow({ id: props.workflow.id, status: 'cancelled' })
-      await props.onWorkflowUpdate?.(workflow)
+      const { workflow } = await props.client.updateWorkflow({
+        id: currentWorkflow.id,
+        status: 'cancelled',
+      })
+      await reportWorkflowState(workflow)
 
       return { workflow: wrapWorkflowInstance<TBot, TWorkflowName>({ ...props, workflow }) }
     },
   }
+
+  Object.defineProperty(actionableWorkflow, WORKFLOW_STATE_REPORTER, {
+    value: reportWorkflowState,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  })
+
+  return actionableWorkflow
 }
