@@ -7,6 +7,7 @@ import { ActionMetadataStore } from './action-metadata'
 import { extractContext } from './context'
 import { IntegrationLogger } from './integration-logger'
 import { deliveryOutcomeResponse, isDeliveryOutcomeError } from './delivery-outcome'
+import { invokeDurableOperationHandler } from './durable-operation'
 import {
   CommonHandlerProps,
   IntegrationHandlers,
@@ -22,6 +23,7 @@ import {
 } from './types'
 
 export * from './types'
+export * from './durable-operation'
 export * from './integration-logger'
 export * from './delivery-outcome'
 
@@ -106,6 +108,11 @@ export const integrationHandler =
 
     try {
       let response: Response | void
+      response = await onDurableOperationHandler(props)
+      if (response) {
+        return { ...response, status: response.status ?? 200 }
+      }
+
       response = await onUnknownOperationHandler(props)
       if (response) {
         return { ...response, status: response.status ?? 200 }
@@ -242,4 +249,19 @@ const onUnknownOperationHandler = async ({
     req,
     abortSignal,
   })
+}
+
+const onDurableOperationHandler = async ({
+  instance,
+  client,
+  ctx,
+  logger,
+  req,
+}: ServerProps): Promise<Response | void> => {
+  if (ctx.operation !== 'integration_operation' || !instance.durableOperationHandler) return
+  return invokeDurableOperationHandler(
+    { client, ctx, logger },
+    req,
+    instance.durableOperationHandler,
+  )
 }

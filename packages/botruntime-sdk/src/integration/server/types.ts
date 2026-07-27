@@ -1,4 +1,8 @@
 import { type Conversation, type Message, type User } from '@holocronlab/botruntime-client'
+import type {
+  OperationCheckpointClient,
+  OperationFilesClient,
+} from '@holocronlab/botruntime-client'
 import type { commonTypes } from '../../common'
 import { Request, Response } from '../../serve'
 import { Cast, Merge, ValueOf } from '../../utils/type-utils'
@@ -147,6 +151,39 @@ export type UnknownOperationHandler<TIntegration extends BaseIntegration> = (
   }
 ) => Promise<Response | void>
 
+export type DurableOperationPhase = 'execute' | 'reconcile' | 'cancel'
+
+export type DurableOperationOutcome =
+  | { kind: 'succeeded'; result: Record<string, unknown> }
+  | { kind: 'failed'; errorCode: string; errorMessage: string }
+  | { kind: 'cancelled' }
+  | { kind: 'retry_safe' }
+  | { kind: 'still_unknown'; errorCode: string; errorMessage: string }
+  | { kind: 'outcome_unknown'; errorCode: string; errorMessage: string }
+
+export type DurableOperationHandlerProps<
+  TIntegration extends BaseIntegration,
+  TPreparedInput = Record<string, unknown>,
+> = CommonHandlerProps<TIntegration> & {
+  phase: DurableOperationPhase
+  operationId: string
+  attempt: number
+  action: string
+  idempotencyKey: string
+  input: TPreparedInput
+  deadline: string
+  cancelRequestedAt: string | null
+  files?: OperationFilesClient
+  checkpoint?: OperationCheckpointClient
+}
+
+export type DurableOperationHandler<
+  TIntegration extends BaseIntegration,
+  TPreparedInput = Record<string, unknown>,
+> = (
+  props: DurableOperationHandlerProps<TIntegration, TPreparedInput>
+) => Promise<DurableOperationOutcome>
+
 export type IntegrationHandlers<TIntegration extends BaseIntegration> = {
   register: RegisterHandler<TIntegration>
   unregister: UnregisterHandler<TIntegration>
@@ -155,6 +192,7 @@ export type IntegrationHandlers<TIntegration extends BaseIntegration> = {
   createConversation?: CreateConversationHandler<TIntegration>
   actions: ActionHandlers<TIntegration>
   channels: ChannelHandlers<TIntegration>
+  durableOperationHandler?: DurableOperationHandler<TIntegration>
   unknownOperationHandler?: UnknownOperationHandler<TIntegration>
   managesOwnTracePropagation?: boolean
 }

@@ -11,9 +11,13 @@ export * from './errors'
 export * from './types'
 export type {
   CancelIntegrationOperationInput,
+  FileRefV1,
   GetIntegrationOperationInput,
   IntegrationOperation,
   IntegrationOperationStatus,
+  OperationCheckpointClient,
+  OperationCheckpointSnapshot,
+  OperationFilesClient,
   StartIntegrationOperationInput,
 } from './integration-operations'
 export type {
@@ -52,6 +56,7 @@ export type {
   TransitionTableUniqueKeyOutput,
 } from './public/transition-table-unique-key'
 export { DownloadFileRefError } from './files/download-file-ref'
+export { OperationCapabilityError } from './integration-operations'
 export * from './gen/public/models'
 export { installAxiosErrorFidelity } from './common/axios'
 export { toApiError } from './common/errors'

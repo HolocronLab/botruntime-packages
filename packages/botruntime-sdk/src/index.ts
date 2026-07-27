@@ -6,7 +6,15 @@ export * from './zui'
 export {
   //
   isApiError,
+  OperationCapabilityError,
   RuntimeError,
+} from '@holocronlab/botruntime-client'
+
+export type {
+  FileRefV1,
+  OperationCheckpointClient,
+  OperationCheckpointSnapshot,
+  OperationFilesClient,
 } from '@holocronlab/botruntime-client'
 
 export {
@@ -33,6 +41,15 @@ export {
   SecretDefinition,
   IntegrationNetworkDefinition,
   EntityDefinition,
+  ExactFileRefSelectorV1,
+  FileRefAdmissionMode,
+  DurableOperationHandler,
+  DurableOperationHandlerProps,
+  DurableOperationOutcome,
+  DurableOperationPhase,
+  PreparedFileRefV1,
+  ResolveCurrentFileRefInputV1,
+  operationFileRef,
 } from './integration'
 
 export {
