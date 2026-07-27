@@ -6,7 +6,11 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.11.2 (current) — 2026-07-27
+## 0.11.3 (current) — 2026-07-27
+
+- Fixed `brt run` for agents installed with Bun's isolated workspace linker so generated runners no longer require manually hoisted internal runtime packages, including cached runs, and made dev readiness reject stale generated dependency links.
+
+## 0.11.2 — 2026-07-27
 
 - Fixed `brt run` regeneration by using BRT's native dependency installer and build command in-process instead of asking ADK to launch a second cached CLI.
 
