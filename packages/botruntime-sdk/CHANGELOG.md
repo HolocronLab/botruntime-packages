@@ -5,7 +5,13 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.19.7 (current) — 2026-07-27
+## 6.20.0 (current) — 2026-07-27
+
+- Added the durable integration-operation v1 boundary: operation-scoped streaming
+access to pinned file generations, fenced append-only checkpoints, strict
+sanitized handler envelopes, and schema-declared FileRef admission.
+
+## 6.19.7 — 2026-07-27
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.54.1
 

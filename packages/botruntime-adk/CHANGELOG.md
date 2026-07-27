@@ -7,7 +7,12 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.9.4 (current) — 2026-07-27
+## 2.9.5 (current) — 2026-07-27
+
+- Accept the BRT 0.12 release line in the explicit ADK compatibility contract
+while continuing to reject the next unverified CLI line.
+
+## 2.9.4 — 2026-07-27
 
 - Made classic `brt dev` apply and verify table key contracts instead of reporting schema-only updates as successful. Generated bots now use the canonical string `keyColumn` plus `keyColumnUnique` shape, and the control-plane client exposes the durable unique-key transition required for existing development tables. `brt dev --check` now fails closed when the cached development target differs from the declared contract, while production table publishing remains verify-only and directs changes through staged ADK deployments.
 
