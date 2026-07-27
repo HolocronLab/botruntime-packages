@@ -40,6 +40,27 @@ forked, MIT-attributed, and repointed:
 
 Cross-package deps use `file:` specs for local dev; publishing converts them to registry versions.
 
+## Clean worktree setup
+
+Focused package worktrees must use Bun `1.3.14`, matching CI. Install one
+package's dependencies from the repository root:
+
+```bash
+bash scripts/install-package-for-worktree.sh botruntime-api
+```
+
+The helper runs `bun install --no-save --ignore-scripts`, temporarily exposes
+the repository's shared patches when the package has no patches directory of
+its own, and verifies that `package.json` and `bun.lock` remain byte-for-byte
+unchanged. It also removes the temporary link when installation fails.
+
+Do not copy or symlink `node_modules` between worktrees: dependency state stays
+local to each checkout. Do not substitute `bun install --frozen-lockfile` for
+this focused flow. Bun 1.3.14 cannot re-read some lock entries that it writes
+for this repository's recursive `file:` graph. Full cross-package verification
+still follows `scripts/package-order.mjs`, building each dependency prefix
+before the target package, exactly as the `fork-package-tests` CI job does.
+
 ## API source of truth & codegen
 
 The Botpress-shaped API is defined via opapi and is the single source of truth for **both** the

@@ -62,6 +62,7 @@ jobs:
       - name: Test public registry configuration for the runtime release train
         run: |
           node --test scripts/formatter-safety.test.mjs
+          node --test scripts/install-package-for-worktree.test.mjs
           node --test scripts/runtime-package-registry-config.test.mjs
           node --test scripts/package-release-contract.test.mjs
           node --test scripts/release-version-closure.test.mjs
@@ -420,20 +421,7 @@ jobs:
 
           install_package_dependencies() {
             local package_dir="$1"
-            local patches_path="$package_dir/patches"
-            local linked_patches=0
-
-            if [ ! -e "$patches_path" ] && [ ! -L "$patches_path" ]; then
-              ln -s ../botruntime-llmz/patches "$patches_path"
-              linked_patches=1
-            fi
-
-            local install_status=0
-            (cd "$package_dir" && bun install --ignore-scripts --no-save) || install_status=$?
-            if [ "$linked_patches" -eq 1 ]; then
-              unlink "$patches_path"
-            fi
-            return "$install_status"
+            bash scripts/install-package-for-worktree.sh "${package_dir#packages/}"
           }
 
           is_known_red() {
