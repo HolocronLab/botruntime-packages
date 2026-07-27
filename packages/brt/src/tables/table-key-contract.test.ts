@@ -59,4 +59,38 @@ describe('table key contract readiness', () => {
     expect(report.ready).toBe(true)
     expect(report.items[0]?.ready).toBe(true)
   })
+
+  it('treats a unique boolean without an authoritative state as unknown', () => {
+    const report = auditTableKeyContracts(definition, [
+      {
+        name: 'AgentEventTable',
+        keyColumn: 'eventKey',
+        keyColumnUnique: true,
+      },
+    ])
+
+    expect(report.ready).toBe(false)
+    expect(report.items[0]?.actual.state).toBe('unknown')
+  })
+
+  it('keeps a legacy response without either unique field compatible as disabled', () => {
+    const report = auditTableKeyContracts(
+      {
+        tables: {
+          AgentEventTable: {
+            schema: sdk.z.object({ eventKey: sdk.z.string() }),
+          },
+        },
+      } as unknown as sdk.BotDefinition,
+      [
+        {
+          name: 'AgentEventTable',
+          keyColumn: null,
+        },
+      ]
+    )
+
+    expect(report.ready).toBe(true)
+    expect(report.items[0]?.actual.state).toBe('disabled')
+  })
 })

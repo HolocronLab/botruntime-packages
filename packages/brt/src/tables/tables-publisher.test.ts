@@ -272,6 +272,31 @@ describe('TablesPublisher unique key contract', () => {
     expect(client.updateTable).not.toHaveBeenCalled()
   })
 
+  it('fails production preflight when the unique state is missing', async () => {
+    const current = remoteTable('enabled')
+    Reflect.deleteProperty(current, 'keyColumnUniqueState')
+    const { client, logger, prompt, rootApi } = harness([current])
+    const publisher = new TablesPublisher({
+      api: rootApi as never,
+      logger: logger as never,
+      prompt: prompt as never,
+    })
+
+    await expect(
+      publisher.deployTables({
+        botId: '35',
+        botDefinition: {
+          tables: {
+            AgentEventTable: tableDefinition(),
+          },
+        } as unknown as sdk.BotDefinition,
+      })
+    ).rejects.toThrow(/key contract differs/)
+
+    expect(client.updateTable).not.toHaveBeenCalled()
+    expect(client.transitionTableUniqueKey).not.toHaveBeenCalled()
+  })
+
   it('keeps production sync verify-only when updateTable returns an incomplete key contract', async () => {
     const current = remoteTable('enabled')
     const { client, logger, prompt, rootApi } = harness([current])

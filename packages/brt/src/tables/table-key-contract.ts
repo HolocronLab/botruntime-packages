@@ -35,7 +35,10 @@ export type TableKeyContractReadiness = {
 export function tableUniqueState(
   table: Pick<RemoteTableKeyContract, 'keyColumnUnique' | 'keyColumnUniqueState'>
 ): string {
-  return table.keyColumnUniqueState ?? (table.keyColumnUnique ? 'enabled' : 'disabled')
+  if (table.keyColumnUniqueState !== undefined) {
+    return table.keyColumnUniqueState
+  }
+  return table.keyColumnUnique === undefined ? 'disabled' : 'unknown'
 }
 
 export function declaredTableKeyContract(
