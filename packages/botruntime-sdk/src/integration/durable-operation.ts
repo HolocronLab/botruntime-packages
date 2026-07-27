@@ -36,6 +36,7 @@ const annotation = (mode: FileRefAdmissionMode) => ({
  * The CLI lifts this private ZUI marker to the normative
  * `x-botruntime-fileRef` JSON Schema extension. CloudAPI replaces the selector
  * with an authoritative PreparedFileRefV1 before invoking a durable handler.
+ * The action must also declare `botruntime.fileRefAdmission=schema-v1`.
  */
 export function operationFileRef(mode: 'resolve-current'): z.ZodObject<{
   id: z.ZodString

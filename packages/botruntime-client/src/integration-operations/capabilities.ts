@@ -404,6 +404,8 @@ export const createOperationCheckpointClient = (
       return snapshot.entries
     },
     append(key: string, value: string, appendOptions?: { signal?: AbortSignal }): Promise<OperationCheckpointSnapshot> {
+      // expectedRevision makes appends sequential. A rejected append must not
+      // poison later calls; they continue from the last confirmed snapshot.
       const result = tail.then(() => appendExact(key, value, appendOptions?.signal))
       tail = result.then(() => undefined, () => undefined)
       return result

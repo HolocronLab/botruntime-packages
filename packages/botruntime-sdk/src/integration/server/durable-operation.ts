@@ -13,6 +13,9 @@ const MAX_ENVELOPE_BYTES = 1024 * 1024
 const MAX_TEXT_BYTES = 1024
 const MAX_INPUT_BYTES = 768 * 1024
 const PHASES = new Set<DurableOperationPhase>(['execute', 'reconcile', 'cancel'])
+// This is the sanitized application envelope. Deliberately keep
+// operationCapability and leaseGeneration out: the isolated process transport
+// consumes them before application code runs.
 const TOP_LEVEL_KEYS = new Set([
   'protocolVersion',
   'operationId',
