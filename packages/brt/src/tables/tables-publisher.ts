@@ -213,7 +213,11 @@ export class TablesPublisher {
     })
 
     let authoritative = updated.table
-    if (desiredUnique && tableUniqueState(authoritative) !== 'enabled') {
+    if (
+      this._allowUniqueKeyTransitions &&
+      desiredUnique &&
+      tableUniqueState(authoritative) !== 'enabled'
+    ) {
       authoritative = await this._transitionUniqueKey(api, existingTable.name, true)
     }
     this._assertUniqueContract(authoritative, {

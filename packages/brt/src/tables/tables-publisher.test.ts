@@ -272,6 +272,36 @@ describe('TablesPublisher unique key contract', () => {
     expect(client.updateTable).not.toHaveBeenCalled()
   })
 
+  it('keeps production sync verify-only when updateTable returns an incomplete key contract', async () => {
+    const current = remoteTable('enabled')
+    const { client, logger, prompt, rootApi } = harness([current])
+    client.updateTable.mockResolvedValue({
+      table: remoteTable('disabled', {
+        keyColumn: 'eventKey',
+        unique: false,
+      }),
+    })
+    const publisher = new TablesPublisher({
+      api: rootApi as never,
+      logger: logger as never,
+      prompt: prompt as never,
+    })
+
+    await expect(
+      publisher.deployTables({
+        botId: '35',
+        botDefinition: {
+          tables: {
+            AgentEventTable: tableDefinition(),
+          },
+        } as unknown as sdk.BotDefinition,
+      })
+    ).rejects.toThrow(/contract was not applied/)
+
+    expect(client.updateTable).toHaveBeenCalledOnce()
+    expect(client.transitionTableUniqueKey).not.toHaveBeenCalled()
+  })
+
   it('does not create a production table with a key contract outside staged deployment', async () => {
     const { client, logger, prompt, rootApi } = harness([])
     const publisher = new TablesPublisher({
