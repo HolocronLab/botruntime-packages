@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.19.6 (current) — 2026-07-27
+## 6.19.7 (current) — 2026-07-27
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.54.1
+
+## 6.19.6 — 2026-07-27
 
 - Synchronized runtime-owned workflow status updates with the SDK handler state chain so downstream handlers observe completed, failed, listening, and in-progress states without stale pending warnings.
 
