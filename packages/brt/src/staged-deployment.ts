@@ -254,7 +254,7 @@ export async function runStagedDeployment(
   }
 
   if (deployment.phase === 'fenced' || deployment.phase === 'draining') {
-    if (deployment.fenceGeneration === undefined) {
+    if (deployment.fenceGeneration == null) {
       throw new errors.BotpressCLIError('fenced deployment has no durable fence generation')
     }
     while (true) {
@@ -268,7 +268,9 @@ export async function runStagedDeployment(
         throw new errors.BotpressCLIError(
           `deployment ${deployment.id} remains safely fenced; old executions did not drain: ${formatDrain(
             drain
-          )}. Reconcile or terminally cancel those units, then rerun the same deploy to resume.`
+          )}. Reconcile or terminally cancel those units, then rerun the same deploy to resume. ` +
+            `To abandon this pre-schema deployment and preserve the active version, run ` +
+            `\`brt bots deployments abort ${deployment.id} --bot-id ${input.botId} --confirm\`.`
         )
       }
       await sleep(pollInterval)

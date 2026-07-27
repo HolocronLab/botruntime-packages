@@ -27,6 +27,9 @@ export default {
       list: commandImplementations.bots.subcommands.versions.subcommands.list,
       deploy: commandImplementations.bots.subcommands.versions.subcommands.deploy,
     },
+    deployments: {
+      abort: commandImplementations.bots.subcommands.deployments.subcommands.abort,
+    },
   },
   integrations: {
     get: commandImplementations.integrations.subcommands.get,

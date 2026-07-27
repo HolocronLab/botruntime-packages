@@ -300,7 +300,9 @@ describe('staged deployment orchestration', () => {
         now: vi.fn().mockReturnValue(100),
         observationTimeoutMs: 0,
       })
-    ).rejects.toThrow(/remains safely fenced.*jobs:pending=1.*jobs:unit-1/)
+    ).rejects.toThrow(
+      /remains safely fenced.*jobs:pending=1.*jobs:unit-1.*brt bots deployments abort .*--bot-id bot-1/
+    )
     expect(client.syncBotDeploymentSchema).not.toHaveBeenCalled()
     expect(client.activateBotDeployment).not.toHaveBeenCalled()
   })

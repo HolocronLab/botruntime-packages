@@ -36,6 +36,7 @@ export type BrtDocsContract = {
 
 const documentation: BrtDocsContract['documentation'] = {
   overviewCommandPaths: [
+    'bots deployments abort',
     'chat',
     'deploy',
     'dev',
@@ -61,6 +62,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'secret set',
   ],
   criticalOptions: {
+    'bots deployments abort': ['botId', 'confirm', 'json'],
     chat: ['chatApiUrl', 'protocol'],
     deploy: ['adk', 'allowDestructiveTableChanges', 'noBuild', 'noTypecheck', 'watch'],
     dev: ['check', 'json', 'port', 'watch'],
@@ -109,6 +111,7 @@ const documentation: BrtDocsContract['documentation'] = {
     'secret set': ['dev', 'valueFile'],
   },
   criticalUsages: {
+    'bots deployments abort': ['<deploymentId>'],
     'integrations install': ['<name@version>'],
     'integrations upgrade': ['<name@version>'],
     run: ['<scriptPath> [scriptArgs..]'],
@@ -190,11 +193,22 @@ const documentation: BrtDocsContract['documentation'] = {
         'brt workflows uses idempotent durable creation, cursor history, privacy-safe bounded projections, and an observation timeout that never cancels the workflow execution',
       documents: ['overview', 'reference'],
     },
+    {
+      id: 'safe-deployment-abort',
+      assertion:
+        'brt bots deployments abort only terminalizes pre-schema staged or fenced deployments, reads the authoritative environment fence generation after operator confirmation, preserves the active version, and accepts only the exact failed BOT_DEPLOYMENT_ABORTED terminal response',
+      documents: ['overview', 'reference'],
+    },
   ],
   workflows: [
     { id: 'profile-authentication', documents: ['overview', 'reference'], commandPaths: ['login'] },
     { id: 'agent-development', documents: ['overview', 'reference'], commandPaths: ['dev'] },
     { id: 'agent-production', documents: ['overview', 'reference'], commandPaths: ['deploy'] },
+    {
+      id: 'deployment-recovery',
+      documents: ['overview', 'reference'],
+      commandPaths: ['bots deployments abort'],
+    },
     {
       id: 'integration-lifecycle',
       documents: ['overview', 'reference'],
