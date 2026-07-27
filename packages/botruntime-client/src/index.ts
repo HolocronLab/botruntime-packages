@@ -45,6 +45,12 @@ export type {
   ReserveTableKeyOutput,
   TableRowMetadata,
 } from './tables/reserve-key'
+export type {
+  TableUniqueKeyContract,
+  TableUniqueKeyState,
+  TransitionTableUniqueKeyInput,
+  TransitionTableUniqueKeyOutput,
+} from './public/transition-table-unique-key'
 export { DownloadFileRefError } from './files/download-file-ref'
 export * from './gen/public/models'
 export { installAxiosErrorFidelity } from './common/axios'

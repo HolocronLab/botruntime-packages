@@ -355,6 +355,11 @@ function makeCommand(
       },
     }),
   })
+  ;(cmd as any)._readDevCheckTableReadiness = vi.fn().mockResolvedValue({
+    ready: true,
+    declared: 0,
+    items: [],
+  })
   return cmd
 }
 
@@ -419,6 +424,139 @@ describe('DevCommand --check', () => {
     expect(out.read()).toContain('telegram: registered')
     expect(out.read()).toContain('Eval transport: ready (botruntime/eval (native), manifest schema 2)')
     expect(out.read()).not.toContain('provision chat')
+  })
+
+  it('returns ok=false when the development table key contract is disabled', async () => {
+    vi.spyOn(CloudapiClient.prototype, 'getDevBotTarget').mockResolvedValue({
+      bot: {
+        ...devBot('dev_abc', '42'),
+        integrations: {
+          telegram: authoritativeIntegration(),
+        },
+      },
+    })
+    const out = captureStream()
+    const err = captureStream()
+    const logger = new Logger({
+      json: true,
+      outStream: out.stream,
+      errStream: err.stream,
+    })
+    const json = vi.spyOn(logger, 'json')
+    const cmd = makeCommand(
+      botpressHome,
+      workDir,
+      logger,
+      { json: true }
+    )
+    ;(cmd as any)._readDevCheckTableReadiness = vi.fn().mockResolvedValue({
+      ready: false,
+      declared: 1,
+      items: [
+        {
+          name: 'AgentEventTable',
+          ready: false,
+          expected: { keyColumn: 'eventKey', unique: true },
+          actual: {
+            exists: true,
+            keyColumn: null,
+            unique: false,
+            state: 'disabled',
+          },
+          reason: 'remote key contract differs from the declaration',
+        },
+      ],
+    })
+
+    const result = await cmd.handler()
+
+    expect(result.exitCode).toBe(1)
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: false,
+        tables: expect.objectContaining({
+          ready: false,
+          items: [
+            expect.objectContaining({
+              name: 'AgentEventTable',
+              ready: false,
+            }),
+          ],
+        }),
+      })
+    )
+    expect(err.read()).toContain('Development Tables are not ready')
+  })
+
+  it('audits the cached generated agent declaration against the selected development target', async () => {
+    const generatedDir = path.join(workDir, '.adk', 'bot')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(generatedDir, 'bot.definition.ts'),
+      `export default {
+        tables: {
+          AgentEventTable: {
+            keyColumn: 'eventKey',
+            keyColumnUnique: true
+          }
+        }
+      }`
+    )
+    const safeListTables = vi.fn().mockResolvedValue({
+      success: true,
+      tables: [
+        {
+          name: 'AgentEventTable',
+          keyColumn: null,
+          keyColumnUnique: false,
+          keyColumnUniqueState: 'disabled',
+        },
+      ],
+    })
+    const switchBot = vi.fn().mockReturnValue({ safeListTables })
+    const newClient = vi.fn().mockReturnValue({ switchBot })
+    const command = new DevCommand(
+      { newClient } as never,
+      {} as never,
+      new Logger(),
+      makeArgv(botpressHome, workDir) as never
+    )
+
+    await expect(
+      (command as any)._readDevCheckTableReadiness({
+        isAgent: true,
+        dir: workDir,
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+        token: 'brt_pat_xxx',
+        targetBotId: '42',
+      })
+    ).resolves.toMatchObject({
+      ready: false,
+      declared: 1,
+      items: [
+        {
+          name: 'AgentEventTable',
+          ready: false,
+          actual: {
+            keyColumn: null,
+            unique: false,
+            state: 'disabled',
+          },
+        },
+      ],
+    })
+
+    expect(newClient).toHaveBeenCalledWith(
+      {
+        apiUrl: 'https://cloud.example',
+        workspaceId: 'ws_123',
+        token: 'brt_pat_xxx',
+      },
+      expect.any(Logger)
+    )
+    expect(switchBot).toHaveBeenCalledWith('42')
+    expect(safeListTables).toHaveBeenCalledWith({})
   })
 
   it('reports a legacy server contract as unknown instead of claiming eval readiness', async () => {
