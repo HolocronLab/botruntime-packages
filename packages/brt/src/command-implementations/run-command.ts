@@ -1,8 +1,15 @@
-import { ScriptRunner } from '@holocronlab/botruntime-adk'
+import {
+  ScriptRunner,
+  type ScriptRunnerToolchain,
+} from '@holocronlab/botruntime-adk'
 import type commandDefinitions from '../command-definitions'
 import * as devWorkerEnv from '../dev-worker-env'
 import * as errors from '../errors'
+import type { CommandArgv } from '../typings'
+import { AddCommand, type AddCommandDefinition } from './add-command'
+import { BuildCommand, type BuildCommandDefinition } from './build-command'
 import { CloudCommand } from './cloud-command'
+import { ProjectDefinitionContext } from './project-command'
 
 export type RunCommandDefinition = typeof commandDefinitions.run
 
@@ -33,6 +40,7 @@ export class RunCommand extends CloudCommand<RunCommandDefinition> {
       credentials: credentials.credentials,
       forceRegenerate: this.argv.force,
       prod: this.argv.prod,
+      toolchain: this._buildScriptRunnerToolchain(),
     })
     const exitCode = await runner.run(this.argv.scriptPath, {
       args: this.argv.scriptArgs,
@@ -40,6 +48,42 @@ export class RunCommand extends CloudCommand<RunCommandDefinition> {
       inheritStdio: true,
     })
     this.setExitCode(exitCode)
+  }
+
+  private _buildScriptRunnerToolchain(): ScriptRunnerToolchain {
+    return {
+      installDependency: async ({ resource, botPath, workspaceId, credentials }) => {
+        const addArgv: CommandArgv<AddCommandDefinition> = {
+          ...this.argv,
+          profile: undefined,
+          packageRef: resource,
+          installPath: botPath,
+          useDev: false,
+          alias: undefined,
+          confirm: true,
+          apiUrl: credentials.apiUrl,
+          token: credentials.token,
+          workspaceId,
+        }
+        await new AddCommand(this.api, this.prompt, this.logger, addArgv).run()
+      },
+      buildGeneratedBot: async ({ botPath, sourceMap, minify }) => {
+        const buildArgv: CommandArgv<BuildCommandDefinition> = {
+          ...this.argv,
+          workDir: botPath,
+          sourceMap,
+          minify,
+        }
+        const projectContext = new ProjectDefinitionContext()
+        try {
+          await new BuildCommand(this.api, this.prompt, this.logger, buildArgv)
+            .setProjectContext(projectContext)
+            .run()
+        } finally {
+          await projectContext.dispose()
+        }
+      },
+    }
   }
 
   private async _resolveProductionCredentials(): Promise<{

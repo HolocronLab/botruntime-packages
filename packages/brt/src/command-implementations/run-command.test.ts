@@ -13,6 +13,13 @@ const envMocks = vi.hoisted(() => ({
   fetchDevConfigVars: vi.fn(async () => ({ REMOTE_SECRET: 'sealed' })),
   buildDevWorkerEnvironment: vi.fn(() => ({ SCRIPT_ENV: 'ready' })),
 }))
+const commandMocks = vi.hoisted(() => ({
+  addConstructors: [] as Array<Record<string, unknown>>,
+  addRun: vi.fn(async () => undefined),
+  buildConstructors: [] as Array<Record<string, unknown>>,
+  buildContexts: [] as unknown[],
+  buildRun: vi.fn(async () => undefined),
+}))
 
 vi.mock('@holocronlab/botruntime-adk', () => ({
   ScriptRunner: class ScriptRunner {
@@ -26,8 +33,46 @@ vi.mock('@holocronlab/botruntime-adk', () => ({
   },
 }))
 vi.mock('../dev-worker-env', () => envMocks)
+vi.mock('./add-command', () => ({
+  AddCommand: class AddCommand {
+    public constructor(
+      _api: unknown,
+      _prompt: unknown,
+      _logger: unknown,
+      argv: Record<string, unknown>
+    ) {
+      commandMocks.addConstructors.push(argv)
+    }
+
+    public run() {
+      return commandMocks.addRun()
+    }
+  },
+}))
+vi.mock('./build-command', () => ({
+  BuildCommand: class BuildCommand {
+    public constructor(
+      _api: unknown,
+      _prompt: unknown,
+      _logger: unknown,
+      argv: Record<string, unknown>
+    ) {
+      commandMocks.buildConstructors.push(argv)
+    }
+
+    public setProjectContext(context: unknown) {
+      commandMocks.buildContexts.push(context)
+      return this
+    }
+
+    public run() {
+      return commandMocks.buildRun()
+    }
+  },
+}))
 
 import { RunCommand } from './run-command'
+import { ProjectDefinitionContext } from './project-command'
 
 describe('brt run', () => {
   let workDir: string
@@ -39,6 +84,11 @@ describe('brt run', () => {
     runnerMocks.run.mockReset().mockResolvedValue(0)
     envMocks.fetchDevConfigVars.mockReset().mockResolvedValue({ REMOTE_SECRET: 'sealed' })
     envMocks.buildDevWorkerEnvironment.mockReset().mockReturnValue({ SCRIPT_ENV: 'ready' })
+    commandMocks.addConstructors.length = 0
+    commandMocks.addRun.mockReset().mockResolvedValue(undefined)
+    commandMocks.buildConstructors.length = 0
+    commandMocks.buildContexts.length = 0
+    commandMocks.buildRun.mockReset().mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -86,12 +136,16 @@ describe('brt run', () => {
       })
     )
     expect(runnerMocks.constructors).toEqual([
-      {
+      expect.objectContaining({
         projectPath: workDir,
         credentials: { token: 'pat_dev', apiUrl: 'https://cloud.example', workspaceId: '12' },
         forceRegenerate: true,
         prod: false,
-      },
+        toolchain: expect.objectContaining({
+          installDependency: expect.any(Function),
+          buildGeneratedBot: expect.any(Function),
+        }),
+      }),
     ])
     expect(runnerMocks.run).toHaveBeenCalledWith('scripts/check.ts', {
       args: ['alpha', 'beta'],
@@ -116,12 +170,95 @@ describe('brt run', () => {
     await command.run()
 
     expect(envMocks.fetchDevConfigVars).not.toHaveBeenCalled()
-    expect(runnerMocks.constructors[0]).toEqual({
+    expect(runnerMocks.constructors[0]).toEqual(expect.objectContaining({
       projectPath: workDir,
       credentials: { token: 'pat_prod', apiUrl: 'https://cloud.example', workspaceId: '12' },
       forceRegenerate: false,
       prod: true,
+      toolchain: expect.any(Object),
+    }))
+  })
+
+  it('injects native add and build commands instead of spawning another brt CLI', async () => {
+    const command = makeCommand()
+    ;(command as any).devCloudapiTarget = vi.fn(async () => ({
+      client: { base: 'https://cloud.example' },
+      workspaceId: '12',
+      runtimeBotId: 'dev_opaque',
+      targetBotId: '34',
+    }))
+    ;(command as any).resolveProfile = vi.fn(async () => ({
+      name: 'default',
+      profile: { token: 'pat_dev', apiUrl: 'https://cloud.example', workspaceId: '12' },
+    }))
+
+    await command.run()
+
+    const toolchain = runnerMocks.constructors[0]?.toolchain as {
+      installDependency: (args: Record<string, unknown>) => Promise<void>
+      buildGeneratedBot: (args: Record<string, unknown>) => Promise<void>
+    }
+    await toolchain.installDependency({
+      resource: 'integration:telegram@1.2.3',
+      botPath: '/generated/bot',
+      workspaceId: '12',
+      credentials: {
+        token: 'scoped-token',
+        apiUrl: 'https://scoped.example',
+        workspaceId: '12',
+      },
     })
+
+    expect(commandMocks.addConstructors).toEqual([
+      expect.objectContaining({
+        profile: undefined,
+        packageRef: 'integration:telegram@1.2.3',
+        installPath: '/generated/bot',
+        useDev: false,
+        alias: undefined,
+        confirm: true,
+        apiUrl: 'https://scoped.example',
+        token: 'scoped-token',
+        workspaceId: '12',
+      }),
+    ])
+
+    const dispose = vi
+      .spyOn(ProjectDefinitionContext.prototype, 'dispose')
+      .mockResolvedValue(undefined)
+    await toolchain.buildGeneratedBot({
+      botPath: '/generated/bot',
+      sourceMap: true,
+      minify: true,
+    })
+
+    expect(commandMocks.buildConstructors).toEqual([
+      expect.objectContaining({
+        workDir: '/generated/bot',
+        sourceMap: true,
+        minify: true,
+      }),
+    ])
+    expect(commandMocks.buildContexts).toHaveLength(1)
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('disposes the native build context when the generated build fails', async () => {
+    const command = makeCommand()
+    const toolchain = (command as any)._buildScriptRunnerToolchain()
+    const dispose = vi
+      .spyOn(ProjectDefinitionContext.prototype, 'dispose')
+      .mockResolvedValue(undefined)
+    commandMocks.buildRun.mockRejectedValueOnce(new Error('native build failed'))
+
+    await expect(
+      toolchain.buildGeneratedBot({
+        botPath: '/generated/bot',
+        sourceMap: true,
+        minify: true,
+      })
+    ).rejects.toThrow('native build failed')
+    expect(dispose).toHaveBeenCalledOnce()
   })
 
   it('rejects a local production mix before resolving credentials', async () => {

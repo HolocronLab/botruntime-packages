@@ -154,6 +154,63 @@ describe('ScriptRunner generation target', () => {
     }
   )
 
+  it('uses the owning CLI toolchain for dependency installation and build', async () => {
+    const installDependency = vi.fn()
+    const buildGeneratedBot = vi.fn().mockResolvedValue(undefined)
+    const runner = new ScriptRunner({
+      projectPath: '/agent',
+      credentials: CREDENTIALS,
+      forceRegenerate: true,
+      prod: false,
+      toolchain: { installDependency, buildGeneratedBot },
+    })
+    ;(runner as any).generateScriptRunner = vi.fn().mockResolvedValue(undefined)
+    ;(runner as any).writeArtifactTarget = vi.fn().mockResolvedValue(undefined)
+
+    await runner.prepare()
+
+    expect(generatorMocks.generateBotProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: '/agent',
+        outputPath: '/agent/.adk/bot',
+        installer: installDependency,
+      })
+    )
+    expect(buildGeneratedBot).toHaveBeenCalledWith({
+      botPath: '/agent/.adk/bot',
+      sourceMap: true,
+      minify: true,
+    })
+  })
+
+  it('keeps generated artifact provenance invalid when the native build fails', async () => {
+    const { projectPath, botPath } = writeCompleteArtifacts({
+      version: 1,
+      environment: 'dev',
+      botId: 'foreign_bot',
+      runtimeBotId: 'foreign_runtime',
+      apiUrl: CREDENTIALS.apiUrl,
+      workspaceId: CREDENTIALS.workspaceId,
+    })
+    projectMocks.load.mockResolvedValue({ path: projectPath, agentInfo: {} })
+    const buildGeneratedBot = vi.fn().mockRejectedValue(new Error('native build failed'))
+    const runner = new ScriptRunner({
+      projectPath,
+      credentials: CREDENTIALS,
+      prod: false,
+      toolchain: {
+        installDependency: vi.fn(),
+        buildGeneratedBot,
+      },
+    })
+    ;(runner as any).generateScriptRunner = vi.fn().mockResolvedValue(undefined)
+
+    await expect(runner.prepare()).rejects.toThrow('native build failed')
+
+    expect(buildGeneratedBot).toHaveBeenCalledOnce()
+    expect(fs.existsSync(path.join(botPath, '.botruntime-script-target.json'))).toBe(false)
+  })
+
   it('derives prod from agent.json only and never performs an ambient load with poisoned local metadata', async () => {
     const runner = new ScriptRunner({
       projectPath: '/agent',

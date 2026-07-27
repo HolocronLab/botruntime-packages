@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { resolveInstalledImportExport } from './installed-package-export.mjs'
 import { validateInstalledReleaseTrain } from './package-release-contract.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -43,3 +45,34 @@ const result = validateInstalledReleaseTrain(dependencyTree, expectedVersions, {
 console.log(
   `verified coherent installed release train: ${result.packages} package(s), ${result.checkedOccurrences} occurrence(s)`
 )
+
+const consumerDir = resolve(consumerArg)
+const consumerRequire = createRequire(resolve(consumerDir, 'package.json'))
+const bpCliContractPath = resolveInstalledImportExport(
+  consumerRequire,
+  '@holocronlab/botruntime-adk',
+  './internal/bp-cli'
+)
+const bpCliContract = await import(pathToFileURL(bpCliContractPath).href)
+if (typeof bpCliContract.resolveBpCliBinPath !== 'function') {
+  throw new Error('installed ADK does not export resolveBpCliBinPath')
+}
+
+const expectedBrtVersion = expectedVersions.get('@holocronlab/brt')
+if (!expectedBrtVersion) throw new Error('source release train does not contain @holocronlab/brt')
+const resolvedBrtBin = bpCliContract.resolveBpCliBinPath(consumerDir, expectedBrtVersion)
+const installedBrtVersion = execFileSync(resolvedBrtBin, ['--version'], {
+  cwd: consumerDir,
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim()
+if (installedBrtVersion !== expectedBrtVersion) {
+  throw new Error(
+    `ADK resolved BRT ${installedBrtVersion} at ${resolvedBrtBin}; expected ${expectedBrtVersion}`
+  )
+}
+execFileSync(resolvedBrtBin, ['run', '--help'], {
+  cwd: consumerDir,
+  stdio: ['ignore', 'ignore', 'inherit'],
+})
+console.log(`verified ADK -> BRT package bin contract: brt ${installedBrtVersion}; run --help`)
