@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.19.4 (current) — 2026-07-27
+## 6.19.5 (current) — 2026-07-27
+
+- Exposed `reserveTableKey` and `atomicTables` on `BotSpecificClient`, preserving client hooks and receiver binding so runtime table consistency primitives work in generated bots.
+
+## 6.19.4 — 2026-07-27
 
 - Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.54.0
 
