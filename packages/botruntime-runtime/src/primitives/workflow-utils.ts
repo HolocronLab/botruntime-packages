@@ -4,6 +4,10 @@ import { WorkflowDataRequestEvent } from '../runtime'
 import { isEvent } from '../utilities/events'
 
 type UpdateWorkflowInput = Client['updateWorkflow']
+const WORKFLOW_STATE_REPORTER = Symbol.for(
+  '@holocronlab/botruntime-sdk/workflow-state-reporter'
+)
+type WorkflowStateReporter = (newState: Workflow) => Promise<void>
 
 export function withWorkflowExecutionEvent<T extends object>(
   props: T & { eventId?: string },
@@ -18,7 +22,7 @@ export function withWorkflowExecutionEvent<T extends object>(
 export const updateWorkflow: UpdateWorkflowInput = async (props) => {
   const client = context.get('client')
   const workflowId = props.id
-  const workflowsToUpdate: Workflow[] = []
+  const workflowsToUpdate = new Set<Workflow>()
 
   const ctxWorkflow = context.get('workflow', { optional: true })
   const ctxWorkflowControl = context.get('workflowControlContext', {
@@ -26,17 +30,17 @@ export const updateWorkflow: UpdateWorkflowInput = async (props) => {
   })
 
   if (ctxWorkflow?.id === workflowId) {
-    workflowsToUpdate.push(ctxWorkflow)
+    workflowsToUpdate.add(ctxWorkflow)
   }
 
   if (ctxWorkflowControl?.workflow?.id === workflowId) {
-    workflowsToUpdate.push(ctxWorkflowControl.workflow)
+    workflowsToUpdate.add(ctxWorkflowControl.workflow)
   }
 
-  const executionEventId = workflowsToUpdate.length > 0 ? context.get('event', { optional: true })?.id : undefined
+  const executionEventId = workflowsToUpdate.size > 0 ? context.get('event', { optional: true })?.id : undefined
   props = withWorkflowExecutionEvent(props, executionEventId)
 
-  const workflowAlreadyDone = workflowsToUpdate.find(
+  const workflowAlreadyDone = [...workflowsToUpdate].find(
     (wf) => wf.status === 'cancelled' || wf.status === 'completed' || wf.status === 'failed' || wf.status === 'timedout'
   )
 
@@ -73,7 +77,16 @@ export const updateWorkflow: UpdateWorkflowInput = async (props) => {
   }
 
   for (const wf of workflowsToUpdate) {
-    Object.assign(wf, response.workflow)
+    const reporter = (
+      wf as Workflow & {
+        [WORKFLOW_STATE_REPORTER]?: WorkflowStateReporter
+      }
+    )[WORKFLOW_STATE_REPORTER]
+    if (reporter) {
+      await reporter(response.workflow)
+    } else {
+      Object.assign(wf, response.workflow)
+    }
   }
 
   return response
