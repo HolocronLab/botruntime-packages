@@ -153,6 +153,7 @@ jobs:
           node --test scripts/apply-integration-network-extension.test.mjs
           node --test scripts/apply-state-cas-extension.test.mjs
           node --test scripts/catalog-integration-network-policy.test.mjs
+          node --test scripts/tables-consistency-openapi.test.mjs
 
       - name: Type-check runtime row metadata contract
         working-directory: packages/botruntime-runtime

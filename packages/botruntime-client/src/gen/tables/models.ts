@@ -24,9 +24,9 @@ export interface Table {
   keyColumn?: string | null;
   keyColumnUnique?: boolean;
   keyColumnUniqueState?: "disabled" | "enabling" | "enabled" | "disabling" | "error";
-  keyColumnUniqueOperationId?: string;
+  keyColumnUniqueOperationId?: string | null;
   keyColumnUniqueAttempts?: number;
-  keyColumnUniqueLastErrorCode?: string;
+  keyColumnUniqueLastErrorCode?: string | null;
   uniqueGeneration?: number;
   schemaGeneration?: number;
   schema: {

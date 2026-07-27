@@ -143,6 +143,281 @@ function addSystemFilterContract(doc: JsonRecord): void {
   ]
 }
 
+function addStandaloneTablesConsistencyContract(doc: JsonRecord): void {
+  const components = doc.components as JsonRecord
+  const securitySchemes = (components.securitySchemes ??= {}) as JsonRecord
+  securitySchemes.BearerAuth = {
+    type: 'http',
+    scheme: 'bearer',
+  }
+  const schemas = components.schemas as JsonRecord
+  const row = schemas.Row as JsonRecord
+  row.required = ['id', 'rowVersion', 'computed', 'createdAt', 'updatedAt']
+  const table = schemas.Table as JsonRecord
+  const tableProperties = table.properties as JsonRecord
+  const keyColumn = tableProperties.keyColumn as JsonRecord
+  keyColumn.description =
+    'Declares the semantic key column. Physical uniqueness is opt-in through keyColumnUnique and is never enabled implicitly for legacy tables.'
+  Object.assign(tableProperties, {
+    keyColumnUnique: {
+      type: 'boolean',
+      description: 'Whether the physical unique-key contract is desired for this table.',
+    },
+    keyColumnUniqueState: {
+      type: 'string',
+      enum: ['disabled', 'enabling', 'enabled', 'disabling', 'error'],
+      description: 'Current durable unique-key contract state.',
+    },
+    keyColumnUniqueOperationId: {
+      type: 'string',
+      nullable: true,
+      description: 'Current or last unique-key transition operation identifier.',
+    },
+    keyColumnUniqueAttempts: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Number of attempts made by the current unique-key transition.',
+    },
+    keyColumnUniqueLastErrorCode: {
+      type: 'string',
+      nullable: true,
+      description: 'Stable error code from the latest failed unique-key transition.',
+    },
+    uniqueGeneration: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Monotonic generation of the physical unique-key contract.',
+    },
+    schemaGeneration: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Monotonic generation of the table schema contract.',
+    },
+  })
+
+  const requestBodies = components.requestBodies as JsonRecord
+  for (const name of ['createTableBody', 'getOrCreateTableBody']) {
+    const requestBody = requestBodies[name] as JsonRecord
+    const content = requestBody.content as JsonRecord
+    const media = content['application/json'] as JsonRecord
+    const schema = media.schema as JsonRecord
+    const properties = schema.properties as JsonRecord
+    const bodyKeyColumn = properties.keyColumn as JsonRecord
+    bodyKeyColumn.description =
+      'Declares the semantic key column. Set keyColumnUnique to true to opt a newly created table into physical uniqueness.'
+    properties.keyColumnUnique = {
+      type: 'boolean',
+      default: false,
+      description:
+        'Opt-in physical unique-key contract for a newly created table. Existing tables are never changed implicitly.',
+    }
+  }
+
+  const paths = doc.paths as JsonRecord
+  const findPath = paths['/v1/tables/{table}/rows/find'] as JsonRecord
+  const findPost = findPath.post as JsonRecord
+  const tableParameter = (findPost.parameters as JsonRecord[])[0]
+  if (tableParameter?.name !== 'table' || tableParameter.in !== 'path') {
+    throw new Error('local Tables contract drift: table path parameter is missing')
+  }
+  const callbackParameters: JsonRecord[] = [
+    { ...tableParameter },
+    {
+      name: 'x-bot-id',
+      in: 'header',
+      description: 'Bot id.',
+      required: true,
+      schema: { type: 'string' },
+    },
+    ...[
+      ['x-integration-id', 'Integration id.'],
+      ['x-integration-alias', 'Integration alias.'],
+      ['x-integration-name', 'Integration name.'],
+      ['x-user-id', 'User id.'],
+      ['x-user-role', 'User role.'],
+    ].map(([name, description]) => ({
+      name,
+      in: 'header',
+      description,
+      required: false,
+      schema: { type: 'string' },
+    })),
+  ]
+  const workspaceParameter = {
+    name: 'x-workspace-id',
+    in: 'header',
+    description:
+      'Workspace id. Required with a workspace PAT; omitted for a production bot API key.',
+    required: false,
+    schema: { type: 'string' },
+  }
+
+  paths['/v1/tables/{table}/rows/reserve'] = {
+    post: {
+      operationId: 'reserveTableKey',
+      summary: 'Reserve a unique key and return the winner',
+      description:
+        'Atomically inserts a complete row under an enabled physical unique-key contract. Exactly one caller receives created=true; conflicts return the existing winner without a dummy update. Reusing the same Idempotency-Key with the same request replays the exact original result.',
+      tags: ['documented'],
+      security: [{ BearerAuth: [] }],
+      parameters: [
+        ...callbackParameters,
+        workspaceParameter,
+        {
+          name: 'Idempotency-Key',
+          in: 'header',
+          required: true,
+          schema: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 255,
+            pattern: '^[!-~]+$',
+          },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['row'],
+              properties: {
+                row: {
+                  type: 'object',
+                  minProperties: 1,
+                  additionalProperties: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'The unique-key winner and whether this request created it.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['row', 'created'],
+                properties: {
+                  row: { $ref: '#/components/schemas/Row' },
+                  created: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description:
+            'Missing idempotency key, malformed row, or invalid/missing/null/empty/oversized unique key.',
+        },
+        404: { description: 'Table not found.' },
+        409: {
+          description:
+            'Idempotency-key reuse with a different request or a unique-key contract transition conflict.',
+        },
+        503: {
+          description:
+            'Bounded timeout or unknown commit outcome. Retry only as directed by metadata.retryable and metadata.recovery.',
+        },
+        default: {
+          description:
+            'Botruntime error envelope with stable metadata.errorCode, retryable, and recovery fields.',
+        },
+      },
+    },
+  }
+
+  paths['/v1/tables/{table}/unique-key'] = {
+    put: {
+      operationId: 'transitionTableUniqueKey',
+      summary: 'Enable or disable physical unique-key enforcement',
+      description:
+        'Starts or completes the durable unique-key state transition for a table. Requires an admin or deploy credential. Re-enabling is rejected while disabling cleanup is still in progress.',
+      tags: ['documented'],
+      security: [{ BearerAuth: [] }],
+      parameters: [
+        ...callbackParameters,
+        {
+          ...workspaceParameter,
+          description:
+            'Workspace id for the admin or deploy PAT. Required by this operation.',
+          required: true,
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['enabled'],
+              properties: {
+                enabled: { type: 'boolean' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'The transition completed synchronously.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['table'],
+                properties: {
+                  table: { $ref: '#/components/schemas/Table' },
+                },
+              },
+            },
+          },
+        },
+        202: {
+          description: 'The transition continues asynchronously.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['table'],
+                properties: {
+                  table: { $ref: '#/components/schemas/Table' },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Malformed request or the table has no valid keyColumn contract.',
+        },
+        403: {
+          description: 'An admin or deploy credential is required.',
+        },
+        404: { description: 'Table not found.' },
+        409: {
+          description:
+            'Duplicate existing keys, a conflicting contract change, or a transition already in use.',
+        },
+        503: {
+          description: 'The bounded transition budget was exhausted. Inspect stable error metadata.',
+        },
+        default: {
+          description:
+            'Botruntime error envelope with stable metadata.errorCode, retryable, and recovery fields.',
+        },
+      },
+    },
+  }
+}
+
 function addAtomicTablesContract(doc: JsonRecord): void {
   const components = doc.components as JsonRecord
   const schemas = components.schemas as JsonRecord
@@ -261,6 +536,7 @@ function addAtomicTablesContract(doc: JsonRecord): void {
       description:
         'Executes 1 to 50 ordered table operations in one READ COMMITTED PostgreSQL transaction. The required Idempotency-Key replays the exact original result. A failure rolls back every operation. Values may reference earlier named results with {$ref:{operation,path}} and an RFC 6901 path.',
       tags: ['documented'],
+      security: [{ BearerAuth: [] }],
       parameters: [
         {
           name: 'Idempotency-Key',
@@ -340,6 +616,7 @@ function addAtomicTablesContract(doc: JsonRecord): void {
 function applyLocalContracts(name: string, doc: JsonRecord): void {
   if (name !== 'public' && name !== 'tables') return
   addSystemFilterContract(doc)
+  addStandaloneTablesConsistencyContract(doc)
   addAtomicTablesContract(doc)
 }
 
