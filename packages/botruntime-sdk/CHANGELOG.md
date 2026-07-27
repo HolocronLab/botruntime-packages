@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.19.3 (current) — 2026-07-27
+## 6.19.4 (current) — 2026-07-27
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.54.0
+
+## 6.19.3 — 2026-07-27
 
 - Added typed table key reservation with mandatory idempotency, an exact
 `{ row, created: boolean }` result, and stable table conflict classification.

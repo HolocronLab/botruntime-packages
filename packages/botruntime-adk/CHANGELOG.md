@@ -7,7 +7,11 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.8.0 (current) — 2026-07-27
+## 2.9.0 (current) — 2026-07-27
+
+- Raised the Tables schema limit from 20 to 64 user-defined columns. The four system fields (`id`, `rowVersion`, `createdAt`, and `updatedAt`) do not count toward this limit.
+
+## 2.8.0 — 2026-07-27
 
 - Accept the `brt` 0.11 release line in the explicit ADK compatibility contract
 while continuing to reject the next unverified CLI line.
