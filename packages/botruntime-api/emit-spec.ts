@@ -38,8 +38,30 @@ const OUT_DIR = path.join(__dirname, 'openapi')
 // emitted spec so published-spec consumers / generated clients see the botruntime host.
 // Only the visible host string changes; /v1 paths and x-* headers are untouched (contract).
 const SERVER_URL = 'https://botruntime.ru'
+const MAX_TABLE_COLUMNS = 64
 
 type JsonRecord = Record<string, unknown>
+
+function addTableColumnLimitContract(doc: JsonRecord): void {
+  const components = doc.components as JsonRecord
+  const requestBodies = components.requestBodies as JsonRecord
+  const description =
+    `Provide an object or a JSON schema to define the user columns of the table. ` +
+    `A maximum of ${MAX_TABLE_COLUMNS} keys in the object/schema is allowed; system fields are excluded.`
+
+  for (const name of ['createTableBody', 'getOrCreateTableBody', 'updateTableBody']) {
+    const requestBody = requestBodies[name] as JsonRecord | undefined
+    const content = requestBody?.content as JsonRecord | undefined
+    const media = content?.['application/json'] as JsonRecord | undefined
+    const schema = media?.schema as JsonRecord | undefined
+    const properties = schema?.properties as JsonRecord | undefined
+    const tableSchema = properties?.schema as JsonRecord | undefined
+    if (!tableSchema) {
+      throw new Error(`local Tables contract drift: ${name}.schema is missing`)
+    }
+    tableSchema.description = description
+  }
+}
 
 const systemNumberCondition: JsonRecord = {
   oneOf: [
@@ -615,6 +637,7 @@ function addAtomicTablesContract(doc: JsonRecord): void {
 
 function applyLocalContracts(name: string, doc: JsonRecord): void {
   if (name !== 'public' && name !== 'tables') return
+  addTableColumnLimitContract(doc)
   addSystemFilterContract(doc)
   addStandaloneTablesConsistencyContract(doc)
   addAtomicTablesContract(doc)

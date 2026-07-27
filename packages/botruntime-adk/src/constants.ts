@@ -14,4 +14,4 @@ export const BUILTIN_INTERFACES = {
   listable: 'listable@0.0.2',
 } as const
 
-export const MAX_TABLE_COLUMNS = 20
+export const MAX_TABLE_COLUMNS = 64

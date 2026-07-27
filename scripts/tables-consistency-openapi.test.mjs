@@ -95,6 +95,17 @@ for (const specPath of specs) {
     const getOrCreateTable =
       spec.components.requestBodies.getOrCreateTableBody.content['application/json'].schema
     assert.equal(getOrCreateTable.properties.keyColumnUnique.type, 'boolean')
+    for (const requestBody of [
+      'createTableBody',
+      'getOrCreateTableBody',
+      'updateTableBody',
+    ]) {
+      const tableSchema =
+        spec.components.requestBodies[requestBody].content['application/json'].schema
+          .properties.schema
+      assert.match(tableSchema.description, /maximum of 64 keys/i)
+      assert.match(tableSchema.description, /system fields are excluded/i)
+    }
 
     const table = spec.components.schemas.Table
     assert.equal(table.properties.keyColumnUnique.type, 'boolean')
@@ -131,5 +142,13 @@ test('generated clients preserve nullable unique-key diagnostics', () => {
     )
     assert.match(models, /keyColumnUniqueOperationId\?: string \| null;/)
     assert.match(models, /keyColumnUniqueLastErrorCode\?: string \| null;/)
+    for (const operation of ['createTable', 'getOrCreateTable', 'updateTable']) {
+      const source = fs.readFileSync(
+        `packages/botruntime-client/src/gen/${section}/operations/${operation}.ts`,
+        'utf8',
+      )
+      assert.match(source, /maximum of 64 keys/i)
+      assert.match(source, /system fields are excluded/i)
+    }
   }
 })

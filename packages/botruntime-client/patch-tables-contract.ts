@@ -39,6 +39,14 @@ const patchFirst = async (
 
 const main = async (): Promise<void> => {
   for (const section of ['public', 'tables']) {
+    for (const operation of ['createTable', 'getOrCreateTable', 'updateTable']) {
+      await patch(
+        `${section}/operations/${operation}.ts`,
+        'Provide an object or a JSON schema to define the columns of the table. A maximum of 20 keys in the object/schema is allowed.',
+        'Provide an object or a JSON schema to define the user columns of the table. A maximum of 64 keys in the object/schema is allowed; system fields are excluded.'
+      )
+    }
+
     for (const operation of ['findTableRows', 'deleteTableRows']) {
       const path = `${section}/operations/${operation}.ts`
       await patchFirst(
