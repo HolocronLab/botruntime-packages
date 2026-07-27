@@ -7,7 +7,11 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.9.0 (current) — 2026-07-27
+## 2.9.1 (current) — 2026-07-27
+
+- Resolved standalone BRT executables from the installed package's validated `package.json#bin` contract instead of a hard-coded `bin.js` path, and added an in-process script-runner toolchain adapter.
+
+## 2.9.0 — 2026-07-27
 
 - Raised the Tables schema limit from 20 to 64 user-defined columns. The four system fields (`id`, `rowVersion`, `createdAt`, and `updatedAt`) do not count toward this limit.
 
