@@ -5,7 +5,13 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/client@1.46.0` src; `gen/` is codegenerated from the pinned API. Byte-exact type
 surface (71 `/v1` path templates) — see `docs/adr/0005-opapi-as-source-of-truth.md` and README.md.
 
-## 1.54.1 (current) — 2026-07-27
+## 1.55.0 (current) — 2026-07-27
+
+- Added the durable integration-operation v1 boundary: operation-scoped streaming
+access to pinned file generations, fenced append-only checkpoints, strict
+sanitized handler envelopes, and schema-declared FileRef admission.
+
+## 1.54.1 — 2026-07-27
 
 - Made classic `brt dev` apply and verify table key contracts instead of reporting schema-only updates as successful. Generated bots now use the canonical string `keyColumn` plus `keyColumnUnique` shape, and the control-plane client exposes the durable unique-key transition required for existing development tables. `brt dev --check` now fails closed when the cached development target differs from the declared contract, while production table publishing remains verify-only and directs changes through staged ADK deployments.
 
