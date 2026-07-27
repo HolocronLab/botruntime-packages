@@ -6,7 +6,11 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.11.4 (current) — 2026-07-27
+## 0.11.5 (current) — 2026-07-27
+
+- Made classic `brt dev` apply and verify table key contracts instead of reporting schema-only updates as successful. Generated bots now use the canonical string `keyColumn` plus `keyColumnUnique` shape, and the control-plane client exposes the durable unique-key transition required for existing development tables. `brt dev --check` now fails closed when the cached development target differs from the declared contract, while production table publishing remains verify-only and directs changes through staged ADK deployments.
+
+## 0.11.4 — 2026-07-27
 
 - Updated the coherent BRT/ADK runtime train to deliver synchronized workflow handler state tracking.
 
