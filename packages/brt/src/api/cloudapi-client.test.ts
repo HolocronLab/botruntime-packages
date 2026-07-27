@@ -262,6 +262,60 @@ describe('CloudapiClient', () => {
     expect(headers['x-bot-id']).toBe('3')
   })
 
+  it('stages an exact deployment target with a real idempotency header', async () => {
+    stubFetch(() =>
+      Response.json({
+        deployment: {
+          id: '00000000-0000-5000-8000-000000000001',
+          phase: 'staged',
+          transitionMode: 'fence',
+          expectedCurrentVersionId: 7,
+          stagedVersionId: 8,
+          finalVersionId: 8,
+          targetTableContracts: {},
+          schemaMutated: false,
+        },
+      })
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await client.stageBotDeployment({
+      botId: '3',
+      workspaceId: 'ws_123',
+      idempotencyKey: 'brt-staged-proof',
+      deploymentId: '00000000-0000-5000-8000-000000000001',
+      transitionMode: 'fence',
+      expectedCurrentVersionId: 7,
+      name: 'lawyer',
+      code: 'module.exports = {}',
+      definition: { commands: [], recurringEvents: {} },
+      tables: [
+        {
+          name: 'Claims',
+          keyColumn: 'key',
+          keyColumnUnique: true,
+          schema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] },
+        },
+      ],
+      stateCodecDigest: 'codec-v1',
+    })
+
+    const [call] = calls
+    expect(call!.url).toBe('https://cloud.example/v1/admin/bots/3/deployments')
+    expect(call!.init.method).toBe('POST')
+    expect(call!.init.headers).toMatchObject({
+      authorization: 'Bearer brt_pat_xxx',
+      'x-workspace-id': 'ws_123',
+      'idempotency-key': 'brt-staged-proof',
+    })
+    expect(JSON.parse(String(call!.init.body))).toMatchObject({
+      deploymentId: '00000000-0000-5000-8000-000000000001',
+      transitionMode: 'fence',
+      expectedCurrentVersionId: 7,
+      tables: [{ name: 'Claims', keyColumnUnique: true }],
+    })
+  })
+
   it('getDevBotTarget resolves the opaque dev id under the exact PAT workspace without x-bot-id', async () => {
     stubFetch(
       () =>

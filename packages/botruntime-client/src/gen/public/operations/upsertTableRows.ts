@@ -64,11 +64,11 @@ export interface UpsertTableRowsResponse {
     /**
      * Timestamp of row creation.
      */
-    createdAt?: string;
+    createdAt: string;
     /**
      * Timestamp of the last row update.
      */
-    updatedAt?: string;
+    updatedAt: string;
     computed: {
       [k: string]: {
         status: string;
@@ -99,11 +99,11 @@ export interface UpsertTableRowsResponse {
     /**
      * Timestamp of row creation.
      */
-    createdAt?: string;
+    createdAt: string;
     /**
      * Timestamp of the last row update.
      */
-    updatedAt?: string;
+    updatedAt: string;
     computed: {
       [k: string]: {
         status: string;
@@ -131,4 +131,3 @@ export interface UpsertTableRowsResponse {
    */
   errors?: string[];
 }
-

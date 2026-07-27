@@ -23,6 +23,10 @@ export interface GetOrCreateTableRequestBody {
    */
   keyColumn?: string | null;
   /**
+   * Opts a newly created table into the physical unique key contract.
+   */
+  keyColumnUnique?: boolean;
+  /**
    * Provide an object or a JSON schema to define the columns of the table. A maximum of 20 keys in the object/schema is allowed.
    */
   schema: {
@@ -55,7 +59,7 @@ export const parseReq = (input: GetOrCreateTableInput): GetOrCreateTableRequest 
     headers: {  },
     query: {  },
     params: { 'table': input['table'] },
-    body: { 'factor': input['factor'], 'frozen': input['frozen'], 'keyColumn': input['keyColumn'], 'schema': input['schema'], 'tags': input['tags'], 'isComputeEnabled': input['isComputeEnabled'] },
+    body: { 'factor': input['factor'], 'frozen': input['frozen'], 'keyColumn': input['keyColumn'], 'keyColumnUnique': input['keyColumnUnique'], 'schema': input['schema'], 'tags': input['tags'], 'isComputeEnabled': input['isComputeEnabled'] },
   }
 }
 
@@ -213,4 +217,3 @@ export interface GetOrCreateTableResponse {
    */
   indexing: number;
 }
-

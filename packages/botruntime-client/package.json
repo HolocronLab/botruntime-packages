@@ -26,7 +26,7 @@
     "build:node": "ts-node -T ./build.ts --node",
     "build:bundle": "ts-node -T ./build.ts --bundle",
     "build": "ts-node -T ./build.ts --node && ts-node -T ./build.ts --browser && ts-node -T ./build.ts --bundle && rollup -c rollup.dts.config.mjs",
-    "generate": "ts-node ./openapi.ts",
+    "generate": "ts-node ./openapi.ts && ts-node ./patch-tables-contract.ts",
     "test": "vitest --run"
   },
   "dependencies": {

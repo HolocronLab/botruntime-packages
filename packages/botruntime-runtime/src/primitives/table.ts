@@ -55,7 +55,12 @@ export namespace Typings {
     description?: string
     factor?: number
     columns: Record<string, ColumnDefinition<TName> | z.ZodType>
-    keyColumn?: keyof TableDefinitions[TName]['Output']
+    keyColumn?:
+      | keyof TableDefinitions[TName]['Output']
+      | {
+          name: keyof TableDefinitions[TName]['Output']
+          unique: true
+        }
     tags?: Record<string, string>
   }
 
@@ -105,6 +110,13 @@ export type TableFilter<TColumns, TName extends string = string> = {
 } & LogicalFilter<TColumns, TName>
 
 export type OrderDirection = 'asc' | 'desc'
+
+export type TableSystemFields = {
+  id: number
+  rowVersion: number
+  createdAt: Date
+  updatedAt: Date
+}
 
 // Aggregation operations available for different column types
 type NumberAggregations = 'key' | 'count' | 'sum' | 'avg' | 'max' | 'min' | 'unique'
@@ -195,8 +207,8 @@ type GroupResultShape<TColumns, TGroup> =
     : never
 
 export interface FindRowsOptions<TName extends string> {
-  filter?: TableFilter<TableDefinitions[TName]['Input'], TName>
-  orderBy?: keyof TableDefinitions[TName]['Output']
+  filter?: TableFilter<TableDefinitions[TName]['Input'] & TableSystemFields, TName>
+  orderBy?: keyof TableDefinitions[TName]['Output'] | keyof TableSystemFields | 'row_id'
   orderDirection?: OrderDirection
   limit?: number
   offset?: number
@@ -206,11 +218,20 @@ export interface FindRowsOptions<TName extends string> {
 
 type Row<Shape> = TableRowMetadata & Shape
 
+export type ReserveKeyResult<TRow> = {
+  row: TableRowMetadata & TRow
+  created: boolean
+}
+
 type SearchResult<Shape> = TableRowMetadata & {
   similarity: number
 } & Shape
 
 export class BaseTable<TName extends string = string> implements Definitions.Primitive {
+  /** @internal Type-only carrier used by cross-table operations. */
+  public declare readonly __tableInput?: TableDefinitions[TName]['Input']
+  /** @internal Type-only carrier used by cross-table operations. */
+  public declare readonly __tableOutput?: TableDefinitions[TName]['Output']
   public readonly name: TName
   public readonly description?: string
   public readonly factor: number
@@ -218,6 +239,7 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
   public readonly schema: z.ZuiObjectSchema
   public readonly type: Definitions.PrimitiveDefinition['type'] = 'table'
   public readonly keyColumn?: string
+  public readonly keyColumnUnique: boolean
   public readonly tags?: Record<string, string>
 
   public readonly nullableColumns: Set<string> = new Set()
@@ -342,14 +364,42 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
       )
     }
 
+    this.keyColumnUnique = false
     if (props.keyColumn) {
-      if (typeof props.keyColumn !== 'string' || !(props.keyColumn in this.columns)) {
+      const keyColumn =
+        typeof props.keyColumn === 'object'
+          ? String(props.keyColumn.name)
+          : String(props.keyColumn)
+      if (!(keyColumn in this.columns)) {
         throw new Errors.InvalidPrimitiveError(
-          `Invalid keyColumn '${String(props.keyColumn)}' for table '${props.name}': column does not exist`
+          `Invalid keyColumn '${keyColumn}' for table '${props.name}': column does not exist`
         )
       }
 
-      this.keyColumn = String(props.keyColumn)
+      const unique = typeof props.keyColumn === 'object' && props.keyColumn.unique === true
+      if (unique) {
+        const column = this.columns[keyColumn]!
+        const columnSchema = column.schema as z.ZodTypeAny
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const jsonSchema = z.transforms.toJSONSchemaLegacy(columnSchema as any) as {
+          type?: string | string[]
+        }
+        const supportedType =
+          jsonSchema.type === 'string' || jsonSchema.type === 'number' || jsonSchema.type === 'integer'
+        if (
+          column.computed === true ||
+          columnSchema.isOptional() ||
+          columnSchema.isNullable() ||
+          !supportedType
+        ) {
+          throw new Errors.InvalidPrimitiveError(
+            `Invalid unique keyColumn '${keyColumn}' for table '${props.name}': unique keys must be required, non-nullable, non-computed strings or numbers`
+          )
+        }
+      }
+
+      this.keyColumn = keyColumn
+      this.keyColumnUnique = unique
     }
 
     this.schema = schema as unknown as z.ZuiObjectSchema
@@ -384,6 +434,7 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
       schema,
       factor: this.factor,
       keyColumn: this.keyColumn!,
+      keyColumnUnique: this.keyColumnUnique,
       tags: this.tags!,
     }
 
@@ -470,6 +521,20 @@ export class BaseTable<TName extends string = string> implements Definitions.Pri
       errors?: string[]
       warnings?: string[]
     }
+  }
+
+  async reserveKey(props: {
+    row: TableDefinitions[TName]['Input']
+    idempotencyKey: string
+  }): Promise<ReserveKeyResult<TableDefinitions[TName]['Output']>> {
+    const result = await withTableNotFoundHint(this.name, () =>
+      this.client.reserveTableKey({
+        table: this.name,
+        row: props.row as Record<string, unknown>,
+        idempotencyKey: props.idempotencyKey,
+      })
+    )
+    return result as ReserveKeyResult<TableDefinitions[TName]['Output']>
   }
 
   async deleteAllRows(): Promise<{ deletedRows: number }> {

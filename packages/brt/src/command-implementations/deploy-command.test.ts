@@ -4,6 +4,7 @@ import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as adkBundle from '../adk-bundle'
 import * as toolchainContract from '../toolchain-contract'
+import * as stagedDeployment from '../staged-deployment'
 import { CloudapiClient } from '../api/cloudapi-client'
 import { Logger } from '../logger'
 import * as utils from '../utils'
@@ -19,12 +20,18 @@ function makeCommand(workDir: string, overrides: Record<string, unknown> = {}): 
     noBuild: false,
     ...overrides,
   }
-  return new DeployCommand(
+  const command = new DeployCommand(
     { newClient: vi.fn(() => ({ client: {} })) } as any,
     {} as any,
     new Logger(),
     argv as any
   )
+  ;(command as any)._prepareAdkStagedDeployment = vi.fn().mockResolvedValue({
+    tables: [],
+    changed: false,
+    stateCodecDigest: 'test-codec',
+  })
+  return command
 }
 
 function writeExistingBundle(workDir: string, code = 'module.exports = {}'): string {
@@ -60,17 +67,53 @@ type CapturedPut = {
 }
 
 function capturePutBundles(calls: CapturedPut[]) {
-  return vi.spyOn(CloudapiClient.prototype, 'putBundle').mockImplementation(async function (
-    this: CloudapiClient,
-    ...args
-  ) {
+  return vi.spyOn(stagedDeployment, 'runStagedDeployment').mockImplementation(async (client, input) => {
+    const definition = input.definition as {
+      commands?: Parameters<CloudapiClient['putBundle']>[3]
+      recurringEvents?: Parameters<CloudapiClient['putBundle']>[5]
+      maxExecutionTime?: number
+    }
+    const baseArgs = [
+      input.botId,
+      input.name,
+      input.code,
+      definition.commands ?? [],
+      input.workspaceId,
+      definition.recurringEvents ?? {},
+    ] as const
+    const args: Parameters<CloudapiClient['putBundle']> =
+      definition.maxExecutionTime === undefined
+        ? [...baseArgs]
+        : [...baseArgs, definition.maxExecutionTime]
     calls.push({
-      baseUrl: this.base,
-      apiKey: (this as unknown as { apiKey: string }).apiKey,
+      baseUrl: (client as CloudapiClient).base,
+      apiKey: (client as unknown as { apiKey: string }).apiKey,
       args,
     })
-    return {}
+    return {
+      id: '00000000-0000-5000-8000-000000000000',
+      phase: 'activated',
+      transitionMode: 'fence',
+      expectedCurrentVersionId: 1,
+      stagedVersionId: 2,
+      finalVersionId: 2,
+      targetTableContracts: {},
+      schemaMutated: false,
+    }
   })
+}
+
+function lastStagedDeployment() {
+  const calls = vi.mocked(stagedDeployment.runStagedDeployment).mock.calls
+  const [client, input] = calls.at(-1) ?? []
+  if (!client || !input) {
+    throw new Error('staged deployment was not called')
+  }
+  return {
+    baseUrl: (client as CloudapiClient).base,
+    apiKey: (client as unknown as { apiKey: string }).apiKey,
+    input,
+  }
 }
 
 describe('DeployCommand ADK watch routing', () => {
@@ -81,6 +124,16 @@ describe('DeployCommand ADK watch routing', () => {
     vi.spyOn(toolchainContract, 'assertPlatformToolchainCompatible').mockImplementation(() => undefined)
     vi.spyOn(adkBundle, 'loadAgentDeploymentConfig').mockResolvedValue({ recurringEvents: {} })
     vi.spyOn(CloudapiClient.prototype, 'listWorkspaceIntegrations').mockResolvedValue({ installations: [] })
+    vi.spyOn(stagedDeployment, 'runStagedDeployment').mockResolvedValue({
+      id: '00000000-0000-5000-8000-000000000000',
+      phase: 'activated',
+      transitionMode: 'fence',
+      expectedCurrentVersionId: 1,
+      stagedVersionId: 2,
+      finalVersionId: 2,
+      targetTableContracts: {},
+      schemaMutated: false,
+    })
     vi.spyOn(adkBundle, 'loadAdkMigrationTools').mockResolvedValue({
       migrateFromConfig: vi.fn(async () => ({
         migrated: [],
@@ -424,13 +477,12 @@ describe('DeployCommand ADK watch routing', () => {
       apiKey: 'per_bot_key',
     })
     const buildSpy = vi.spyOn(adkBundle, 'generateAgentBot')
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle')
 
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/--noBuild.*linked|linked.*--noBuild/i)
 
     expect(provisionSpy).not.toHaveBeenCalled()
     expect(buildSpy).not.toHaveBeenCalled()
-    expect(putSpy).not.toHaveBeenCalled()
+    expect(stagedDeployment.runStagedDeployment).not.toHaveBeenCalled()
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
   })
@@ -456,7 +508,7 @@ describe('DeployCommand ADK watch routing', () => {
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/--noBuild.*linked|linked.*--noBuild/i)
 
     expect(provisionSpy).not.toHaveBeenCalled()
-    expect(putSpy).not.toHaveBeenCalled()
+    expect(stagedDeployment.runStagedDeployment).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -489,12 +541,11 @@ describe('DeployCommand ADK watch routing', () => {
       token: 'local_profile_pat',
     })
     const provisionSpy = vi.spyOn(CloudapiClient.prototype, 'provisionBot')
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle')
 
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/--noBuild.*linked|linked.*--noBuild/i)
 
     expect(provisionSpy).not.toHaveBeenCalled()
-    expect(putSpy).not.toHaveBeenCalled()
+    expect(stagedDeployment.runStagedDeployment).not.toHaveBeenCalled()
     expect(fs.readFileSync(localPath, 'utf8')).toBe(localBytes)
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
@@ -522,12 +573,21 @@ describe('DeployCommand ADK watch routing', () => {
     ;(command as any)._syncAdkTables = vi.fn().mockResolvedValue(undefined)
     ;(command as any)._writeAdkLastDeploy = vi.fn()
     const provisionSpy = vi.spyOn(CloudapiClient.prototype, 'provisionBot')
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue(undefined)
 
     await (command as any)._deployAdkBundle()
 
     expect(provisionSpy).not.toHaveBeenCalled()
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'argv-only bundle', [], 'ws_profile', {})
+    expect(lastStagedDeployment()).toMatchObject({
+      baseUrl: 'https://profile.example',
+      apiKey: 'profile_pat',
+      input: {
+        botId: '42',
+        workspaceId: 'ws_profile',
+        name: '42',
+        code: 'argv-only bundle',
+        definition: { commands: [], recurringEvents: {} },
+      },
+    })
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
     expect(fs.existsSync(path.join(workDir, 'agent.local.json'))).toBe(false)
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
@@ -583,11 +643,10 @@ describe('DeployCommand ADK watch routing', () => {
     const lastDeploySpy = vi.fn()
     ;(command as any)._syncAdkTables = syncSpy
     ;(command as any)._writeAdkLastDeploy = lastDeploySpy
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue(undefined)
 
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/provenance|rebuild without --noBuild/i)
 
-    expect(putSpy).not.toHaveBeenCalled()
+    expect(stagedDeployment.runStagedDeployment).not.toHaveBeenCalled()
     expect(syncSpy).not.toHaveBeenCalled()
     expect(lastDeploySpy).not.toHaveBeenCalled()
     expect(fs.readFileSync(agentPath, 'utf8')).toBe(agentBytes)
@@ -646,13 +705,16 @@ describe('DeployCommand ADK watch routing', () => {
     })
     ;(command as any)._syncAdkTables = vi.fn().mockResolvedValue(undefined)
     ;(command as any)._writeAdkLastDeploy = vi.fn()
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue(undefined)
     const buildSpy = vi.spyOn(adkBundle, 'generateAgentBot')
 
     await (command as any)._deployAdkBundle()
 
     expect(buildSpy).not.toHaveBeenCalled()
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'trusted override bundle', [], 'ws_profile', {})
+    expect(lastStagedDeployment().input).toMatchObject({
+      botId: '42',
+      workspaceId: 'ws_profile',
+      code: 'trusted override bundle',
+    })
     expect(stderr.mock.calls.flat().join(' ')).toMatch(/provenance.*bypass|explicitly trusted/i)
     expect(fs.existsSync(`${overridePath}.provenance.json`)).toBe(false)
   })
@@ -677,12 +739,11 @@ describe('DeployCommand ADK watch routing', () => {
       token: 'profile_pat',
     })
     const provisionSpy = vi.spyOn(CloudapiClient.prototype, 'provisionBot')
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle')
 
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/BRT_BUNDLE_PATH.*readable regular file/i)
 
     expect(provisionSpy).not.toHaveBeenCalled()
-    expect(putSpy).not.toHaveBeenCalled()
+    expect(stagedDeployment.runStagedDeployment).not.toHaveBeenCalled()
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
     expect(fs.existsSync(path.join(workDir, 'agent.local.json'))).toBe(false)
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
@@ -709,11 +770,10 @@ describe('DeployCommand ADK watch routing', () => {
     })
     const syncSpy = vi.fn().mockResolvedValue(undefined)
     ;(command as any)._syncAdkTables = syncSpy
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue(undefined)
 
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/provenance|rebuild without --noBuild/i)
 
-    expect(putSpy).not.toHaveBeenCalled()
+    expect(stagedDeployment.runStagedDeployment).not.toHaveBeenCalled()
     expect(syncSpy).not.toHaveBeenCalled()
   })
 
@@ -745,11 +805,14 @@ describe('DeployCommand ADK watch routing', () => {
     })
     ;(command as any)._syncAdkTables = vi.fn().mockResolvedValue(undefined)
     ;(command as any)._writeAdkLastDeploy = vi.fn()
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue(undefined)
 
     await (command as any)._deployAdkBundle()
 
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'verified override bundle', [], 'ws_profile', {})
+    expect(lastStagedDeployment().input).toMatchObject({
+      botId: '42',
+      workspaceId: 'ws_profile',
+      code: 'verified override bundle',
+    })
   })
 
   it('normal ADK build writes exact target provenance before upload without secrets', async () => {
@@ -775,9 +838,18 @@ describe('DeployCommand ADK watch routing', () => {
     ;(command as any)._writeAdkLastDeploy = vi.fn()
     const provenancePath = `${bundlePath}.provenance.json`
     let provenanceAtUpload: unknown
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockImplementation(async () => {
+    vi.mocked(stagedDeployment.runStagedDeployment).mockImplementation(async () => {
       provenanceAtUpload = JSON.parse(fs.readFileSync(provenancePath, 'utf8'))
-      return undefined
+      return {
+        id: '00000000-0000-5000-8000-000000000000',
+        phase: 'activated',
+        transitionMode: 'fence',
+        expectedCurrentVersionId: 1,
+        stagedVersionId: 2,
+        finalVersionId: 2,
+        targetTableContracts: {},
+        schemaMutated: false,
+      }
     })
 
     await (command as any)._deployAdkBundle()
@@ -792,7 +864,7 @@ describe('DeployCommand ADK watch routing', () => {
     })
     expect(provenanceAtUpload).toEqual(provenance)
     expect(fs.readFileSync(provenancePath, 'utf8')).not.toContain('SECRET_PROFILE_PAT')
-    expect(putSpy).toHaveBeenCalledOnce()
+    expect(stagedDeployment.runStagedDeployment).toHaveBeenCalledOnce()
   })
 
   it('invalidates an old sidecar before a normal rebuild and leaves none when build fails', async () => {
@@ -868,12 +940,15 @@ describe('DeployCommand ADK watch routing', () => {
     })
     ;(command as any)._syncAdkTables = vi.fn().mockResolvedValue(undefined)
     ;(command as any)._writeAdkLastDeploy = vi.fn()
-    const putSpy = vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue(undefined)
 
     await (command as any)._deployAdkBundle()
 
     expect(validateSpy).toHaveBeenCalledOnce()
-    expect(putSpy).toHaveBeenCalledWith('42', '42', 'verified bytes', [], 'ws_profile', {})
+    expect(lastStagedDeployment().input).toMatchObject({
+      botId: '42',
+      workspaceId: 'ws_profile',
+      code: 'verified bytes',
+    })
     expect(fs.readFileSync(bundlePath, 'utf8')).toBe('raced replacement')
   })
 

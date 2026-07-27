@@ -207,6 +207,7 @@ type UpsertTableRowsResponse = Simplify<Awaited<ReturnType<Client['upsertTableRo
 type DeleteTableRowsResponse = Simplify<Awaited<ReturnType<Client['deleteTableRows']>>>
 type FindTableRowsResponse = Simplify<Awaited<ReturnType<Client['findTableRows']>>>
 type GetTableRowResponse = Simplify<Awaited<ReturnType<Client['getTableRow']>>>
+type AtomicTablesResponse = Simplify<Awaited<ReturnType<Client['atomicTables']>>>
 
 // Extract parameter types from Client methods
 type ParamCreateWorkflow = Simplify<Parameters<Client['createWorkflow']>[0]>
@@ -221,6 +222,7 @@ type ParamUpsertTableRows = Simplify<Parameters<Client['upsertTableRows']>[0]>
 type ParamDeleteTableRows = Simplify<Parameters<Client['deleteTableRows']>[0]>
 type ParamFindTableRows = Simplify<Parameters<Client['findTableRows']>[0]>
 type ParamGetTableRow = Simplify<Parameters<Client['getTableRow']>[0]>
+type ParamAtomicTables = Simplify<Parameters<Client['atomicTables']>[0]>
 
 /**
  * Typed ADK Client
@@ -282,6 +284,10 @@ export interface AdkClient {
    * Typed table operations
    */
   tables: {
+    /**
+     * Execute a cross-table batch in one server-side transaction.
+     */
+    atomic: (params: ParamAtomicTables) => Promise<AtomicTablesResponse>
     ${tableTypes
       .map(
         (table) => `
@@ -403,6 +409,9 @@ export function createAdkClient(client: Client): AdkClient {
     },
 
     tables: {
+      atomic: async (params) => {
+        return client.atomicTables(params)
+      },
       ${tableTypes
         .map(
           (table) => `

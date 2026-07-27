@@ -13,6 +13,7 @@ vi.mock('../adk-bundle', async (importOriginal) => ({
 
 import * as adkBundle from '../adk-bundle'
 import * as adkDevId from '../adk-dev-id'
+import * as stagedDeployment from '../staged-deployment'
 import * as toolchainContract from '../toolchain-contract'
 import { CloudapiClient } from '../api/cloudapi-client'
 import { Logger } from '../logger'
@@ -129,6 +130,11 @@ function makeDeployCommand(options: {
     options.local ? LOCAL_PROFILE : CLOUD_PROFILE
   )
   ;(command as any)._syncAdkTables = vi.fn(async () => undefined)
+  ;(command as any)._prepareAdkStagedDeployment = vi.fn(async () => ({
+    tables: [],
+    changed: false,
+    stateCodecDigest: 'migration-hook-test-codec',
+  }))
   ;(command as any)._writeAdkLastDeploy = vi.fn()
   return command
 }
@@ -143,6 +149,9 @@ describe('agent command dependency migration hooks', () => {
     botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-home-'))
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}\n')
     vi.spyOn(toolchainContract, 'assertPlatformToolchainCompatible').mockImplementation(() => undefined)
+    vi.spyOn(stagedDeployment, 'runStagedDeployment').mockResolvedValue({
+      phase: 'activated',
+    } as any)
   })
 
   afterEach(() => {
@@ -449,7 +458,7 @@ describe('agent command dependency migration hooks', () => {
       throw new Error('build ran before migration')
     })
     ;(command as any)._buildAdkBundle = build
-    const put = vi.spyOn(CloudapiClient.prototype, 'putBundle')
+    const deploy = vi.mocked(stagedDeployment.runStagedDeployment)
 
     await expect((command as any)._deployAdkBundle()).rejects.toBe(migrationFailure)
 
@@ -465,11 +474,11 @@ describe('agent command dependency migration hooks', () => {
       authority: { source: 'agent' },
     })
     expect(build).not.toHaveBeenCalled()
-    expect(put).not.toHaveBeenCalled()
+    expect(deploy).not.toHaveBeenCalled()
     expect((command as any)._syncAdkTables).not.toHaveBeenCalled()
   })
 
-  it('fresh deploy provisions a recoverable prod link, then migrates before build or PUT', async () => {
+  it('fresh deploy provisions a recoverable prod link, then migrates before build or staged deployment', async () => {
     const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const migrationFailure = new Error('fresh prod dependency migration gate')
@@ -492,7 +501,7 @@ describe('agent command dependency migration hooks', () => {
       throw new Error('build ran before migration')
     })
     ;(command as any)._buildAdkBundle = build
-    const put = vi.spyOn(CloudapiClient.prototype, 'putBundle')
+    const deploy = vi.mocked(stagedDeployment.runStagedDeployment)
 
     await expect((command as any)._deployAdkBundle()).rejects.toBe(migrationFailure)
 
@@ -504,11 +513,11 @@ describe('agent command dependency migration hooks', () => {
     )
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(true)
     expect(build).not.toHaveBeenCalled()
-    expect(put).not.toHaveBeenCalled()
+    expect(deploy).not.toHaveBeenCalled()
     expect((command as any)._syncAdkTables).not.toHaveBeenCalled()
   })
 
-  it('valid noBuild with argv-only bot id uses explicit authority before PUT and does not persist a link', async () => {
+  it('valid noBuild with argv-only bot id uses explicit authority before staged deployment and does not persist a link', async () => {
     const target = { ...CLOUD_PROFILE, botId: '55' }
     writeVerifiedBundle(workDir, 'verified explicit bundle', target)
     const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
@@ -525,14 +534,14 @@ describe('agent command dependency migration hooks', () => {
       noBuild: true,
       botId: target.botId,
     })
-    vi.spyOn(CloudapiClient.prototype, 'putBundle').mockImplementation(async () => {
-      order.push('put')
-      return {} as any
+    vi.mocked(stagedDeployment.runStagedDeployment).mockImplementation(async () => {
+      order.push('deploy')
+      return { phase: 'activated' } as any
     })
 
     await (command as any)._deployAdkBundle()
 
-    expect(order).toEqual(['migration', 'put'])
+    expect(order).toEqual(['migration', 'deploy'])
     expect(migrateFromConfig).toHaveBeenCalledWith({
       projectPath: workDir,
       client: migrationClient,
@@ -569,14 +578,14 @@ describe('agent command dependency migration hooks', () => {
     })
     mockMigrationLoader(migrateFromConfig)
     const command = makeDeployCommand({ workDir, botpressHome, apiFactory, local: true, noBuild: true })
-    vi.spyOn(CloudapiClient.prototype, 'putBundle').mockImplementation(async () => {
-      order.push('put')
-      return {} as any
+    vi.mocked(stagedDeployment.runStagedDeployment).mockImplementation(async () => {
+      order.push('deploy')
+      return { phase: 'activated' } as any
     })
 
     await (command as any)._deployAdkBundle()
 
-    expect(order).toEqual(['migration', 'put'])
+    expect(order).toEqual(['migration', 'deploy'])
     expect(migrateFromConfig).toHaveBeenCalledWith({
       projectPath: workDir,
       client: migrationClient,
@@ -604,8 +613,6 @@ describe('agent command dependency migration hooks', () => {
     const migrateFromConfig = vi.fn(async () => undefined)
     mockMigrationLoader(migrateFromConfig)
     const command = makeDeployCommand({ workDir, botpressHome, apiFactory, noBuild: true, botId: '55' })
-    vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue({} as any)
-
     await (command as any)._deployAdkBundle()
 
     expect(migrateFromConfig).toHaveBeenCalledWith(
@@ -639,8 +646,6 @@ describe('agent command dependency migration hooks', () => {
       noBuild: true,
       botId: '404',
     })
-    vi.spyOn(CloudapiClient.prototype, 'putBundle').mockResolvedValue({} as any)
-
     await (command as any)._deployAdkBundle()
 
     expect(migrateFromConfig).toHaveBeenCalledWith(
@@ -659,7 +664,7 @@ describe('agent command dependency migration hooks', () => {
     const apiFactory = { newClient: vi.fn() }
     const command = makeDeployCommand({ workDir, botpressHome, apiFactory, noBuild: true })
     const provision = vi.spyOn(CloudapiClient.prototype, 'provisionBot')
-    const put = vi.spyOn(CloudapiClient.prototype, 'putBundle')
+    const deploy = vi.mocked(stagedDeployment.runStagedDeployment)
     const build = vi.spyOn(adkBundle, 'generateAgentBot')
 
     await expect((command as any)._deployAdkBundle()).rejects.toThrow(/--noBuild.*linked|linked.*--noBuild/i)
@@ -668,7 +673,7 @@ describe('agent command dependency migration hooks', () => {
     expect(apiFactory.newClient).not.toHaveBeenCalled()
     expect(provision).not.toHaveBeenCalled()
     expect(build).not.toHaveBeenCalled()
-    expect(put).not.toHaveBeenCalled()
+    expect(deploy).not.toHaveBeenCalled()
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
     expect(fs.existsSync(path.join(workDir, 'agent.local.json'))).toBe(false)
     expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
@@ -692,14 +697,14 @@ describe('agent command dependency migration hooks', () => {
       const apiFactory = { newClient: vi.fn() }
       const command = makeDeployCommand({ workDir, botpressHome, apiFactory, noBuild: true })
       const provision = vi.spyOn(CloudapiClient.prototype, 'provisionBot')
-      const put = vi.spyOn(CloudapiClient.prototype, 'putBundle')
+      const deploy = vi.mocked(stagedDeployment.runStagedDeployment)
 
       await expect((command as any)._deployAdkBundle()).rejects.toThrow(/provenance|rebuild without --noBuild/i)
 
       expect(migrationToolsMock.load).not.toHaveBeenCalled()
       expect(apiFactory.newClient).not.toHaveBeenCalled()
       expect(provision).not.toHaveBeenCalled()
-      expect(put).not.toHaveBeenCalled()
+      expect(deploy).not.toHaveBeenCalled()
       expect(fs.readFileSync(path.join(workDir, 'agent.json'), 'utf8')).toBe(agentBytes)
       expect(fs.existsSync(path.join(botpressHome, 'bots.json'))).toBe(false)
     }

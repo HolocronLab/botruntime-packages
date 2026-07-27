@@ -47,6 +47,27 @@ export const isApiError = (thrown: unknown): thrown is ApiError =>
 export const errorFrom = (error: unknown): ApiError =>
   error instanceof IntegrationOperationConflictError ? error : generatedErrorFrom(error)
 
+export const isRowVersionConflict = (
+  thrown: unknown
+): thrown is ApiError & {
+  metadata: {
+    errorCode: 'TABLE_ROW_VERSION_CONFLICT'
+    retryable: false
+    recovery: 'reread_and_reapply'
+  }
+} => {
+  if (!isApiError(thrown) || typeof thrown.metadata !== 'object' || thrown.metadata === null) {
+    return false
+  }
+  const metadata = thrown.metadata as Record<string, unknown>
+  return (
+    thrown.code === 409 &&
+    metadata.errorCode === 'TABLE_ROW_VERSION_CONFLICT' &&
+    metadata.retryable === false &&
+    metadata.recovery === 'reread_and_reapply'
+  )
+}
+
 export class UploadFileError extends Error {
   public constructor(
     message: string,

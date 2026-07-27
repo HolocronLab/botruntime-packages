@@ -398,6 +398,7 @@ export class TableManager {
           factor: tableRef.definition.factor,
           schema: tableRef.definition.schema,
           keyColumn: tableRef.definition.keyColumn,
+          keyColumnUnique: tableRef.definition.keyColumnUnique,
           tags: tableRef.definition.tags,
         } satisfies LocalTable)
       } catch {
@@ -416,26 +417,26 @@ export class TableManager {
 
     const client = await this.getClient()
 
-    try {
-      const response = await client.listTables({})
+    const response = await client.listTables({})
 
-      return response.tables.map(
-        (table) =>
-          ({
-            id: table.id,
-            name: table.name,
-            createdAt: table.createdAt || new Date().toISOString(),
-            updatedAt: table.updatedAt || new Date().toISOString(),
-            factor: table.factor || 1,
-            schema: table.schema,
-            keyColumn: table.keyColumn || '',
-            tags: table.tags || {},
-          }) satisfies RemoteTable
-      )
-    } catch (error) {
-      console.error('Failed to list remote tables:', error instanceof Error ? error.message : String(error))
-      return []
-    }
+    return response.tables.map((table) => {
+        const contract = table as typeof table & {
+          keyColumnUnique?: boolean
+          keyColumnUniqueState?: string
+        }
+        return {
+          id: table.id,
+          name: table.name,
+          createdAt: table.createdAt || new Date().toISOString(),
+          updatedAt: table.updatedAt || new Date().toISOString(),
+          factor: table.factor || 1,
+          schema: table.schema,
+          keyColumn: table.keyColumn || '',
+          keyColumnUnique: contract.keyColumnUnique ?? false,
+          keyColumnUniqueState: contract.keyColumnUniqueState ?? 'disabled',
+          tags: table.tags || {},
+        } satisfies RemoteTable
+    })
   }
 
   async createSyncPlan(): Promise<TableSyncPlan> {
@@ -465,6 +466,9 @@ export class TableManager {
           const { differences, columnChanges } = this.analyzeColumnChanges(local.schema, remote.schema)
           const factorMatches = (local.factor || 1) === (remote.factor || 1)
           const keyColumnMatches = (local.keyColumn || '') === (remote.keyColumn || '')
+          const uniqueContractMatches =
+            (local.keyColumnUnique ?? false) === (remote.keyColumnUnique ?? false) &&
+            (!(local.keyColumnUnique ?? false) || remote.keyColumnUniqueState === 'enabled')
           const tagsMatch = JSON.stringify(local.tags || {}) === JSON.stringify(remote.tags || {})
 
           const localSchema = transforms.fromJSONSchema(cleanedLocalSchema)
@@ -472,7 +476,14 @@ export class TableManager {
           const schemasEqual = localSchema.isEqual(remoteSchema)
           const hasMetadataChanges = differences.length > 0
 
-          if (!schemasEqual || !factorMatches || hasMetadataChanges || !keyColumnMatches || !tagsMatch) {
+          if (
+            !schemasEqual ||
+            !factorMatches ||
+            hasMetadataChanges ||
+            !keyColumnMatches ||
+            !uniqueContractMatches ||
+            !tagsMatch
+          ) {
             const reasons: string[] = []
             if (differences.length > 0) {
               reasons.push('schema changes detected')
@@ -487,6 +498,15 @@ export class TableManager {
             if (!keyColumnMatches) {
               differences.push(`🔑 Key Column: "${remote.keyColumn || ''}" → "${local.keyColumn || ''}"`)
               reasons.push('key column changed')
+            }
+
+            if (!uniqueContractMatches) {
+              differences.push(
+                `🔒 Unique Key: "${remote.keyColumnUniqueState || 'disabled'}" → "${
+                  local.keyColumnUnique ? 'enabled' : 'disabled'
+                }"`
+              )
+              reasons.push('unique key contract changed')
             }
 
             if (!tagsMatch) {
@@ -589,20 +609,31 @@ export class TableManager {
         switch (item.operation) {
           case TableSyncOperation.Create:
             if (item.localTable) {
-              await client.createTable({
+              const createInput = {
                 name: item.localTable.name,
                 factor: item.localTable.factor || 1,
                 schema: item.localTable.schema,
                 isComputeEnabled: true,
                 keyColumn: item.localTable.keyColumn || '',
+                keyColumnUnique: item.localTable.keyColumnUnique ?? false,
                 tags: item.localTable.tags || {},
-              })
+              }
+              await client.createTable(createInput)
               success.push(item)
             }
             break
 
           case TableSyncOperation.Update:
             if (item.localTable && item.remoteTable) {
+              const localUnique = item.localTable.keyColumnUnique ?? false
+              const remoteUnique = item.remoteTable.keyColumnUnique ?? false
+              const remoteUniqueState = item.remoteTable.keyColumnUniqueState ?? 'disabled'
+              if (localUnique !== remoteUnique || (localUnique && remoteUniqueState !== 'enabled')) {
+                throw new Error(
+                  `Table '${item.localTable.name}' changes its unique key contract. ` +
+                    'This deploy requires the staged table-contract capability; direct schema sync is fail-closed.'
+                )
+              }
               // Step 1: Handle column renames first (must be done before schema update)
               if (item.columnChanges) {
                 const renames = item.columnChanges.filter((c) => c.type === 'rename')

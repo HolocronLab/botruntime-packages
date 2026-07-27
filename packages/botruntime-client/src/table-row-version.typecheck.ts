@@ -23,6 +23,13 @@ type IsExactlyOptionalNumber<T> = IsAny<T> extends true
       ? true
       : false
     : false
+type IsExactlyString<T> = IsAny<T> extends true
+  ? false
+  : [T] extends [string]
+    ? [string] extends [T]
+      ? true
+      : false
+    : false
 
 type GetRow = GetTableRowResponse['row']
 type FindRow = FindTableRowsResponse['rows'][number]
@@ -40,4 +47,16 @@ export type ClientTableRowVersionContract = [
   Assert<IsExactlyNumber<UpsertInsertedRow['rowVersion']>>,
   Assert<IsExactlyNumber<UpsertUpdatedRow['rowVersion']>>,
   Assert<IsExactlyOptionalNumber<UpdateInputRow['rowVersion']>>,
+  Assert<IsExactlyString<GetRow['createdAt']>>,
+  Assert<IsExactlyString<GetRow['updatedAt']>>,
+  Assert<IsExactlyString<FindRow['createdAt']>>,
+  Assert<IsExactlyString<FindRow['updatedAt']>>,
+  Assert<IsExactlyString<CreateRow['createdAt']>>,
+  Assert<IsExactlyString<CreateRow['updatedAt']>>,
+  Assert<IsExactlyString<UpdateRow['createdAt']>>,
+  Assert<IsExactlyString<UpdateRow['updatedAt']>>,
+  Assert<IsExactlyString<UpsertInsertedRow['createdAt']>>,
+  Assert<IsExactlyString<UpsertInsertedRow['updatedAt']>>,
+  Assert<IsExactlyString<UpsertUpdatedRow['createdAt']>>,
+  Assert<IsExactlyString<UpsertUpdatedRow['updatedAt']>>,
 ]

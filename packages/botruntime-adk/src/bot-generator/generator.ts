@@ -1296,7 +1296,13 @@ declare module "@holocronlab/botruntime-runtime/_types/state" {
       const parts: string[] = []
       parts.push(`schema: ${transforms.fromJSONSchema(def.schema).toTypescriptSchema()}`)
       if (def.factor !== undefined) parts.push(`factor: ${def.factor}`)
-      if (def.keyColumn) parts.push(`keyColumn: ${JSON.stringify(def.keyColumn)}`)
+      if (def.keyColumn) {
+        parts.push(
+          def.keyColumnUnique
+            ? `keyColumn: { name: ${JSON.stringify(def.keyColumn)}, unique: true }`
+            : `keyColumn: ${JSON.stringify(def.keyColumn)}`
+        )
+      }
       if (def.tags && Object.keys(def.tags).length > 0) parts.push(`tags: ${JSON.stringify(def.tags)}`)
       if (def.description) parts.push(`description: ${JSON.stringify(def.description)}`)
       tableDefs.push(`"${def.name}": {\n            ${parts.join(',\n            ')}\n          }`)

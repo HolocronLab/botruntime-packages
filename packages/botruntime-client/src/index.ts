@@ -21,6 +21,30 @@ export type {
   DownloadFileRefOutput,
   ExactFileRef,
 } from './files/download-file-ref'
+export type {
+  AtomicCreateRowsOperation,
+  AtomicDeleteRowsOperation,
+  AtomicOperationResult,
+  AtomicReference,
+  AtomicReserveKeyOperation,
+  AtomicTableOperation,
+  AtomicTablesInput,
+  AtomicTablesOutput,
+  AtomicUpdateRowsOperation,
+  AtomicUpsertRowsOperation,
+} from './tables/atomic'
+export { atomicReference } from './tables/atomic'
+export type {
+  TableSystemDateCondition,
+  TableSystemFilter,
+  TableSystemNumberCondition,
+  TableSystemOrderBy,
+} from './tables/system-fields'
+export type {
+  ReserveTableKeyInput,
+  ReserveTableKeyOutput,
+  TableRowMetadata,
+} from './tables/reserve-key'
 export { DownloadFileRefError } from './files/download-file-ref'
 export * from './gen/public/models'
 export { installAxiosErrorFidelity } from './common/axios'

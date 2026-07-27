@@ -1,6 +1,8 @@
 // this file was automatically generated, do not edit
 /* eslint-disable */
 
+import type { TableSystemFilter } from '../../../tables/system-fields'
+
 export interface DeleteTableRowsRequestHeaders {}
 
 export interface DeleteTableRowsRequestQuery {}
@@ -17,9 +19,7 @@ export interface DeleteTableRowsRequestBody {
   /**
    * Filter to apply when deleting rows. Deletion with a filter is performed asynchronously in batches and returns a job object to track progress. Example: \{ "createdAt": \{ "$lt": "2026-01-01" \} \}
    */
-  filter?: {
-    [k: string]: any;
-  };
+  filter?: TableSystemFilter;
   /**
    * Flag to delete all rows. Use with caution as this action is irreversible.
    */
@@ -52,4 +52,3 @@ export interface DeleteTableRowsResponse {
     status: string;
   };
 }
-

@@ -1675,6 +1675,13 @@ export interface Table {
    * Designate a column as the primary unique identifier for this table. When set, a unique index is automatically created on this column, enabling significantly faster upsert operations. All values in this column must be unique across the table. When set to null, the key index is removed.
    */
   keyColumn?: string | null;
+  keyColumnUnique?: boolean;
+  keyColumnUniqueState?: "disabled" | "enabling" | "enabled" | "disabling" | "error";
+  keyColumnUniqueOperationId?: string | null;
+  keyColumnUniqueAttempts?: number;
+  keyColumnUniqueLastErrorCode?: string | null;
+  uniqueGeneration?: number;
+  schemaGeneration?: number;
   schema: {
     $schema?: string;
     /**
@@ -1977,4 +1984,3 @@ export interface File {
    */
   indexingStack?: "v1" | "v2";
 }
-

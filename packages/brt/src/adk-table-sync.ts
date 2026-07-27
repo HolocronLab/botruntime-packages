@@ -23,9 +23,29 @@ export interface TableSyncColumnChange {
 
 export interface TableSyncItem {
   operation: string // 'create' | 'update' | 'delete' | 'none'
-  localTable?: { name: string }
-  remoteTable?: { name: string }
+  localTable?: StagedTableTarget
+  remoteTable?: StagedTableTarget & {
+    id?: string
+    createdAt?: string
+    updatedAt?: string
+    keyColumnUniqueState?: string
+  }
   columnChanges?: TableSyncColumnChange[]
+}
+
+export interface StagedTableTarget {
+  name: string
+  factor?: number
+  frozen?: boolean
+  keyColumn?: string
+  keyColumnUnique?: boolean
+  schema?: unknown
+  tags?: Record<string, string>
+  isComputeEnabled?: boolean
+}
+
+export type StagedTableDeclaration = Omit<StagedTableTarget, 'schema'> & {
+  schema: unknown
 }
 
 export interface TableSyncPlan {
@@ -41,6 +61,11 @@ export interface TableSyncResult {
 export interface TableSyncManager {
   createSyncPlan(): Promise<TableSyncPlan>
   executeSync(plan: TableSyncPlan, options: { confirmDestructive?: boolean }): Promise<TableSyncResult>
+}
+
+export interface StagedTablePlan {
+  tables: StagedTableDeclaration[]
+  changed: boolean
 }
 
 export type ConfirmFn = (message: string) => Promise<boolean>
@@ -108,6 +133,103 @@ function describeColumnChange(c: TableSyncColumnChange): string {
 
 function isDestructive(c: TableSyncColumnChange): boolean {
   return c.type === 'remove' || c.type === 'modify'
+}
+
+function stagedTarget(table: StagedTableTarget): StagedTableDeclaration {
+  if (!table.schema) {
+    throw new errors.BotpressCLIError(`table "${table.name}" has no schema in the staged deployment plan`)
+  }
+  return {
+    name: table.name,
+    ...(table.factor === undefined ? {} : { factor: table.factor }),
+    ...(table.frozen === undefined ? {} : { frozen: table.frozen }),
+    ...(table.keyColumn === undefined ? {} : { keyColumn: table.keyColumn }),
+    ...(table.keyColumnUnique === undefined ? {} : { keyColumnUnique: table.keyColumnUnique }),
+    schema: table.schema,
+    ...(table.tags === undefined ? {} : { tags: table.tags }),
+    ...(table.isComputeEnabled === undefined ? {} : { isComputeEnabled: table.isComputeEnabled }),
+  }
+}
+
+// prepareStagedTablePlan performs every destructive confirmation before the
+// durable deployment is staged. Declined changes retain the exact remote
+// declaration in the target instead of silently producing a partial catalog.
+export async function prepareStagedTablePlan(
+  manager: Pick<TableSyncManager, 'createSyncPlan'>,
+  confirm: ConfirmFn,
+  log: (line: string) => void
+): Promise<StagedTablePlan> {
+  const plan = await manager.createSyncPlan()
+  const accepted = new Map<TableSyncItem, boolean>()
+  let changed = false
+
+  for (const item of plan.items) {
+    if (item.operation !== 'update') {
+      continue
+    }
+    const destructive = (item.columnChanges ?? []).filter(isDestructive)
+    if (destructive.length === 0) {
+      continue
+    }
+    const ok = await confirm(
+      `table "${tableName(item)}": ${destructive.map(describeColumnChange).join(', ')} — this is a destructive ` +
+        `schema change (data loss). Continue? ${CONFIRM_HINT}`
+    )
+    accepted.set(item, ok)
+    if (!ok) {
+      log(`  ${tableName(item)}: retained current schema (declined destructive change)`)
+    }
+  }
+
+  const deletes = plan.items.filter((item) => item.operation === 'delete')
+  let deleteApproved = false
+  if (deletes.length > 0) {
+    deleteApproved = await confirm(
+      `table(s) ${deletes.map(tableName).join(', ')} are no longer declared locally — DELETE them and ` +
+        `ALL their rows? ${CONFIRM_HINT}`
+    )
+  }
+
+  const tables: StagedTableDeclaration[] = []
+  for (const item of plan.items) {
+    switch (item.operation) {
+      case 'create':
+        if (!item.localTable) throw new errors.BotpressCLIError('staged create is missing its local table')
+        tables.push(stagedTarget(item.localTable))
+        changed = true
+        break
+      case 'update':
+        if (accepted.get(item) === false) {
+          if (!item.remoteTable) throw new errors.BotpressCLIError('declined update is missing its remote table')
+          tables.push(stagedTarget(item.remoteTable))
+          break
+        }
+        if (!item.localTable) throw new errors.BotpressCLIError('staged update is missing its local table')
+        tables.push(stagedTarget(item.localTable))
+        changed = true
+        break
+      case 'delete':
+        if (deleteApproved) {
+          changed = true
+          break
+        }
+        if (!item.remoteTable) throw new errors.BotpressCLIError('retained delete is missing its remote table')
+        tables.push(stagedTarget(item.remoteTable))
+        log(`  ${item.remoteTable.name}: retained (delete declined)`)
+        break
+      case 'none':
+        if (!item.localTable && !item.remoteTable) {
+          throw new errors.BotpressCLIError('unchanged staged table has no declaration')
+        }
+        tables.push(stagedTarget(item.localTable ?? item.remoteTable!))
+        break
+      default:
+        throw new errors.BotpressCLIError(`unknown staged table operation "${item.operation}"`)
+    }
+  }
+  tables.sort((left, right) => left.name.localeCompare(right.name))
+  log(`tables staged (${tables.length} target, ${changed ? 'contract change' : 'no contract change'})`)
+  return { tables, changed }
 }
 
 // syncAdkTables drives a full TableManager sync (createSyncPlan -> confirm

@@ -73,6 +73,7 @@ export namespace Definitions {
     schema: JSONSchema7
     factor: number
     keyColumn?: string
+    keyColumnUnique?: boolean
     tags?: Record<string, string>
     description?: string
   }

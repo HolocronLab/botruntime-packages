@@ -292,9 +292,10 @@ export async function loadAdkTableManager(): Promise<{
     ): ReturnType<typeof adkLib.AgentProject.load>
   }
   TableManager: typeof adkLib.TableManager
+  createDeployedAgentManifest: typeof adkLib.createDeployedAgentManifest
 }> {
-  const { AgentProject, TableManager } = await loadAdkModule()
-  return { AgentProject, TableManager }
+  const { AgentProject, TableManager, createDeployedAgentManifest } = await loadAdkModule()
+  return { AgentProject, TableManager, createDeployedAgentManifest }
 }
 
 export async function loadAdkProjectTools(): Promise<{
