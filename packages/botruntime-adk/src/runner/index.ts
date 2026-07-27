@@ -10,6 +10,8 @@
 export { ScriptRunner, runScript, setupTestRuntime } from './script-runner.js'
 export type {
   ScriptRunnerOptions,
+  ScriptRunnerToolchain,
+  ScriptBuildAdapter,
   RunScriptOptions,
   ScriptRunnerCredentials,
   RunOptions,

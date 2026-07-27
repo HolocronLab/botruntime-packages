@@ -233,6 +233,8 @@ export type {
 export { ScriptRunner, runScript, setupTestRuntime } from './runner/index.js'
 export type {
   ScriptRunnerOptions,
+  ScriptRunnerToolchain,
+  ScriptBuildAdapter,
   RunScriptOptions,
   TestRuntimeResult,
   SetupTestRuntimeOptions,

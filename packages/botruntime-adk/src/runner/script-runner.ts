@@ -5,6 +5,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { AgentProject } from '../agent-project/index.js'
 import { generateBotProject } from '../bot-generator/index.js'
+import type { DependencyInstaller } from '../bot-generator/index.js'
 import { generateAssetsTypes, generateAssetsRuntime } from '../generators/assets.js'
 import { formatCode } from '../generators/utils.js'
 import { BpBuildCommand } from '../commands/bp-build-command.js'
@@ -43,6 +44,19 @@ export interface ScriptRunnerCredentials {
   workspaceId?: string
 }
 
+export type ScriptBuildAdapter = (options: {
+  botPath: string
+  sourceMap: boolean
+  minify: boolean
+}) => Promise<void>
+
+export interface ScriptRunnerToolchain {
+  /** Install generated bot dependencies without spawning another CLI process. */
+  installDependency: DependencyInstaller
+  /** Build the generated bot with the owning CLI's native build command. */
+  buildGeneratedBot: ScriptBuildAdapter
+}
+
 export interface ScriptRunnerOptions {
   /** Path to the agent project root */
   projectPath: string
@@ -52,6 +66,8 @@ export interface ScriptRunnerOptions {
   forceRegenerate?: boolean
   /** Use production bot ID instead of dev bot ID (default: false, uses devId) */
   prod?: boolean
+  /** In-process CLI adapters supplied by brt. Omit only for standalone ADK use. */
+  toolchain?: ScriptRunnerToolchain
 }
 
 export interface RunScriptOptions extends ScriptRunnerOptions {
@@ -115,12 +131,14 @@ export class ScriptRunner {
   private forceRegenerate: boolean
   private prod: boolean
   private credentials: ScriptRunnerCredentials
+  private toolchain?: ScriptRunnerToolchain
 
   constructor(options: ScriptRunnerOptions) {
     this.projectPath = path.resolve(options.projectPath)
     this.forceRegenerate = options.forceRegenerate ?? false
     this.prod = options.prod ?? false
     this.credentials = options.credentials
+    this.toolchain = options.toolchain
   }
 
   private getServerConnectionCredentials(): ServerConnectionCredentials | undefined {
@@ -324,13 +342,24 @@ export class ScriptRunner {
         outputPath: botPath,
         adkCommand,
         configTarget,
+        ...(this.toolchain ? { installer: this.toolchain.installDependency } : {}),
       })
 
       // Generate the script runner entry point
       await this.generateScriptRunner(botPath)
 
-      // Run bp build to generate .botpress types
-      await this.runBpBuild(botPath)
+      // Generate .botpress types. brt supplies its native BuildCommand so the
+      // primary path remains in-process; standalone ADK use retains a
+      // package-manifest-resolved CLI fallback.
+      if (this.toolchain) {
+        await this.toolchain.buildGeneratedBot({
+          botPath,
+          sourceMap: true,
+          minify: true,
+        })
+      } else {
+        await this.runBpBuild(botPath)
+      }
 
       await this.writeArtifactTarget(botPath, configTarget)
     }
@@ -675,6 +704,7 @@ export async function runScript(options: RunScriptOptions): Promise<number> {
     forceRegenerate: options.forceRegenerate,
     prod: options.prod,
     credentials: options.credentials,
+    toolchain: options.toolchain,
   })
 
   return runner.run(options.scriptPath, {

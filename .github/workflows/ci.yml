@@ -63,6 +63,7 @@ jobs:
         run: |
           node --test scripts/formatter-safety.test.mjs
           node --test scripts/install-package-for-worktree.test.mjs
+          node --test scripts/installed-package-export.test.mjs
           node --test scripts/runtime-package-registry-config.test.mjs
           node --test scripts/package-release-contract.test.mjs
           node --test scripts/release-version-closure.test.mjs

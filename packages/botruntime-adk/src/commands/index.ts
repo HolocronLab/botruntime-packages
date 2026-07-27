@@ -12,5 +12,14 @@ export { BpChatCommand } from './bp-chat-command.js'
 export type { BpChatCommandOptions } from './bp-chat-command.js'
 export { classifyFatalStderr, classifyRecoverableDeployError, REQUEST_HANDLING_ERROR_MARKER } from './bp-dev-stderr.js'
 export type { RecoverableRegistrationFailure } from './bp-dev-stderr.js'
-export { BP_CLI_BIN_PATH, BP_CLI_VERSION, BP_CLI_INSTALL_DIR, BP_CLI_INSTALL_ALL, getBpCli, getBpCliEnvironment } from './bp-cli.js'
+export {
+  BP_CLI_BIN_PATH,
+  BP_CLI_PACKAGE_DIR,
+  BP_CLI_VERSION,
+  BP_CLI_INSTALL_DIR,
+  BP_CLI_INSTALL_ALL,
+  getBpCli,
+  getBpCliEnvironment,
+  resolveBpCliBinPath,
+} from './bp-cli.js'
 export type { BpCliInfo } from './bp-cli.js'
