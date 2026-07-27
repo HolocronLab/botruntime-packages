@@ -27,7 +27,7 @@ export interface GetOrCreateTableRequestBody {
    */
   keyColumnUnique?: boolean;
   /**
-   * Provide an object or a JSON schema to define the columns of the table. A maximum of 20 keys in the object/schema is allowed.
+   * Provide an object or a JSON schema to define the user columns of the table. A maximum of 64 keys in the object/schema is allowed; system fields are excluded.
    */
   schema: {
     [k: string]: any;
