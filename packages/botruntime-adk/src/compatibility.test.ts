@@ -18,10 +18,12 @@ describe('BRT compatibility contract', () => {
     expect(semver.satisfies('0.10.99', BRT_COMPATIBILITY_RANGE)).toBe(true)
     expect(semver.satisfies('0.11.0', BRT_COMPATIBILITY_RANGE)).toBe(true)
     expect(semver.satisfies('0.11.99', BRT_COMPATIBILITY_RANGE)).toBe(true)
+    expect(semver.satisfies('0.12.0', BRT_COMPATIBILITY_RANGE)).toBe(true)
+    expect(semver.satisfies('0.12.99', BRT_COMPATIBILITY_RANGE)).toBe(true)
   })
 
   it('does not silently accept the next CLI compatibility line', () => {
-    expect(semver.satisfies('0.12.0', BRT_COMPATIBILITY_RANGE)).toBe(false)
+    expect(semver.satisfies('0.13.0', BRT_COMPATIBILITY_RANGE)).toBe(false)
   })
 
   it('does not create a runtime dependency cycle with the CLI that loads ADK', () => {
