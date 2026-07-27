@@ -1103,6 +1103,17 @@ const botVersionsDeploySchema = {
   },
 } satisfies CommandSchema
 
+const botDeploymentAbortSchema = {
+  ...cloudProjectSchema,
+  deploymentId: {
+    type: 'string',
+    description: 'The staged deployment ID to terminally abort',
+    demandOption: true,
+    positional: true,
+    idx: 0,
+  },
+} satisfies CommandSchema
+
 const evalRunSchema = {
   ...cloudProjectSchema,
   dev: cloudDevTarget,
@@ -1291,6 +1302,7 @@ export const schemas = {
   conversationsShow: conversationsShowSchema,
   botVersionsList: botVersionsListSchema,
   botVersionsDeploy: botVersionsDeploySchema,
+  botDeploymentAbort: botDeploymentAbortSchema,
   evalRun: evalRunSchema,
   evalRuns: evalRunsSchema,
   workflowsRun: workflowsRunSchema,

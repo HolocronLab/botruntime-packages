@@ -25,6 +25,15 @@ export default {
           },
         },
       },
+      deployments: {
+        description: 'Bot staged-deployment recovery commands',
+        subcommands: {
+          abort: {
+            description: 'Terminally abort a safe pre-schema deployment and preserve the active version',
+            schema: config.schemas.botDeploymentAbort,
+          },
+        },
+      },
     },
   },
   integrations: {

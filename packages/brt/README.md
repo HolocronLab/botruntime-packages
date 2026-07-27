@@ -122,6 +122,37 @@ is reported as requiring the server-side bounded projection endpoint. Workflow
 responses are capped at 2 MiB and list pages at 100 runs, so one tenant cannot
 make a developer process consume unbounded memory.
 
+## Abort an interrupted staged deployment
+
+`brt deploy --adk` leaves traffic safely fenced when old executions cannot
+drain before the observation deadline. Reconcile the reported units and rerun
+the identical deploy to resume it. If the staged version must instead be
+abandoned before any schema mutation, terminally abort that exact deployment:
+
+```bash
+# Uses the production target from agent.json or bot.json.
+brt bots deployments abort 00000000-0000-5000-8000-000000000001 --confirm
+
+# Works without a project link when the exact numeric bot is supplied.
+brt bots deployments abort 00000000-0000-5000-8000-000000000001 \
+  --bot-id 34 --confirm --json
+```
+
+The command first verifies that the deployment is still in the pre-schema
+`staged` or `fenced` phase and asks for confirmation. It then reads the current
+environment fence generation and sends one generation-CAS abort request. It
+does not reuse the generation stored on the deployment: traffic may already
+have been unfenced by an earlier recovery step, in which case the environment
+is authoritatively one generation ahead.
+
+Cloud preserves the active version, makes the staged version permanently
+non-activatable, and leaves traffic unfenced. The command succeeds only for the
+exact terminal pair `failed` / `BOT_DEPLOYMENT_ABORTED`; schema-mutated or
+otherwise advanced deployments fail closed. Repeating the command after a lost
+response is idempotent. `--confirm` is the non-interactive approval flag; no
+public fence-generation override exists because that CAS value must be read
+from Cloud immediately before mutation.
+
 ## Upgrade an installed integration
 
 `brt integrations install <name@version>` only creates a new connection. To

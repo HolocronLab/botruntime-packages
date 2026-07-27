@@ -7,6 +7,7 @@ import * as utils from '../utils'
 import { AddCommand } from './add-command'
 import type { BaseCommand } from './base-command'
 import * as bots from './bot-commands'
+import { AbortBotDeploymentCommand } from './bot-deployments-command'
 import { DeployBotVersionCommand, ListBotVersionsCommand } from './bot-versions-command'
 import { BuildCommand } from './build-command'
 import { BundleCommand } from './bundle-command'
@@ -66,6 +67,11 @@ export default {
         subcommands: {
           list: getHandler(ListBotVersionsCommand),
           deploy: getHandler(DeployBotVersionCommand),
+        },
+      },
+      deployments: {
+        subcommands: {
+          abort: getHandler(AbortBotDeploymentCommand),
         },
       },
     },

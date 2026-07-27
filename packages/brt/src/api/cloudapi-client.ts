@@ -125,7 +125,7 @@ export interface BotDeployment {
   expectedCurrentVersionId: number
   stagedVersionId: number
   finalVersionId: number
-  fenceGeneration?: number
+  fenceGeneration?: number | null
   targetTableContracts: unknown
   lastErrorCode?: string
   schemaMutated: boolean
@@ -575,6 +575,27 @@ export class CloudapiClient {
         `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
         encodeURIComponent(input.deploymentId),
       workspaceId: input.workspaceId,
+      idempotent: true,
+    })
+  }
+
+  public async abortBotDeployment(input: {
+    botId: string
+    workspaceId: string
+    deploymentId: string
+    expectedFenceGeneration: number
+  }): Promise<{ deployment: BotDeployment }> {
+    return this.raw({
+      method: 'POST',
+      path:
+        `/v1/admin/bots/${encodeURIComponent(input.botId)}/deployments/` +
+        `${encodeURIComponent(input.deploymentId)}/abort`,
+      workspaceId: input.workspaceId,
+      body: {
+        expectedFenceGeneration: input.expectedFenceGeneration,
+      },
+      // The control plane terminalizes the deployment under a generation CAS
+      // and returns the same aborted record on replay.
       idempotent: true,
     })
   }

@@ -60,6 +60,21 @@
       ]
     },
     {
+      "path": "bots deployments abort",
+      "aliases": [],
+      "options": [
+        "apiUrl",
+        "botId",
+        "botpressHome",
+        "confirm",
+        "deploymentId",
+        "json",
+        "profile",
+        "verbose",
+        "workDir"
+      ]
+    },
+    {
       "path": "bots get",
       "aliases": [],
       "options": [
@@ -975,6 +990,7 @@
   ],
   "documentation": {
     "overviewCommandPaths": [
+      "bots deployments abort",
       "chat",
       "deploy",
       "dev",
@@ -1000,6 +1016,11 @@
       "secret set"
     ],
     "criticalOptions": {
+      "bots deployments abort": [
+        "botId",
+        "confirm",
+        "json"
+      ],
       "chat": [
         "chatApiUrl",
         "protocol"
@@ -1152,6 +1173,9 @@
       ]
     },
     "criticalUsages": {
+      "bots deployments abort": [
+        "<deploymentId>"
+      ],
       "integrations install": [
         "<name@version>"
       ],
@@ -1284,6 +1308,14 @@
           "overview",
           "reference"
         ]
+      },
+      {
+        "id": "safe-deployment-abort",
+        "assertion": "brt bots deployments abort only terminalizes pre-schema staged or fenced deployments, reads the authoritative environment fence generation after operator confirmation, preserves the active version, and accepts only the exact failed BOT_DEPLOYMENT_ABORTED terminal response",
+        "documents": [
+          "overview",
+          "reference"
+        ]
       }
     ],
     "workflows": [
@@ -1315,6 +1347,16 @@
         ],
         "commandPaths": [
           "deploy"
+        ]
+      },
+      {
+        "id": "deployment-recovery",
+        "documents": [
+          "overview",
+          "reference"
+        ],
+        "commandPaths": [
+          "bots deployments abort"
         ]
       },
       {

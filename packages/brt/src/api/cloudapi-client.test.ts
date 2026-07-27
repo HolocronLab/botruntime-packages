@@ -316,6 +316,46 @@ describe('CloudapiClient', () => {
     })
   })
 
+  it('terminally aborts a deployment with the caller-observed fence generation', async () => {
+    stubFetch(() =>
+      Response.json({
+        deployment: {
+          id: '00000000-0000-5000-8000-000000000001',
+          phase: 'failed',
+          transitionMode: 'fence',
+          expectedCurrentVersionId: 7,
+          stagedVersionId: 8,
+          finalVersionId: 8,
+          fenceGeneration: 2,
+          targetTableContracts: {},
+          lastErrorCode: 'BOT_DEPLOYMENT_ABORTED',
+          schemaMutated: false,
+        },
+      })
+    )
+    const client = new CloudapiClient('https://cloud.example', 'brt_pat_xxx')
+
+    await client.abortBotDeployment({
+      botId: '3',
+      workspaceId: 'ws_123',
+      deploymentId: '00000000-0000-5000-8000-000000000001',
+      expectedFenceGeneration: 2,
+    })
+
+    const [call] = calls
+    expect(call!.url).toBe(
+      'https://cloud.example/v1/admin/bots/3/deployments/00000000-0000-5000-8000-000000000001/abort'
+    )
+    expect(call!.init.method).toBe('POST')
+    expect(call!.init.headers).toMatchObject({
+      authorization: 'Bearer brt_pat_xxx',
+      'x-workspace-id': 'ws_123',
+    })
+    expect(JSON.parse(String(call!.init.body))).toEqual({
+      expectedFenceGeneration: 2,
+    })
+  })
+
   it('getDevBotTarget resolves the opaque dev id under the exact PAT workspace without x-bot-id', async () => {
     stubFetch(
       () =>
