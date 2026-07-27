@@ -6,7 +6,13 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.11.6 (current) — 2026-07-27
+## 0.12.0 (current) — 2026-07-27
+
+- Added the durable integration-operation v1 boundary: operation-scoped streaming
+access to pinned file generations, fenced append-only checkpoints, strict
+sanitized handler envelopes, and schema-declared FileRef admission.
+
+## 0.11.6 — 2026-07-27
 
 - Added `brt bots deployments abort` as a fail-closed recovery path for safely
 abandoning pre-schema staged deployments. It preserves the active version,
