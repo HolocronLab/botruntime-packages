@@ -1,5 +1,6 @@
 import { it, expect, describe } from 'vitest'
-import { dereferenceSchema } from './schema-utils'
+import * as sdk from '@holocronlab/botruntime-sdk'
+import { dereferenceSchema, mapZodToJsonSchema } from './schema-utils'
 import { JSONSchema7 } from 'json-schema'
 
 describe('dereferenceSchema', () => {
@@ -48,5 +49,39 @@ describe('dereferenceSchema', () => {
     }
     const result = await dereferenceSchema(schema)
     expect(result).toEqual(schema)
+  })
+})
+
+describe('FileRef admission schema extension', () => {
+  it.each([false, true])('lifts the SDK marker with legacy=%s', async (useLegacyZuiTransformer) => {
+    const schema = await mapZodToJsonSchema({
+      schema: sdk.z.object({
+        attachments: sdk.z.array(sdk.z.object({
+          fileRef: sdk.operationFileRef('resolve-current'),
+        })).min(1).max(16),
+      }),
+    }, { useLegacyZuiTransformer })
+
+    expect(schema).toMatchObject({
+      properties: {
+        attachments: {
+          minItems: 1,
+          maxItems: 16,
+          items: {
+            properties: {
+              fileRef: {
+                type: 'object',
+                additionalProperties: false,
+                'x-botruntime-fileRef': {
+                  version: 'v1',
+                  mode: 'resolve-current',
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+    expect(JSON.stringify(schema)).not.toContain('botruntimeFileRef')
   })
 })

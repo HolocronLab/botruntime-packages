@@ -9,6 +9,7 @@ import {
   CreateConversationHandler as CreateConversationFunction,
   ActionHandlers as ActionFunctions,
   ChannelHandlers as ChannelFunctions,
+  DurableOperationHandler as DurableOperationFunction,
   UnknownOperationHandler as UnknownOperationFunction,
   integrationHandler,
 } from './server'
@@ -28,6 +29,7 @@ export type IntegrationImplementationProps<TIntegration extends BaseIntegration 
   actions: ActionFunctions<TIntegration>
   channels: ChannelFunctions<TIntegration>
   __advanced?: {
+    durableOperationHandler?: DurableOperationFunction<TIntegration>
     unknownOperationHandler?: UnknownOperationFunction<TIntegration>
     managesOwnTracePropagation?: boolean
   }
@@ -44,6 +46,9 @@ export class IntegrationImplementation<TIntegration extends BaseIntegration = Ba
   public readonly unknownOperationHandler: NonNullable<
     IntegrationImplementationProps<TIntegration>['__advanced']
   >['unknownOperationHandler']
+  public readonly durableOperationHandler: NonNullable<
+    IntegrationImplementationProps<TIntegration>['__advanced']
+  >['durableOperationHandler']
   public readonly managesOwnTracePropagation: NonNullable<
     IntegrationImplementationProps<TIntegration>['__advanced']
   >['managesOwnTracePropagation']
@@ -57,6 +62,7 @@ export class IntegrationImplementation<TIntegration extends BaseIntegration = Ba
     this.createConversation = props.createConversation
     this.webhook = props.handler
     this.unknownOperationHandler = props.__advanced?.unknownOperationHandler
+    this.durableOperationHandler = props.__advanced?.durableOperationHandler
     this.managesOwnTracePropagation = props.__advanced?.managesOwnTracePropagation
   }
 

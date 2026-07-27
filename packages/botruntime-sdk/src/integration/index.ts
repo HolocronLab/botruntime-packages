@@ -1,4 +1,5 @@
 export * from './definition'
+export * from './durable-operation'
 export * from './implementation'
 export * from './client'
 export * from './server'

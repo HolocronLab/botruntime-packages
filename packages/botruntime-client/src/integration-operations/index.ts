@@ -2,6 +2,8 @@ import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import * as common from '../common'
 import { IntegrationOperationConflictError } from '../errors'
 
+export * from './capabilities'
+
 export type IntegrationOperationStatus =
   | 'queued'
   | 'running'
