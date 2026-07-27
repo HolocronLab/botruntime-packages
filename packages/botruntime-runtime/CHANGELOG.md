@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Lightweight runtime library for `brt`-built botruntime agents: conversation, workflow, table and
 knowledge-base primitives used both to describe an agent and at run time. See README.md.
 
-## 2.9.2 (current) — 2026-07-27
+## 2.9.3 (current) — 2026-07-27
+
+- Synchronized runtime-owned workflow status updates with the SDK handler state chain so downstream handlers observe completed, failed, listening, and in-progress states without stale pending warnings.
+
+## 2.9.2 — 2026-07-27
 
 - Added the runtime-owned script context initializer used by generated one-shot scripts and test runtimes, keeping client, SDK, cognitive, logging and citations construction inside the runtime dependency boundary.
 

@@ -7,7 +7,11 @@ botruntime-{adk,jex,analytics}`, 38d2c83). This is a library consumed by `brt`, 
 see README.md for the split between `brt` (the executable) and this package (project loading,
 code-gen, dependency reconciliation, runtime helpers).
 
-## 2.9.2 (current) — 2026-07-27
+## 2.9.3 (current) — 2026-07-27
+
+- Updated the coherent BRT/ADK runtime train to deliver synchronized workflow handler state tracking.
+
+## 2.9.2 — 2026-07-27
 
 - Made generated script and bot dependencies hermetic under Bun's isolated workspace linker by routing script bootstrap through the runtime facade and reconciling the generated runtime/SDK links to the agent's selected dependency graph.
 
