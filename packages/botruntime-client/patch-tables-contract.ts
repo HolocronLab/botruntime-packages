@@ -52,7 +52,15 @@ const main = async (): Promise<void> => {
       await patchFirst(
         path,
         '/* eslint-disable */\n',
-        `/* eslint-disable */
+        operation === 'findTableRows'
+          ? `/* eslint-disable */
+
+import type {
+  TableSystemFilter,
+  TableSystemOrderBy,
+} from '../../../tables/system-fields'
+`
+          : `/* eslint-disable */
 
 import type { TableSystemFilter } from '../../../tables/system-fields'
 `
@@ -67,15 +75,6 @@ import type { TableSystemFilter } from '../../../tables/system-fields'
       )
     }
 
-    await patchFirst(
-      `${section}/operations/findTableRows.ts`,
-      'import type { TableSystemFilter } from \'../../../tables/system-fields\'\n',
-      `import type {
-  TableSystemFilter,
-  TableSystemOrderBy,
-} from '../../../tables/system-fields'
-`
-    )
     await patch(
       `${section}/operations/findTableRows.ts`,
       '  orderBy?: string;\n',
@@ -95,6 +94,33 @@ import type { TableSystemFilter } from '../../../tables/system-fields'
   schemaGeneration?: number;
 `
     )
+
+    for (const operation of [
+      'createTable',
+      'duplicateTable',
+      'getOrCreateTable',
+      'getTable',
+      'listTables',
+      'renameTableColumn',
+      'updateTable',
+    ]) {
+      await patch(
+        `${section}/operations/${operation}.ts`,
+        `    keyColumn?: string | null;
+    schema: {
+`,
+        `    keyColumn?: string | null;
+    keyColumnUnique?: boolean;
+    keyColumnUniqueState?: "disabled" | "enabling" | "enabled" | "disabling" | "error";
+    keyColumnUniqueOperationId?: string | null;
+    keyColumnUniqueAttempts?: number;
+    keyColumnUniqueLastErrorCode?: string | null;
+    uniqueGeneration?: number;
+    schemaGeneration?: number;
+    schema: {
+`
+      )
+    }
 
     for (const operation of ['createTable', 'getOrCreateTable']) {
       const path = `${section}/operations/${operation}.ts`

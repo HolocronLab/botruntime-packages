@@ -48,6 +48,30 @@ console.log(
 
 const consumerDir = resolve(consumerArg)
 const consumerRequire = createRequire(resolve(consumerDir, 'package.json'))
+const installedClientPackage = consumerRequire('@holocronlab/botruntime-client')
+const installedSdkPackage = consumerRequire('@holocronlab/botruntime-sdk')
+const rawClient = new installedClientPackage.Client({
+  apiUrl: 'https://release-smoke.invalid',
+  token: 'release-smoke-token',
+  botId: 'release-smoke-bot',
+})
+const botClient = new installedSdkPackage.BotSpecificClient(rawClient)
+for (const [label, instance, operations] of [
+  [
+    'raw client',
+    rawClient,
+    ['reserveTableKey', 'atomicTables', 'transitionTableUniqueKey'],
+  ],
+  ['SDK BotSpecificClient', botClient, ['reserveTableKey', 'atomicTables']],
+]) {
+  for (const operation of operations) {
+    if (typeof instance[operation] !== 'function') {
+      throw new Error(`installed ${label} does not expose ${operation}`)
+    }
+  }
+}
+console.log('verified installed Tables primitives: raw client + SDK BotSpecificClient')
+
 const bpCliContractPath = resolveInstalledImportExport(
   consumerRequire,
   '@holocronlab/botruntime-adk',

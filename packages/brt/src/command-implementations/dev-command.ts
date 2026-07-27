@@ -40,7 +40,11 @@ import * as utils from '../utils'
 import { Worker } from '../worker'
 import { AddCommand, type AddCommandDefinition } from './add-command'
 import { BuildCommand } from './build-command'
-import { ProjectCommand, ProjectDefinition } from './project-command'
+import {
+  ProjectCommand,
+  ProjectDefinition,
+  ProjectDefinitionContext,
+} from './project-command'
 
 const DEFAULT_BOT_PORT = 8075
 const DEFAULT_INTEGRATION_PORT = 8076
@@ -1113,7 +1117,8 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const tunnelId = cached.tunnelId
     const url = this._devTunnelHttpUrl(tunnelId)
 
-    const client = new CloudapiClient(apiUrl, this.argv.local ? profile.token : (this.argv.token ?? profile.token))
+    const token = this.argv.local ? profile.token : (this.argv.token ?? profile.token)
+    const client = new CloudapiClient(apiUrl, token)
     const report = await client.getDevBotTarget(devId, workspaceId).catch((thrown) => {
       if (thrown instanceof errors.HTTPError && thrown.status === 404) {
         throw new errors.BotpressCLIError(
@@ -1138,6 +1143,14 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const dependencies = isAgent
       ? await this._readAgentDependencyReport(dir, verifiedTarget.targetBotId, apiUrl, workspaceId, cloudReadiness)
       : undefined
+    const tableReadiness = await this._readDevCheckTableReadiness({
+      isAgent,
+      dir,
+      apiUrl,
+      workspaceId,
+      token,
+      targetBotId: verifiedTarget.targetBotId,
+    })
     const integrations = isAgent ? {} : await this._readDevCheckRequestedIntegrations()
     const readinessIntegrations = (() => {
       if (cloudReadiness.integrations?.authority === 'authoritative') {
@@ -1183,7 +1196,11 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
             : {}),
     }
     const output = {
-      ok: failed.length === 0 && (!dependencies || dependencies.ok) && evalTransport.ready,
+      ok:
+        failed.length === 0 &&
+        (!dependencies || dependencies.ok) &&
+        evalTransport.ready &&
+        tableReadiness.ready,
       bot: {
         id: report.bot.id,
         dev: report.bot.dev,
@@ -1197,6 +1214,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         packages: localToolchain.packages,
         ...(localToolchain.lockfile ? { lockfile: localToolchain.lockfile } : {}),
       },
+      tables: tableReadiness,
       ...(dependencies ? { dependencies } : {}),
     }
 
@@ -1222,6 +1240,18 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           : `Eval transport: not ready (${output.evalTransport.reason ?? 'runtime contract mismatch'})`
       )
       this.logger.log(`Toolchain: ready (${output.toolchain.packages.length} resolved platform packages)`)
+      this.logger.log(
+        output.tables.ready
+          ? `Tables: ready (${output.tables.declared} declared)`
+          : `Tables: not ready (${output.tables.items.filter((item) => !item.ready).length}/${output.tables.declared} drifted)`
+      )
+      for (const item of output.tables.items.filter((candidate) => !candidate.ready)) {
+        this.logger.log(
+          `  ${item.name}: expected keyColumn=${JSON.stringify(item.expected.keyColumn)}, ` +
+            `unique=${item.expected.unique}; received keyColumn=${JSON.stringify(item.actual.keyColumn)}, ` +
+            `unique=${item.actual.unique}, state=${item.actual.state}`
+        )
+      }
       if (dependencies) {
         this._printAgentDependencyReport(dependencies)
       }
@@ -1248,6 +1278,20 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       )
     }
 
+    if (!tableReadiness.ready) {
+      throw new errors.BotpressCLIError(
+        `Development Tables are not ready:\n${tableReadiness.items
+          .filter((item) => !item.ready)
+          .map(
+            (item) =>
+              `• ${item.name}: ${item.reason ?? 'key contract mismatch'} ` +
+              `(expected keyColumn=${JSON.stringify(item.expected.keyColumn)}, unique=${item.expected.unique}; ` +
+              `received keyColumn=${JSON.stringify(item.actual.keyColumn)}, unique=${item.actual.unique}, state=${item.actual.state})`
+          )
+          .join('\n')}`
+      )
+    }
+
     if (dependencies && !dependencies.ok) {
       const issueLines = dependencies.issues.map((issue) => `• ${this._formatDependencyIssue(issue)}`)
       const statusLines = this._blockingDependencyStatuses(dependencies.statuses).map(
@@ -1257,6 +1301,71 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
         `Agent dependencies are not ready:\n${(issueLines.length > 0 ? issueLines : statusLines).join('\n')}`
       )
     }
+  }
+
+  private async _readDevCheckTableReadiness({
+    isAgent,
+    dir,
+    apiUrl,
+    workspaceId,
+    token,
+    targetBotId,
+  }: {
+    isAgent: boolean
+    dir: string
+    apiUrl: string
+    workspaceId: string
+    token: string
+    targetBotId: string
+  }): Promise<tables.TableKeyContractReadiness> {
+    const botDefinition = await (async (): Promise<sdk.BotDefinition> => {
+      if (!isAgent) {
+        const project = this.readProjectDefinitionFromFS()
+        if (project.projectType !== 'bot') {
+          throw new errors.BotpressCLIError(
+            'brt dev --check Tables readiness requires a bot or agent project'
+          )
+        }
+        return (await project.resolveProjectDefinition()).definition
+      }
+
+      const generatedBotDir = pathlib.join(dir, adkBundle.AGENT_BOT_REL_PATH)
+      const projectContext = new ProjectDefinitionContext()
+      try {
+        const { outputFiles } = await projectContext.rebuildEntrypoint({
+          absWorkingDir: generatedBotDir,
+          entrypoint: 'bot.definition.ts',
+        })
+        const artifact = outputFiles?.[0]
+        if (!artifact) {
+          throw new errors.BotpressCLIError(
+            `cached generated bot has no readable bot.definition.ts in ${generatedBotDir}`
+          )
+        }
+        return projectContext.getOrResolveDefinition<sdk.BotDefinition>(
+          artifact.text
+        )
+      } catch (thrown) {
+        throw errors.BotpressCLIError.wrap(
+          thrown,
+          'could not read the cached generated agent Tables declaration; run `brt dev`, then retry `brt dev --check`'
+        )
+      } finally {
+        await projectContext.dispose()
+      }
+    })()
+
+    const api = this.api
+      .newClient({ apiUrl, workspaceId, token }, this.logger)
+      .switchBot(targetBotId)
+    const listed = await api.safeListTables({})
+    if (!listed.success) {
+      throw errors.BotpressCLIError.wrap(
+        listed.error,
+        'could not read development Tables for readiness'
+      )
+    }
+    return tables.auditTableKeyContracts(botDefinition, listed.tables)
   }
 
   private async _readAgentDependencyReport(
@@ -1812,6 +1921,7 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
       api,
       logger: this.logger,
       prompt: this.prompt,
+      allowUniqueKeyTransitions: true,
     })
     await tablesPublisher.deployTables({
       botId: target.targetBotId,

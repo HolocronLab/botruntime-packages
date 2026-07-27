@@ -328,3 +328,17 @@ test('brt tarball publication is serialized after the complete public package tr
   assert.match(brtWorkflow, /TAG="\$\{\{ inputs\.tag \}\}"/)
   assert.doesNotMatch(brtWorkflow, /TAG="\$\{\{[^\n]*(?:inputs\.ref|github\.ref_name)/)
 })
+
+test('clean installed release verification exercises Tables methods on raw and SDK clients', () => {
+  const verifier = readFileSync(
+    new URL('./verify-installed-release-train.mjs', import.meta.url),
+    'utf8'
+  )
+  assert.match(verifier, /new installedClientPackage\.Client/)
+  assert.match(verifier, /new installedSdkPackage\.BotSpecificClient/)
+  assert.match(
+    verifier,
+    /\['reserveTableKey', 'atomicTables', 'transitionTableUniqueKey'\]/
+  )
+  assert.match(verifier, /\['reserveTableKey', 'atomicTables'\]/)
+})

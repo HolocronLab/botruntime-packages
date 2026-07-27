@@ -335,6 +335,39 @@ describe('BotGenerator config target isolation', () => {
     expect(artifact).toContain('maxExecutionTime: 300')
   })
 
+  it('emits the classic string key column and explicit unique flag for generated tables', async () => {
+    const project = await projectMocks.load()
+    project.tables = [
+      {
+        definition: {
+          name: 'AgentEventTable',
+          schema: {
+            type: 'object',
+            properties: {
+              eventKey: { type: 'string' },
+            },
+            required: ['eventKey'],
+          },
+          keyColumn: 'eventKey',
+          keyColumnUnique: true,
+        },
+      },
+    ]
+    projectMocks.load.mockClear()
+    projectMocks.load.mockResolvedValue(project)
+
+    const artifact = await generateDefinition('adk-dev', {
+      environment: 'dev',
+      botId: '42',
+      runtimeBotId: 'dev_explicit',
+      credentials: DEV_CONNECTION,
+    })
+
+    expect(artifact).toContain('keyColumn: "eventKey"')
+    expect(artifact).toContain('keyColumnUnique: true')
+    expect(artifact).not.toContain('keyColumn: { name:')
+  })
+
   it('adk-dev embeds integration and plugin config only from the explicit dev target', async () => {
     const artifact = await generateDefinition('adk-dev', {
       environment: 'dev',

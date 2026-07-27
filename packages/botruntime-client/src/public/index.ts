@@ -3,6 +3,7 @@ import * as downloadFileRef from '../files/download-file-ref'
 import * as integrationOperations from '../integration-operations'
 import * as atomic from '../tables/atomic'
 import * as reserveKey from '../tables/reserve-key'
+import * as transitionUniqueKey from './transition-table-unique-key'
 import * as uploadFile from '../files/upload-file'
 import * as gen from '../gen/public'
 import * as types from '../types'
@@ -28,6 +29,9 @@ type IClient = common.types.Simplify<
     reserveTableKey: (
       input: reserveKey.ReserveTableKeyInput
     ) => Promise<reserveKey.ReserveTableKeyOutput>
+    transitionTableUniqueKey: (
+      input: transitionUniqueKey.TransitionTableUniqueKeyInput
+    ) => Promise<transitionUniqueKey.TransitionTableUniqueKeyOutput<gen.Table>>
   }
 >
 export type Operation = common.types.Operation<IClient>
@@ -210,5 +214,14 @@ export class Client extends gen.Client implements IClient {
     input: atomic.AtomicTablesInput<TOperations>
   ): Promise<atomic.AtomicTablesOutput<TOperations>> => {
     return await atomic.atomicTables(this._customAxiosInstance, input)
+  }
+
+  public readonly transitionTableUniqueKey = async (
+    input: transitionUniqueKey.TransitionTableUniqueKeyInput
+  ): Promise<transitionUniqueKey.TransitionTableUniqueKeyOutput<gen.Table>> => {
+    return await transitionUniqueKey.transitionTableUniqueKey<gen.Table>(
+      this._customAxiosInstance,
+      input
+    )
   }
 }
