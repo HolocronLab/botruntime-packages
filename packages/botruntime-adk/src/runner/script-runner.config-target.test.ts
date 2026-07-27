@@ -9,6 +9,7 @@ const assetsMocks = vi.hoisted(() => ({ generateAssetsTypes: vi.fn(), generateAs
 const targetMocks = vi.hoisted(() => ({ verifyServerConfigTarget: vi.fn() }))
 const resolverMocks = vi.hoisted(() => ({ readAgentInfo: vi.fn(), readAgentLocalInfo: vi.fn() }))
 const authMocks = vi.hoisted(() => ({ getActiveCredentials: vi.fn(), assertCompleteCredentials: vi.fn() }))
+const linkMocks = vi.hoisted(() => ({ linkGeneratedRuntimeDependencies: vi.fn() }))
 
 vi.mock('../agent-project/index.js', () => ({ AgentProject: { load: projectMocks.load } }))
 vi.mock('../bot-generator/index.js', () => ({ generateBotProject: generatorMocks.generateBotProject }))
@@ -21,6 +22,7 @@ vi.mock('../auth/index.js', () => ({
   auth: authMocks,
   assertCompleteCredentials: authMocks.assertCompleteCredentials,
 }))
+vi.mock('../utils/link-sdk.js', () => linkMocks)
 vi.mock('../config/manager.js', () => ({
   ConfigManager: class ConfigManager {
     async getAll() {
@@ -185,7 +187,7 @@ describe('ScriptRunner generation target', () => {
 
   it('keeps generated artifact provenance invalid when the native build fails', async () => {
     const { projectPath, botPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: 'foreign_bot',
       runtimeBotId: 'foreign_runtime',
@@ -264,7 +266,7 @@ describe('ScriptRunner generation target', () => {
 
   it('regenerates target-specific artifacts when provenance belongs to another dev bot', async () => {
     const { projectPath, botPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: '41',
       runtimeBotId: 'dev_target_a',
@@ -303,7 +305,7 @@ describe('ScriptRunner generation target', () => {
     })
     expect(assetsMocks.generateAssetsRuntime).toHaveBeenCalledWith(projectPath, '42', expect.any(Object))
     expect(JSON.parse(fs.readFileSync(path.join(botPath, '.botruntime-script-target.json'), 'utf8'))).toEqual({
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: '42',
       runtimeBotId: 'dev_target_b',
@@ -314,7 +316,18 @@ describe('ScriptRunner generation target', () => {
 
   it.each([
     { label: 'missing', target: undefined },
-    { label: 'invalid', target: { version: 1, environment: 'dev', botId: '42' } },
+    { label: 'invalid', target: { version: 2, environment: 'dev', botId: '42' } },
+    {
+      label: 'legacy-v1',
+      target: {
+        version: 1,
+        environment: 'dev',
+        botId: '42',
+        runtimeBotId: 'dev_target_b',
+        apiUrl: CREDENTIALS.apiUrl,
+        workspaceId: CREDENTIALS.workspaceId,
+      },
+    },
   ])('regenerates complete-looking artifacts with $label provenance', async ({ target }) => {
     const { projectPath } = writeCompleteArtifacts(target)
     projectMocks.load.mockResolvedValue({
@@ -338,7 +351,7 @@ describe('ScriptRunner generation target', () => {
 
   it('reuses artifacts only when dev provenance matches the verified pair', async () => {
     const { projectPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: '42',
       runtimeBotId: 'dev_target_b',
@@ -361,11 +374,15 @@ describe('ScriptRunner generation target', () => {
 
     expect(generatorMocks.generateBotProject).not.toHaveBeenCalled()
     expect(assetsMocks.generateAssetsRuntime).not.toHaveBeenCalled()
+    expect(linkMocks.linkGeneratedRuntimeDependencies).toHaveBeenCalledWith(
+      projectPath,
+      path.join(projectPath, '.adk', 'bot')
+    )
   })
 
   it('does not reuse artifacts from another stack with the same dev IDs', async () => {
     const { projectPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: '42',
       runtimeBotId: 'dev_target_b',
@@ -392,7 +409,7 @@ describe('ScriptRunner generation target', () => {
 
   it('keeps provenance invalidated when dev asset generation fails during a target change', async () => {
     const { projectPath, botPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: '42',
       runtimeBotId: 'dev_target_b',
@@ -467,7 +484,7 @@ describe('ScriptRunner generation target', () => {
 
   it('auto credentials ignore poisoned local stack fields for a coherent prod authority', async () => {
     const { projectPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'prod',
       botId: 'prod_bot',
       apiUrl: CREDENTIALS.apiUrl,
@@ -500,7 +517,7 @@ describe('ScriptRunner generation target', () => {
 
   it('regenerates artifacts when prod provenance belongs to another bot', async () => {
     const { projectPath } = writeCompleteArtifacts({
-      version: 1,
+      version: 2,
       environment: 'prod',
       botId: 'prod_target_a',
     })

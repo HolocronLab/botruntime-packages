@@ -18,7 +18,9 @@ import {
 } from './toolchain-contract'
 
 const RUNTIME = '@holocronlab/botruntime-runtime'
+const SDK = '@holocronlab/botruntime-sdk'
 const EVALS = '@holocronlab/botruntime-evals'
+const CLI_FIXTURE = '@holocronlab/botruntime-cli-fixture'
 
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -123,6 +125,172 @@ describe('platform toolchain contract', () => {
       expect.objectContaining({ name: RUNTIME, version: '2.1.19' }),
     ])
     expect(() => assertPlatformToolchainCompatible(contract)).not.toThrow()
+  })
+
+  it('accepts generated runtime links only when they match the selected agent graph', () => {
+    writeJson(path.join(projectDir, 'package.json'), {
+      name: 'test-agent',
+      dependencies: { [RUNTIME]: '2.9.2' },
+    })
+    const runtimeDir = installPackage(projectDir, RUNTIME, '2.9.2', {
+      [SDK]: '6.19.5',
+    })
+    const sdkDir = installPackage(runtimeDir, SDK, '6.19.5')
+    const botDir = path.join(projectDir, '.adk', 'bot')
+    writeJson(path.join(botDir, 'package.json'), {
+      name: 'generated-bot',
+      dependencies: {
+        [RUNTIME]: '2.9.2',
+        [SDK]: '6.19.5',
+      },
+    })
+    const generatedRuntime = path.join(botDir, 'node_modules', ...RUNTIME.split('/'))
+    const generatedSdk = path.join(botDir, 'node_modules', ...SDK.split('/'))
+    fs.mkdirSync(path.dirname(generatedRuntime), { recursive: true })
+    fs.symlinkSync(runtimeDir, generatedRuntime, 'dir')
+    fs.symlinkSync(sdkDir, generatedSdk, 'dir')
+
+    const contract = inspectPlatformToolchain(projectDir, {
+      includeCliPackages: false,
+      generatedBotDir: botDir,
+    })
+
+    expect(contract.issues).toEqual([])
+  })
+
+  it('allows same-version CLI and project copies when generated links select the project graph', () => {
+    writeJson(path.join(projectDir, 'package.json'), {
+      name: 'test-agent',
+      dependencies: {
+        [RUNTIME]: '2.9.2',
+        [CLI_FIXTURE]: '0.11.3',
+      },
+    })
+    const runtimeDir = installPackage(projectDir, RUNTIME, '2.9.2', {
+      [SDK]: '6.19.5',
+    })
+    const sdkDir = installPackage(runtimeDir, SDK, '6.19.5')
+    const cliDir = installPackage(projectDir, CLI_FIXTURE, '0.11.3', {
+      [RUNTIME]: '2.9.2',
+    })
+    const cliRuntimeDir = installPackage(cliDir, RUNTIME, '2.9.2', {
+      [SDK]: '6.19.5',
+    })
+    installPackage(cliRuntimeDir, SDK, '6.19.5')
+    const botDir = path.join(projectDir, '.adk', 'bot')
+    writeJson(path.join(botDir, 'package.json'), {
+      name: 'generated-bot',
+      dependencies: {
+        [RUNTIME]: '2.9.2',
+        [SDK]: '6.19.5',
+      },
+    })
+    const generatedRuntime = path.join(botDir, 'node_modules', ...RUNTIME.split('/'))
+    const generatedSdk = path.join(botDir, 'node_modules', ...SDK.split('/'))
+    fs.mkdirSync(path.dirname(generatedRuntime), { recursive: true })
+    fs.symlinkSync(runtimeDir, generatedRuntime, 'dir')
+    fs.symlinkSync(sdkDir, generatedSdk, 'dir')
+
+    const contract = inspectPlatformToolchain(projectDir, {
+      includeCliPackages: false,
+      generatedBotDir: botDir,
+    })
+
+    expect(contract.issues).toEqual([])
+    expect(new Set(
+      contract.packages
+        .filter((record) => record.name === RUNTIME)
+        .map((record) => record.realpath)
+    ).size).toBeGreaterThanOrEqual(2)
+    expect(new Set(
+      contract.packages
+        .filter((record) => record.name === SDK)
+        .map((record) => record.realpath)
+    ).size).toBeGreaterThanOrEqual(2)
+  })
+
+  it('fails closed on a mixed same-version generated SDK link', () => {
+    writeJson(path.join(projectDir, 'package.json'), {
+      name: 'test-agent',
+      dependencies: { [RUNTIME]: '2.9.2' },
+    })
+    const runtimeDir = installPackage(projectDir, RUNTIME, '2.9.2', {
+      [SDK]: '6.19.5',
+    })
+    installPackage(runtimeDir, SDK, '6.19.5')
+    const staleRoot = path.join(projectDir, 'stale')
+    const staleSdk = installPackage(staleRoot, SDK, '6.19.5')
+    const botDir = path.join(projectDir, '.adk', 'bot')
+    writeJson(path.join(botDir, 'package.json'), {
+      name: 'generated-bot',
+      dependencies: {
+        [RUNTIME]: '2.9.2',
+        [SDK]: '6.19.5',
+      },
+    })
+    const generatedRuntime = path.join(botDir, 'node_modules', ...RUNTIME.split('/'))
+    const generatedSdk = path.join(botDir, 'node_modules', ...SDK.split('/'))
+    fs.mkdirSync(path.dirname(generatedRuntime), { recursive: true })
+    fs.symlinkSync(runtimeDir, generatedRuntime, 'dir')
+    fs.symlinkSync(staleSdk, generatedSdk, 'dir')
+
+    const contract = inspectPlatformToolchain(projectDir, {
+      includeCliPackages: false,
+      generatedBotDir: botDir,
+    })
+
+    expect(contract.issues).toEqual([
+      expect.objectContaining({
+        code: 'GENERATED_DEPENDENCY_MISMATCH',
+        package: SDK,
+        resolved: '6.19.5',
+      }),
+    ])
+    expect(() => assertPlatformToolchainCompatible(contract)).toThrow(
+      /GENERATED_DEPENDENCY_MISMATCH[\s\S]*botruntime-sdk/
+    )
+  })
+
+  it('fails closed when generated exact declarations are stale', () => {
+    writeJson(path.join(projectDir, 'package.json'), {
+      name: 'test-agent',
+      dependencies: { [RUNTIME]: '2.9.2' },
+    })
+    const runtimeDir = installPackage(projectDir, RUNTIME, '2.9.2', {
+      [SDK]: '6.19.5',
+    })
+    const sdkDir = installPackage(runtimeDir, SDK, '6.19.5')
+    const botDir = path.join(projectDir, '.adk', 'bot')
+    writeJson(path.join(botDir, 'package.json'), {
+      name: 'generated-bot',
+      dependencies: {
+        [RUNTIME]: '2.9.1',
+      },
+    })
+    const generatedRuntime = path.join(botDir, 'node_modules', ...RUNTIME.split('/'))
+    const generatedSdk = path.join(botDir, 'node_modules', ...SDK.split('/'))
+    fs.mkdirSync(path.dirname(generatedRuntime), { recursive: true })
+    fs.symlinkSync(runtimeDir, generatedRuntime, 'dir')
+    fs.symlinkSync(sdkDir, generatedSdk, 'dir')
+
+    const contract = inspectPlatformToolchain(projectDir, {
+      includeCliPackages: false,
+      generatedBotDir: botDir,
+    })
+
+    expect(contract.issues).toEqual([
+      expect.objectContaining({
+        code: 'GENERATED_DECLARATION_MISMATCH',
+        package: RUNTIME,
+        declared: '2.9.1',
+        resolved: '2.9.2',
+      }),
+      expect.objectContaining({
+        code: 'GENERATED_DECLARATION_MISMATCH',
+        package: SDK,
+        resolved: '6.19.5',
+      }),
+    ])
   })
 
   it('writes a deterministic non-secret contract artifact with lock hash and realpaths', () => {

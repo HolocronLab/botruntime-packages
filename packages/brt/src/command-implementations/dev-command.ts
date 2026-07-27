@@ -869,6 +869,9 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
     const botPath = await adkBundle.generateAgentBot(dir, installer, generationOptions()).catch((thrown) => {
       throw errors.BotpressCLIError.wrap(thrown, 'agent dev: initial bot generation failed')
     })
+    assertPlatformToolchainCompatible(
+      inspectPlatformToolchain(dir, { generatedBotDir: botPath })
+    )
     // Repair the tunnelId the agent generator's own DevIdManager.restoreDevId()
     // just dropped from the nested project cache (see adk-dev-id.ts) BEFORE the
     // nested classic DevCommand below reads its tunnelId — so a previously
@@ -901,6 +904,9 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
           // the next config target; agent.local.json remains the sole source.
           adkDevId.preserveDevId(dir, botPath, this.logger)
           await adkBundle.generateAgentBot(dir, installer, generationOptions())
+          assertPlatformToolchainCompatible(
+            inspectPlatformToolchain(dir, { generatedBotDir: botPath })
+          )
           // Same repair as the initial generation above: every regeneration
           // re-runs the agent generator's restoreDevId(), which drops tunnelId
           // again whenever agent.local.json already has a devId.
@@ -1029,7 +1035,12 @@ export class DevCommand extends ProjectCommand<DevCommandDefinition> {
   private async _runDevCheck(): Promise<void> {
     const dir = this.projectPaths.abs.workDir
     const isAgent = adkBundle.isAgentProject(dir)
-    const localToolchain = inspectPlatformToolchain(dir)
+    const localToolchain = inspectPlatformToolchain(
+      dir,
+      isAgent
+        ? { generatedBotDir: pathlib.join(dir, '.adk', 'bot') }
+        : {}
+    )
     assertPlatformToolchainCompatible(localToolchain)
     const linkEnv: cloudLink.LinkEnv = this.argv.local ? 'local' : 'prod'
     const legacyLink = cloudLink.loadLinkIfPresent(dir, linkEnv)

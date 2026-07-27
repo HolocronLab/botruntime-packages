@@ -15,6 +15,7 @@ import { verifyServerConfigTarget, type ServerConfigTarget } from '../integratio
 import { superviseChild } from './supervise-child.js'
 import { AdkError } from '@holocronlab/botruntime-analytics'
 import { readAgentInfo, readAgentLocalInfo } from '../agent-project/agent-resolver.js'
+import { linkGeneratedRuntimeDependencies } from '../utils/link-sdk.js'
 
 /**
  * Find the agent project root by walking up from startPath looking for agent.config.ts
@@ -92,14 +93,14 @@ export interface RunOptions {
 
 type ScriptArtifactTarget =
   | {
-      version: 1
+      version: 2
       environment: 'dev'
       botId: string
       runtimeBotId: string
       apiUrl: string
       workspaceId: string
     }
-  | { version: 1; environment: 'prod'; botId: string; apiUrl: string; workspaceId: string }
+  | { version: 2; environment: 'prod'; botId: string; apiUrl: string; workspaceId: string }
 
 const SCRIPT_ARTIFACT_TARGET_FILE = '.botruntime-script-target.json'
 
@@ -227,7 +228,7 @@ export class ScriptRunner {
     if (!credentials) return undefined
     if (target.environment === 'prod') {
       return {
-        version: 1,
+        version: 2,
         environment: 'prod',
         botId: target.botId,
         apiUrl: normalizeApiUrl(credentials.apiUrl),
@@ -236,7 +237,7 @@ export class ScriptRunner {
     }
     if (!target.botId || !target.runtimeBotId) return undefined
     return {
-      version: 1,
+      version: 2,
       environment: 'dev',
       botId: target.botId,
       runtimeBotId: target.runtimeBotId,
@@ -364,6 +365,11 @@ export class ScriptRunner {
       await this.writeArtifactTarget(botPath, configTarget)
     }
 
+    // Artifact target provenance does not cover physical package links. Always
+    // reconcile them, including cache hits, so a lockfile/install change cannot
+    // execute an otherwise matching runner with a stale runtime/SDK closure.
+    await linkGeneratedRuntimeDependencies(project.path, botPath)
+
     return { botPath, runnerPath, project, configTarget }
   }
 
@@ -393,11 +399,7 @@ export class ScriptRunner {
        */
       import * as bp from '.botpress'
       import { setupAdkRuntime } from './adk-runtime'
-      import { context, agentRegistry } from '@holocronlab/botruntime-runtime/runtime'
-      import { Autonomous } from '@holocronlab/botruntime-runtime'
-      import { Client } from '@holocronlab/botruntime-client'
-      import { BotSpecificClient, BotLogger } from '@holocronlab/botruntime-sdk'
-      import { Cognitive } from '@holocronlab/botruntime-cognitive'
+      import { initializeScriptContext } from '@holocronlab/botruntime-runtime/runtime'
 
       // Create a minimal bot instance for runtime initialization
       const bot = new bp.Bot({
@@ -416,26 +418,13 @@ export class ScriptRunner {
         ? JSON.parse(process.env.BOTRUNTIME_CONFIGURATION)
         : {}
 
-      const vanillaClient = new Client({ token, apiUrl, workspaceId, botId })
-      const client = new BotSpecificClient(vanillaClient as any)
-      const cognitive = new Cognitive({ client: client as any })
-      const logger = new BotLogger({})
-
-      context.setDefaultContext({
+      initializeScriptContext({
         executionId: 'script-execution',
-        executionFinished: false,
         botId,
-        client: client as any,
-        cognitive: cognitive as any,
-        citations: new Autonomous.CitationsManager(),
-        logger: logger as any,
+        token,
+        apiUrl,
+        workspaceId,
         configuration,
-        integrations: agentRegistry.integrations,
-        interfaces: agentRegistry.interfaces,
-        plugins: agentRegistry.plugins,
-        states: [],
-        tags: [],
-        scheduledHeavyImports: new Set<string>(),
       })
 
       // Export runtime utilities for scripts to use
@@ -568,49 +557,14 @@ export class ScriptRunner {
 
         // After the runtime is initialized, we need to set up a default context
         // that includes integrations from the agentRegistry
-        const runtimeModule = await import('@holocronlab/botruntime-runtime/runtime')
-        const { Autonomous } = await import('@holocronlab/botruntime-runtime')
-        const { context, agentRegistry } = runtimeModule
-
-        // Create a client for making API calls
-        const { Client } = await import('@holocronlab/botruntime-client')
-        const { BotSpecificClient, BotLogger } = await import('@holocronlab/botruntime-sdk')
-        const { Cognitive } = await import('@holocronlab/botruntime-cognitive')
-
-        const vanillaClient = new Client({
+        const { initializeScriptContext } = await import('@holocronlab/botruntime-runtime/runtime')
+        initializeScriptContext({
+          executionId: 'test-execution',
+          botId,
           token: this.credentials.token,
           apiUrl: this.credentials.apiUrl,
           workspaceId,
-          botId,
-        })
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK type mismatch between Client and BotSpecificClient
-        const client = new BotSpecificClient(vanillaClient as any)
-
-        const cognitive = new Cognitive({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK type mismatch
-          client: client as any,
-        })
-
-        const logger = new BotLogger({})
-
-        // Set a default context that will be used as fallback when no AsyncLocalStorage context is active
-        // This allows actions/integrations to work in tests without wrapping every call
-        context.setDefaultContext({
-          executionId: 'test-execution',
-          executionFinished: false,
-          botId,
-          client: client as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-          cognitive: cognitive as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-          citations: new Autonomous.CitationsManager(),
-          logger: logger as any, // eslint-disable-line @typescript-eslint/no-explicit-any
           configuration: configuration ?? {},
-          integrations: agentRegistry.integrations,
-          interfaces: agentRegistry.interfaces,
-          plugins: agentRegistry.plugins,
-          states: [],
-          tags: [],
-          scheduledHeavyImports: new Set<string>(),
         })
 
         return botModule.default

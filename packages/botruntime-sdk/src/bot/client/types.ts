@@ -427,6 +427,9 @@ export type UpsertTableRows<TBot extends common.BaseBot> = <
   >
 >
 
+export type ReserveTableKey<_TBot extends common.BaseBot> = client.Client['reserveTableKey']
+export type AtomicTables<_TBot extends common.BaseBot> = client.Client['atomicTables']
+
 export type TrackAnalytics<_TBot extends common.BaseBot> = client.Client['trackAnalytics']
 
 export type ClientOperations<TBot extends common.BaseBot> = {
@@ -473,6 +476,8 @@ export type ClientOperations<TBot extends common.BaseBot> = {
   deleteTableRows: DeleteTableRows<TBot>
   updateTableRows: UpdateTableRows<TBot>
   upsertTableRows: UpsertTableRows<TBot>
+  reserveTableKey: ReserveTableKey<TBot>
+  atomicTables: AtomicTables<TBot>
 }
 
 export type ClientInputs<TBot extends common.BaseBot> = {
