@@ -6,7 +6,14 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.11.0 (current) — 2026-07-27
+## 0.11.1 (current) — 2026-07-27
+
+- Обновлены внутренние зависимости: @holocronlab/botruntime-adk@2.9.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-client@1.54.0
+- Обновлены внутренние зависимости: @holocronlab/botruntime-evals@2.1.31
+- Обновлены внутренние зависимости: @holocronlab/botruntime-sdk@6.19.4
+
+## 0.11.0 — 2026-07-27
 
 - Added typed table key reservation with mandatory idempotency, an exact
 `{ row, created: boolean }` result, and stable table conflict classification.

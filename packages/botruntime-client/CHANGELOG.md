@@ -5,7 +5,11 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/client@1.46.0` src; `gen/` is codegenerated from the pinned API. Byte-exact type
 surface (71 `/v1` path templates) — see `docs/adr/0005-opapi-as-source-of-truth.md` and README.md.
 
-## 1.53.0 (current) — 2026-07-27
+## 1.54.0 (current) — 2026-07-27
+
+- Raised the Tables schema limit from 20 to 64 user-defined columns. The four system fields (`id`, `rowVersion`, `createdAt`, and `updatedAt`) do not count toward this limit.
+
+## 1.53.0 — 2026-07-27
 
 - Added typed table key reservation with mandatory idempotency, an exact
 `{ row, created: boolean }` result, and stable table conflict classification.
