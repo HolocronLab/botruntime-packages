@@ -23,7 +23,12 @@ import type {
   ListProgramsOutput,
   DealOutput,
 } from '../definitions/deal-actions'
-import type { AddCommentInput, AddCommentOutput } from '../definitions/comment-actions'
+import type {
+  AddCommentInput,
+  AddCommentOutput,
+  PublishCaseDocumentInput,
+  PublishCaseDocumentOutput,
+} from '../definitions/comment-actions'
 import type { CreateTodoInput, ListTodosInput, ListTodosOutput, FinishTodoInput, TodoOutput } from '../definitions/todo-actions'
 import type {
   CreateTaskInput,
@@ -52,6 +57,7 @@ type Actions = {
   listPrograms: { input: Record<string, never>; output: ListProgramsOutput }
   programStates: { input: ProgramStatesInput; output: ProgramStatesOutput }
   addComment: { input: AddCommentInput; output: AddCommentOutput }
+  publishCaseDocument: { input: PublishCaseDocumentInput; output: PublishCaseDocumentOutput }
   createTodo: { input: CreateTodoInput; output: TodoOutput }
   listTodos: { input: ListTodosInput; output: ListTodosOutput }
   finishTodo: { input: FinishTodoInput; output: TodoOutput }
@@ -64,7 +70,7 @@ type Actions = {
 
 export type TMegaplan = {
   name: 'megaplan'
-  version: '0.2.8'
+  version: '0.2.9'
   configuration: Configuration
   configurations: Record<string, never>
   actions: Actions

@@ -1,7 +1,11 @@
 import * as sdk from '@holocronlab/botruntime-sdk'
 import actions from './actions'
-import { buildClient } from './actions/shared'
+import { buildClient, buildOperationClient } from './actions/shared'
 import type { TMegaplan, IntegrationProps } from './bp'
+import {
+  handleCaseDocumentOperation,
+  validatePublishCaseDocumentInput,
+} from './case-document-operation'
 import { webhookHandler } from './webhook'
 
 // register — validate creds loudly at install time: issue a token and hit a cheap
@@ -23,12 +27,61 @@ const unregister: IntegrationProps['unregister'] = async ({ ctx, client }) => {
   await client.setState({ type: 'integration', name: 'megaplanAuth', id: ctx.integrationId, payload: { accessToken: null } })
 }
 
+const durableOperationHandler: sdk.DurableOperationHandler<TMegaplan> = async ({
+  phase,
+  operationId,
+  attempt,
+  action,
+  idempotencyKey,
+  input,
+  deadline,
+  cancelRequestedAt,
+  files,
+  checkpoint,
+  ctx,
+  logger,
+}) => {
+  if (
+    action !== 'publishCaseDocument'
+    || !files
+    || !checkpoint
+    || !validatePublishCaseDocumentInput(input)
+  ) {
+    return {
+      kind: 'failed',
+      errorCode: 'INVALID_OPERATION_CAPABILITIES',
+      errorMessage: 'Некорректный durable-контракт публикации документов',
+    }
+  }
+  return handleCaseDocumentOperation(
+    phase,
+    {
+      operationId,
+      attempt,
+      action,
+      idempotencyKey,
+      input,
+      deadline,
+      cancelRequestedAt,
+      checkpoint,
+    },
+    {
+      files,
+      provider: buildOperationClient(ctx),
+    },
+    logger,
+  )
+}
+
 const integration = new sdk.Integration<TMegaplan>({
   register,
   unregister,
   actions,
   channels: {},
   handler: webhookHandler,
+  __advanced: {
+    durableOperationHandler,
+  },
 })
 
 const sdkHandler = integration.handler.bind(integration)
@@ -37,7 +90,7 @@ type LambdaRequest = Parameters<typeof sdkHandler>[0]
 // The runtime host forwards provider requests as a flat envelope while the SDK
 // expects req nested in the webhook body. Keep the adapter inside the bundle so
 // the integration remains portable and the host contract stays provider-neutral.
-const lambdaHandler = async (req: LambdaRequest) => {
+const lambdaHandler: typeof sdkHandler = async (req: LambdaRequest, lambdaCtx) => {
   const headers: Record<string, string | undefined> = { ...req.headers }
   const botId = headers['x-bot-id']
   if (botId && !headers['x-bot-user-id']) headers['x-bot-user-id'] = `${botId}_bot`
@@ -48,7 +101,7 @@ const lambdaHandler = async (req: LambdaRequest) => {
     headers['x-bp-operation'] === 'webhook_received'
       ? JSON.stringify({ req: { method: req.method, path: req.path, query: req.query, headers: req.headers, body: req.body } })
       : req.body
-  return sdkHandler({ ...req, headers, body })
+  return sdkHandler({ ...req, headers, body }, lambdaCtx)
 }
 
 Object.defineProperty(integration, 'handler', { value: lambdaHandler })

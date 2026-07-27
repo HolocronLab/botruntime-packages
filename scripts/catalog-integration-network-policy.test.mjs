@@ -16,8 +16,8 @@ const expectedPolicies = [
     hosts: ["*.megaplan.ru"],
     ingressRelayed: true,
     webhookAuthMode: "shared_secret",
-    sdkSpec: "6.13.4",
-    brtSpec: "0.6.0",
+    sdkSpec: "6.20.0",
+    brtSpec: "0.12.0",
   },
   {
     integration: "yadisk",
