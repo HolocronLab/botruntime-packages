@@ -45,7 +45,7 @@ import { PluginManager } from '../plugins/manager.js'
 import { InterfaceManager } from '../interfaces/manager.js'
 import { createFile } from '../utils/fs.js'
 import { serializeSchema } from '../utils/schema-serialization.js'
-import { linkSdk } from '../utils/link-sdk.js'
+import { linkGeneratedRuntimeDependencies } from '../utils/link-sdk.js'
 import { pascalCase } from '../utils/strings.js'
 import { DevIdManager } from './dev-id-manager.js'
 import { IntegrationSync } from './integration-sync.js'
@@ -2313,7 +2313,6 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   const independentGenerationSteps: Array<Promise<void>> = [
     generator.generateAdkRuntime(),
     generator.copyAssetsRuntime(),
-    linkSdk(options.projectPath, botPath),
   ]
   if (options.adkCommand === 'adk-dev') {
     const devIdManager = new DevIdManager(options.projectPath, botPath)
@@ -2431,4 +2430,9 @@ export async function generateBotProject(options: BotGeneratorOptions): Promise<
   // Emit the bp_modules-gated files exactly once, now that the syncs have populated
   // bp_modules and the validation above guaranteed every dependency module is on disk.
   await generator.emitDependencyArtifacts()
+
+  // Package syncs can mutate the generated manifest. Reconcile and assert the
+  // runtime closure last so every caller (deploy, dev, standalone ADK and
+  // ScriptRunner) receives the same hermetic generated-project postcondition.
+  await linkGeneratedRuntimeDependencies(options.projectPath, botPath)
 }

@@ -545,6 +545,9 @@ describe('DevCommand --check', () => {
     const result = await cmd.handler()
 
     expect(result.exitCode).toBe(0)
+    expect(toolchainMocks.inspect).toHaveBeenCalledWith(workDir, {
+      generatedBotDir: path.join(workDir, '.adk', 'bot'),
+    })
     expect(getSpy).toHaveBeenCalledOnce()
     expect(fs.readFileSync(localPath)).toEqual(before)
   })
@@ -1527,6 +1530,9 @@ describe('DevCommand agent routing', () => {
     expect(generateSpy).toHaveBeenCalledTimes(2)
     expect(generateSpy).toHaveBeenNthCalledWith(1, workDir, expect.any(Function), expectedTarget)
     expect(generateSpy).toHaveBeenNthCalledWith(2, workDir, expect.any(Function), expectedTarget)
+    expect(toolchainMocks.inspect).toHaveBeenCalledWith(workDir, {
+      generatedBotDir: botPath,
+    })
     expect(close).toHaveBeenCalledOnce()
   })
 

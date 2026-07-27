@@ -5,7 +5,51 @@ import * as types from './types'
 import { BaseBot } from '../common'
 import { FooBarBazBot, EmptyBot } from '../../fixtures'
 
+type IsAny<T> = 0 extends 1 & T ? true : false
+
 describe('ClientInputs', () => {
+  test('table consistency operations preserve generic row and tuple inference', () => {
+    const compile = async (
+      reserve: types.ReserveTableKey<BaseBot>,
+      atomic: types.AtomicTables<BaseBot>
+    ) => {
+      const reservation = await reserve({
+        table: 'CaseTable',
+        row: { caseId: 'case-1' },
+        idempotencyKey: 'reserve-1',
+      })
+      const caseId: string = reservation.row.caseId
+
+      const result = await atomic({
+        idempotencyKey: 'atomic-1',
+        operations: [
+          {
+            id: 'reservation',
+            op: 'reserveKey',
+            table: 'CaseTable',
+            row: { caseId: 'case-1' },
+          },
+        ] as const,
+      })
+      const operationId: 'reservation' = result.results[0].id
+      const operation: 'reserveKey' = result.results[0].op
+      const atomicCaseId: string = result.results[0].row.caseId
+      type AtomicResult = (typeof result.results)[0]
+      type _assertion = utils.AssertAll<
+        [
+          utils.AssertTrue<utils.Not<IsAny<typeof reservation.row>>>,
+          utils.AssertTrue<utils.IsEqual<typeof reservation.row.caseId, string>>,
+          utils.AssertTrue<utils.Not<IsAny<AtomicResult>>>,
+          utils.AssertTrue<utils.IsEqual<AtomicResult['id'], 'reservation'>>,
+          utils.AssertTrue<utils.IsEqual<AtomicResult['op'], 'reserveKey'>>,
+          utils.AssertTrue<utils.IsEqual<AtomicResult['row']['caseId'], 'case-1'>>,
+        ]
+      >
+      void [caseId, operationId, operation, atomicCaseId]
+    }
+    void compile
+  })
+
   test('State CAS token remains available on the bot-specific client', () => {
     type Input = types.ClientInputs<FooBarBazBot>['setState']
     type Output = types.ClientOutputs<FooBarBazBot>['getState']

@@ -6,6 +6,8 @@ import semver from 'semver'
 import * as errors from './errors'
 
 const PLATFORM_PACKAGE_PREFIX = '@holocronlab/botruntime-'
+const GENERATED_RUNTIME_PACKAGE = '@holocronlab/botruntime-runtime'
+const GENERATED_SDK_PACKAGE = '@holocronlab/botruntime-sdk'
 export const TOOLCHAIN_CONTRACT_REL_PATH = path.join('.brt', 'toolchain-contract.json')
 
 export type PlatformToolchainPackage = {
@@ -22,6 +24,9 @@ export type PlatformToolchainIssue = {
     | 'LOCK_VERSION_MISMATCH'
     | 'MULTIPLE_RESOLVED_VERSIONS'
     | 'CAPABILITY_CONFLICT'
+    | 'GENERATED_DEPENDENCY_MISSING'
+    | 'GENERATED_DEPENDENCY_MISMATCH'
+    | 'GENERATED_DECLARATION_MISMATCH'
   parent: string
   package: string
   declared?: string
@@ -57,7 +62,7 @@ type GraphNode = {
 
 export function inspectPlatformToolchain(
   projectDir: string,
-  options: { includeCliPackages?: boolean } = {}
+  options: { includeCliPackages?: boolean; generatedBotDir?: string } = {}
 ): PlatformToolchainContract {
   const packagesByIdentity = new Map<string, PlatformToolchainPackage>()
   const issues: PlatformToolchainIssue[] = []
@@ -152,6 +157,10 @@ export function inspectPlatformToolchain(
     }
   }
 
+  if (options.generatedBotDir) {
+    inspectGeneratedBotDependencies(projectDir, options.generatedBotDir, issues)
+  }
+
   const packages = [...packagesByIdentity.values()].sort(comparePackages)
   for (const [packageName, records] of Object.entries(Object.groupBy(packages, (record) => record.name))) {
     const versions = [...new Set((records ?? []).map((record) => record.version))].sort()
@@ -195,8 +204,98 @@ export function inspectPlatformToolchain(
   }
 }
 
+function inspectGeneratedBotDependencies(
+  projectDir: string,
+  generatedBotDir: string,
+  issues: PlatformToolchainIssue[]
+): void {
+  const parent = path.relative(projectDir, generatedBotDir) || generatedBotDir
+  const generatedManifest = readPackageJson(generatedBotDir)
+  const selectedRuntime = resolveInstalledPackage(GENERATED_RUNTIME_PACKAGE, projectDir)
+  const selectedSdk = selectedRuntime
+    ? resolveInstalledPackage(GENERATED_SDK_PACKAGE, selectedRuntime.packageDir)
+    : undefined
+
+  if (!generatedManifest) {
+    issues.push({
+      code: 'GENERATED_DEPENDENCY_MISSING',
+      parent,
+      package: 'package.json',
+    })
+    return
+  }
+
+  const dependencies = isRecord(generatedManifest.dependencies)
+    ? generatedManifest.dependencies
+    : {}
+  const expected = [
+    [GENERATED_RUNTIME_PACKAGE, selectedRuntime] as const,
+    [GENERATED_SDK_PACKAGE, selectedSdk] as const,
+  ]
+  for (const [packageName, selected] of expected) {
+    if (!selected) {
+      // The owning graph already reports the unresolved package. Avoid a
+      // second, less useful generated-cache issue without an expected target.
+      continue
+    }
+
+    const generatedPackageDir = path.join(
+      generatedBotDir,
+      'node_modules',
+      ...packageName.split('/')
+    )
+    const generatedPackageJson = readPackageJson(generatedPackageDir)
+    if (!generatedPackageJson) {
+      issues.push({
+        code: 'GENERATED_DEPENDENCY_MISSING',
+        parent,
+        package: packageName,
+      })
+      continue
+    }
+
+    const generatedRealpath = realpath(generatedPackageDir)
+    if (generatedRealpath !== selected.realpath) {
+      issues.push({
+        code: 'GENERATED_DEPENDENCY_MISMATCH',
+        parent,
+        package: packageName,
+        resolved:
+          typeof generatedPackageJson.version === 'string'
+            ? generatedPackageJson.version
+            : undefined,
+        realpath: generatedRealpath,
+      })
+    }
+
+    const selectedPackageJson = readPackageJson(selected.packageDir)
+    const selectedVersion =
+      typeof selectedPackageJson?.version === 'string'
+        ? selectedPackageJson.version
+        : undefined
+    if (
+      !selectedVersion ||
+      dependencies[packageName] !== selectedVersion
+    ) {
+      issues.push({
+        code: 'GENERATED_DECLARATION_MISMATCH',
+        parent,
+        package: packageName,
+        declared:
+          typeof dependencies[packageName] === 'string'
+            ? dependencies[packageName]
+            : undefined,
+        ...(selectedVersion ? { resolved: selectedVersion } : {}),
+      })
+    }
+  }
+}
+
 export function assertPlatformToolchainCompatible(contract: PlatformToolchainContract): void {
   if (contract.issues.length === 0) return
+  const hasGeneratedDependencyIssue = contract.issues.some((issue) =>
+    issue.code.startsWith('GENERATED_')
+  )
   const details = contract.issues.map((issue) => {
     const versions = [
       issue.declared ? `declared ${issue.declared}` : undefined,
@@ -212,7 +311,11 @@ export function assertPlatformToolchainCompatible(contract: PlatformToolchainCon
   throw new errors.BotpressCLIError(
     `TOOLCHAIN_INCOMPATIBLE: installed botruntime packages do not match their declared/locked contract:\n${details.join(
       '\n'
-    )}\nRun bun install with a clean platform dependency graph, then retry.`
+    )}\n${
+      hasGeneratedDependencyIssue
+        ? 'Run brt dev to regenerate the managed .adk/bot dependency links, then retry.'
+        : 'Run bun install with a clean platform dependency graph, then retry.'
+    }`
   )
 }
 

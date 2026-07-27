@@ -20,6 +20,15 @@ const commandMocks = vi.hoisted(() => ({
   buildContexts: [] as unknown[],
   buildRun: vi.fn(async () => undefined),
 }))
+const toolchainMocks = vi.hoisted(() => ({
+  inspect: vi.fn(() => ({
+    schemaVersion: 1 as const,
+    capabilities: {},
+    packages: [],
+    issues: [],
+  })),
+  assert: vi.fn(),
+}))
 
 vi.mock('@holocronlab/botruntime-adk', () => ({
   ScriptRunner: class ScriptRunner {
@@ -33,6 +42,10 @@ vi.mock('@holocronlab/botruntime-adk', () => ({
   },
 }))
 vi.mock('../dev-worker-env', () => envMocks)
+vi.mock('../toolchain-contract', () => ({
+  inspectPlatformToolchain: toolchainMocks.inspect,
+  assertPlatformToolchainCompatible: toolchainMocks.assert,
+}))
 vi.mock('./add-command', () => ({
   AddCommand: class AddCommand {
     public constructor(
@@ -89,6 +102,8 @@ describe('brt run', () => {
     commandMocks.buildConstructors.length = 0
     commandMocks.buildContexts.length = 0
     commandMocks.buildRun.mockReset().mockResolvedValue(undefined)
+    toolchainMocks.inspect.mockClear()
+    toolchainMocks.assert.mockReset()
   })
 
   afterEach(() => {
@@ -121,6 +136,8 @@ describe('brt run', () => {
 
     await command.run()
 
+    expect(toolchainMocks.inspect).toHaveBeenCalledWith(workDir)
+    expect(toolchainMocks.assert).toHaveBeenCalledOnce()
     expect(envMocks.fetchDevConfigVars).toHaveBeenCalledWith({
       client,
       runtimeBotId: 'dev_opaque',
@@ -264,6 +281,20 @@ describe('brt run', () => {
   it('rejects a local production mix before resolving credentials', async () => {
     const command = makeCommand({ prod: true, local: true })
     await expect(command.run()).rejects.toThrow(/--local.*--prod/)
+    expect(runnerMocks.constructors).toHaveLength(0)
+  })
+
+  it('rejects an incoherent physical toolchain before resolving credentials', async () => {
+    const command = makeCommand()
+    const incompatible = new Error('TOOLCHAIN_INCOMPATIBLE')
+    toolchainMocks.assert.mockImplementationOnce(() => {
+      throw incompatible
+    })
+    ;(command as any).devCloudapiTarget = vi.fn()
+
+    await expect(command.run()).rejects.toThrow('TOOLCHAIN_INCOMPATIBLE')
+
+    expect((command as any).devCloudapiTarget).not.toHaveBeenCalled()
     expect(runnerMocks.constructors).toHaveLength(0)
   })
 

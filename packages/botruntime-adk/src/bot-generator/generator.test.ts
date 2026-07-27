@@ -89,7 +89,7 @@ vi.mock('./plugin-sync.js', () => ({
 vi.mock('../generators/assets.js', () => ({
   initAssets: assetsMocks.initAssets,
 }))
-vi.mock('../utils/link-sdk.js', () => ({ linkSdk: vi.fn() }))
+vi.mock('../utils/link-sdk.js', () => ({ linkGeneratedRuntimeDependencies: vi.fn() }))
 
 import { BotGenerator, generateBotProject, type BotGenerationMode } from './generator.js'
 

@@ -5,6 +5,10 @@ import {
 import type commandDefinitions from '../command-definitions'
 import * as devWorkerEnv from '../dev-worker-env'
 import * as errors from '../errors'
+import {
+  assertPlatformToolchainCompatible,
+  inspectPlatformToolchain,
+} from '../toolchain-contract'
 import type { CommandArgv } from '../typings'
 import { AddCommand, type AddCommandDefinition } from './add-command'
 import { BuildCommand, type BuildCommandDefinition } from './build-command'
@@ -30,6 +34,9 @@ export class RunCommand extends CloudCommand<RunCommandDefinition> {
     if (this.argv.prod && this.argv.local) {
       throw new errors.BotpressCLIError('--local selects a development stack and cannot be combined with --prod')
     }
+
+    const toolchainContract = inspectPlatformToolchain(this.projectDir)
+    assertPlatformToolchainCompatible(toolchainContract)
 
     const credentials: ResolvedRunTarget = this.argv.prod
       ? await this._resolveProductionCredentials()

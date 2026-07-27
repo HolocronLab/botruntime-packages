@@ -58,7 +58,7 @@ vi.mock('../bot-generator/integration-sync.js', () => ({ IntegrationSync: class 
 vi.mock('../bot-generator/interface-sync.js', () => ({ InterfaceSync: class InterfaceSync {} }))
 vi.mock('../bot-generator/plugin-sync.js', () => ({ PluginSync: class PluginSync {} }))
 vi.mock('../bot-generator/dev-id-manager.js', () => ({ DevIdManager: class DevIdManager {} }))
-vi.mock('../utils/link-sdk.js', () => ({ linkSdk: vi.fn() }))
+vi.mock('../utils/link-sdk.js', () => ({ linkGeneratedRuntimeDependencies: vi.fn() }))
 
 import { AgentProject } from './agent-project.js'
 import { BotGenerator } from '../bot-generator/generator.js'
