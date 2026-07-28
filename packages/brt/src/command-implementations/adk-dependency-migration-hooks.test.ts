@@ -1,6 +1,11 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import {
+  assertBotDefinitionDependencyReadiness as actualAssertBotDefinitionDependencyReadiness,
+  DependencySnapshotStore as ActualDependencySnapshotStore,
+  migrateFromConfig as actualMigrateFromConfig,
+} from '@holocronlab/botruntime-adk/dependencies'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const migrationToolsMock = vi.hoisted(() => ({ load: vi.fn() }))
@@ -180,7 +185,7 @@ describe('agent command dependency migration hooks', () => {
           }
         }
       },
-      botDefinitionPluginsFromCloud: vi.fn(() => ({})),
+      assertBotDefinitionDependencyReadiness: vi.fn(),
       reconcileDependencyReadiness: vi.fn(),
     })
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-hook-'))
@@ -509,6 +514,7 @@ describe('agent command dependency migration hooks', () => {
         workspaceId: CLOUD_PROFILE.workspaceId,
         botId: '42',
       },
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: { source: 'agent' },
     })
     expect(build).not.toHaveBeenCalled()
@@ -587,6 +593,7 @@ describe('agent command dependency migration hooks', () => {
       projectPath: workDir,
       client: migrationClient,
       target: { env: 'prod', apiUrl: target.apiUrl, workspaceId: target.workspaceId, botId: target.botId },
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: { source: 'explicit', botId: target.botId },
     })
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
@@ -639,9 +646,84 @@ describe('agent command dependency migration hooks', () => {
         workspaceId: LOCAL_PROFILE.workspaceId,
         botId: '202',
       },
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: { source: 'agentLocalBot' },
     })
     expect(fs.readFileSync(path.join(workDir, 'agent.json'), 'utf8')).toBe(prodBytes)
+  })
+
+  it('repairs a committed legacy empty plugin projection atomically and the next refresh is authoritative', async () => {
+    const target = { ...CLOUD_PROFILE, botId: '55' }
+    const dependencyTarget = {
+      env: 'prod' as const,
+      apiUrl: target.apiUrl,
+      workspaceId: target.workspaceId,
+      botId: target.botId,
+    }
+    writeVerifiedBundle(workDir, 'legacy projection repair bundle', target)
+    const store = new ActualDependencySnapshotStore({ projectPath: workDir })
+    await store.write(dependencyTarget, {
+      version: 2,
+      env: 'prod',
+      target: {
+        apiUrl: dependencyTarget.apiUrl,
+        workspaceId: dependencyTarget.workspaceId,
+        botId: dependencyTarget.botId,
+      },
+      fetchedAt: '2026-07-28T00:00:00.000Z',
+      integrations: {},
+      plugins: {},
+    })
+    await store.commitMigrationCompletion({
+      target: dependencyTarget,
+      provenance: { kind: 'cloud' },
+      plan: { integrations: [], plugins: [] },
+      completed: { integrations: [], plugins: [] },
+      completedAt: '2026-07-28T00:00:00.000Z',
+    })
+
+    let botState: any = {
+      ...prodBot(target.botId),
+      devReadiness: {
+        ...prodBot(target.botId).devReadiness,
+        plugins: { authority: 'unknown' as const, reason: 'bot_definition_plugins_missing' },
+      },
+    }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: botState })),
+      updateBot: vi.fn(),
+    }
+    const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
+    migrationToolsMock.load.mockResolvedValue({ migrateFromConfig: actualMigrateFromConfig })
+    dependencyToolsMock.load.mockResolvedValue({
+      DependencySnapshotStore: ActualDependencySnapshotStore,
+      assertBotDefinitionDependencyReadiness: actualAssertBotDefinitionDependencyReadiness,
+      reconcileDependencyReadiness: vi.fn(),
+    })
+    const command = makeDeployCommand({
+      workDir,
+      botpressHome,
+      apiFactory,
+      noBuild: true,
+      botId: target.botId,
+    })
+    vi.mocked(stagedDeployment.runStagedDeployment).mockImplementation(async (_client, input) => {
+      expect(input.definition).toMatchObject({ plugins: {} })
+      botState = prodBot(target.botId)
+      return { phase: 'activated' } as any
+    })
+
+    await (command as any)._deployAdkBundle()
+
+    expect(migrationClient.getBot).toHaveBeenCalledTimes(2)
+    await expect(
+      store.refreshFromCloud({
+        client: migrationClient as any,
+        target: dependencyTarget,
+        requireAuthoritative: true,
+      })
+    ).resolves.toMatchObject({ env: 'prod', plugins: {} })
+    expect(migrationClient.getBot).toHaveBeenCalledTimes(3)
   })
 
   it('explicit noBuild target differing from agent.json uses explicit proof and preserves prod link bytes', async () => {

@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  botDefinitionPluginsFromCloud,
+  assertBotDefinitionDependencyReadiness,
   DependencySnapshotStore,
   dependencySnapshotFromBot,
 } from './snapshot-store.js'
@@ -209,7 +209,20 @@ describe('DependencySnapshotStore readiness refresh', () => {
     })
   })
 
-  it('recovers only the exact legacy production empty-plugin state from its committed snapshot', async () => {
+  it('keeps legacy empty-plugin recovery fail-closed without an explicit deploy opt-in', async () => {
+    await store.write(PROD_TARGET, emptyProdSnapshot())
+    const client = { getBot: vi.fn().mockResolvedValue({ bot: legacyProdBot() }) }
+
+    await expect(
+      store.refreshFromCloud({
+        client: client as any,
+        target: PROD_TARGET,
+        requireAuthoritative: true,
+      })
+    ).rejects.toThrow(/plugin.*authority|authority.*plugin/i)
+  })
+
+  it('recovers only the exact opted-in legacy production empty-plugin state from its committed snapshot', async () => {
     await store.write(PROD_TARGET, emptyProdSnapshot())
     const bot = legacyProdBot()
     const client = { getBot: vi.fn().mockResolvedValue({ bot }) }
@@ -218,16 +231,18 @@ describe('DependencySnapshotStore readiness refresh', () => {
       client: client as any,
       target: PROD_TARGET,
       requireAuthoritative: true,
+      allowLegacyEmptyPluginDefinitionRecovery: true,
     })
 
     expect(refreshed).toEqual(emptyProdSnapshot())
-    expect(
-      botDefinitionPluginsFromCloud({
+    expect(() =>
+      assertBotDefinitionDependencyReadiness({
         bot,
         target: PROD_TARGET,
         previous: refreshed,
+        allowLegacyEmptyPluginDefinitionRecovery: true,
       })
-    ).toEqual({})
+    ).not.toThrow()
   })
 
   it.each([
@@ -301,6 +316,7 @@ describe('DependencySnapshotStore readiness refresh', () => {
         target,
         ...(target.env === 'dev' ? { runtimeBotId: 'dev_opaque' } : {}),
         requireAuthoritative: true,
+        allowLegacyEmptyPluginDefinitionRecovery: true,
       })
     ).rejects.toThrow(/plugin|integration|prod target|authority/i)
   })
@@ -316,7 +332,7 @@ describe('DependencySnapshotStore readiness refresh', () => {
     })
 
     expect(() =>
-      botDefinitionPluginsFromCloud({ bot, target: PROD_TARGET, previous })
+      assertBotDefinitionDependencyReadiness({ bot, target: PROD_TARGET, previous })
     ).toThrow(/changed after.*snapshot/i)
   })
 
@@ -330,7 +346,7 @@ describe('DependencySnapshotStore readiness refresh', () => {
     })
 
     expect(() =>
-      botDefinitionPluginsFromCloud({
+      assertBotDefinitionDependencyReadiness({
         bot,
         target: PROD_TARGET,
         previous: emptyProdSnapshot(),
@@ -338,7 +354,7 @@ describe('DependencySnapshotStore readiness refresh', () => {
     ).toThrow(/integration.*changed after.*snapshot/i)
   })
 
-  it('returns the validated raw definition for an authoritative installed plugin', () => {
+  it('accepts an unchanged authoritative installed plugin projection', () => {
     const previous = {
       ...emptyProdSnapshot(),
       plugins: previousSnapshot().plugins,
@@ -352,9 +368,9 @@ describe('DependencySnapshotStore readiness refresh', () => {
       },
     })
 
-    expect(
-      botDefinitionPluginsFromCloud({ bot, target: PROD_TARGET, previous })
-    ).toEqual({ audit })
+    expect(() =>
+      assertBotDefinitionDependencyReadiness({ bot, target: PROD_TARGET, previous })
+    ).not.toThrow()
   })
 
   it('round-trips a strict authoritative plugin projection', () => {

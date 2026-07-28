@@ -167,7 +167,7 @@ describe('DeployCommand ADK watch routing', () => {
           }
         }
       },
-      botDefinitionPluginsFromCloud: vi.fn(() => ({})),
+      assertBotDefinitionDependencyReadiness: vi.fn(),
       reconcileDependencyReadiness: vi.fn(),
     } as any)
   })

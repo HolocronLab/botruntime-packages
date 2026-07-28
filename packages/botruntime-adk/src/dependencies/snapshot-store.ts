@@ -311,6 +311,7 @@ export class DependencySnapshotStore {
     runtimeBotId?: string
     fetchedAt?: Date
     requireAuthoritative?: boolean
+    allowLegacyEmptyPluginDefinitionRecovery?: boolean
     integrationRegistry?: IntegrationAuthorizationSpecSource
     onWarning?: (warning: DependencySnapshotWarning) => void
   }): Promise<DependencySnapshotData> {
@@ -348,7 +349,10 @@ export class DependencySnapshotStore {
       }
       if (
         authorities.plugins.authority !== 'authoritative' &&
-        !canRecoverLegacyEmptyPluginAuthority({ target, previous, bot, authorities })
+        !(
+          opts.allowLegacyEmptyPluginDefinitionRecovery &&
+          canRecoverLegacyEmptyPluginAuthority({ target, previous, bot, authorities })
+        )
       ) {
         throw snapshotReadinessError(`plugin authority is unknown: ${authorities.plugins.reason}`)
       }
@@ -498,11 +502,12 @@ export function dependencySnapshotFromBot(opts: {
   }
 }
 
-export function botDefinitionPluginsFromCloud(opts: {
+export function assertBotDefinitionDependencyReadiness(opts: {
   bot: Awaited<ReturnType<Client['getBot']>>['bot']
   target: DependencySnapshotTarget
   previous?: DependencySnapshotData | null
-}): Record<string, unknown> {
+  allowLegacyEmptyPluginDefinitionRecovery?: boolean
+}): void {
   const target = normalizeDependencySnapshotTarget(opts.target)
   if (target.env !== 'prod') {
     throw invalidSnapshotTarget('bot definition plugins can only be resolved for a prod target')
@@ -532,12 +537,13 @@ export function botDefinitionPluginsFromCloud(opts: {
         'plugin projection changed after the dependency snapshot was refreshed; retry the operation'
       )
     }
-    const plugins = (opts.bot as unknown as { plugins?: unknown }).plugins
-    if (!isRecord(plugins)) throw snapshotReadinessError('bot.plugins must be an object')
-    return cloneSnapshotMap(plugins)
+    return
   }
-  if (canRecoverLegacyEmptyPluginAuthority({ target, previous, bot: opts.bot, authorities })) {
-    return {}
+  if (
+    opts.allowLegacyEmptyPluginDefinitionRecovery &&
+    canRecoverLegacyEmptyPluginAuthority({ target, previous, bot: opts.bot, authorities })
+  ) {
+    return
   }
   throw snapshotReadinessError(`plugin authority is unknown: ${authorities.plugins.reason}`)
 }

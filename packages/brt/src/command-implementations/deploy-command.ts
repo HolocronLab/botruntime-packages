@@ -1052,6 +1052,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       projectPath: dir,
       client: migrationApi.client as unknown as Parameters<typeof migrateFromConfig>[0]['client'],
       target: dependencyTarget,
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: hasExplicitBotId
         ? { source: 'explicit', botId }
         : usesLocalTarget
@@ -1099,7 +1100,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // 3. Resolve and confirm the exact table target before staging anything.
     // The control plane, not this CLI process, owns the durable phase machine.
     const bot = new CloudapiClient(apiUrl, profile.token)
-    const { DependencySnapshotStore, botDefinitionPluginsFromCloud } =
+    const { DependencySnapshotStore, assertBotDefinitionDependencyReadiness } =
       await adkBundle.loadAdkDependencyTools()
     const dependencySnapshot = await new DependencySnapshotStore({ projectPath: dir }).read(
       dependencyTarget
@@ -1110,10 +1111,11 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       )
     }
     const { bot: dependencyBot } = await migrationApi.client.getBot({ id: botId })
-    const plugins = botDefinitionPluginsFromCloud({
+    assertBotDefinitionDependencyReadiness({
       bot: dependencyBot,
       target: dependencyTarget,
       previous: dependencySnapshot,
+      allowLegacyEmptyPluginDefinitionRecovery: true,
     })
     const prepared = await this._prepareAdkStagedDeployment(
       dir,
@@ -1126,7 +1128,11 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       name: this.argv.name ?? botId,
       type: 'adk',
       commands,
-      plugins,
+      // Empty is the atomic merge wire contract: the control plane repairs a
+      // missing legacy projection or preserves newer plugin configuration
+      // under the bot-row lock. Replaying the earlier GET would be a TOCTOU
+      // overwrite of a concurrent same-alias update.
+      plugins: {},
       recurringEvents,
       ...(maxExecutionTime === undefined ? {} : { maxExecutionTime }),
     }

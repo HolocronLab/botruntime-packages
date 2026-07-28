@@ -327,10 +327,10 @@ export class AgentProjectGenerator {
         deploy: 'brt deploy --adk',
       },
       dependencies: {
-        '@holocronlab/botruntime-runtime': ADK_VERSION,
+        '@holocronlab/botruntime-runtime': `^${ADK_VERSION}`,
       },
       devDependencies: {
-        '@holocronlab/brt': BRT_VERSION,
+        '@holocronlab/brt': `^${BRT_VERSION}`,
         typescript: '^5.9.3',
       },
     })
