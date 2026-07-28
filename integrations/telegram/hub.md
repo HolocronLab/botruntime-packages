@@ -35,6 +35,10 @@ returns both the Telegram `threadId` and a routing-bound Botruntime `conversatio
 outbound messages for that conversation stay inside the topic. The bot must be a supergroup
 administrator with permission to manage topics.
 
+Version 1.2.3 marks `createForumTopic` as a durable operation. Bots can now provision a topic through
+the platform Integration Operations API with a stable idempotency key, reconcile an interrupted
+request, and avoid creating duplicate topics after an unknown delivery outcome.
+
 ## Protected media
 
 Version 1.1.7 delivers images, audio, video, documents, and card images from Botruntime's protected
