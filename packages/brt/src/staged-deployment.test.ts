@@ -323,14 +323,19 @@ describe('staged deployment orchestration', () => {
     expect(client.stageBotDeployment).not.toHaveBeenCalled()
   })
 
-  it('activates a code-only deployment without a traffic fence', async () => {
+  it('fences and drains a code-only deployment before bundle cutover', async () => {
     const client = fakeClient()
 
     await runStagedDeployment(client, { ...input, tableContractChanged: false })
 
-    expect(client.setBotDeploymentFence).not.toHaveBeenCalled()
-    expect(client.getBotDeploymentDrain).not.toHaveBeenCalled()
-    expect(client.syncBotDeploymentSchema).not.toHaveBeenCalled()
+    expect(client.setBotDeploymentFence).toHaveBeenCalledTimes(1)
+    expect(client.getBotDeploymentDrain).toHaveBeenCalledTimes(1)
+    expect(client.syncBotDeploymentSchema).toHaveBeenCalledTimes(1)
     expect(client.activateBotDeployment).toHaveBeenCalledTimes(1)
+    const drainOrder = (client.getBotDeploymentDrain as ReturnType<typeof vi.fn>)
+      .mock.invocationCallOrder[0]!
+    const activateOrder = (client.activateBotDeployment as ReturnType<typeof vi.fn>)
+      .mock.invocationCallOrder[0]!
+    expect(drainOrder).toBeLessThan(activateOrder)
   })
 })
