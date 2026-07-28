@@ -313,11 +313,15 @@ export async function loadAdkProjectInitializer(): Promise<{
 }
 
 export async function loadAdkDependencyTools(): Promise<
-  Pick<typeof adkDependenciesLib, 'DependencySnapshotStore' | 'reconcileDependencyReadiness'>
+  Pick<
+    typeof adkDependenciesLib,
+    'DependencySnapshotStore' | 'assertBotDefinitionDependencyReadiness' | 'reconcileDependencyReadiness'
+  >
 > {
   const { dependencies } = await loadAdkModule()
   return {
     DependencySnapshotStore: dependencies.DependencySnapshotStore,
+    assertBotDefinitionDependencyReadiness: dependencies.assertBotDefinitionDependencyReadiness,
     reconcileDependencyReadiness: dependencies.reconcileDependencyReadiness,
   }
 }

@@ -2,7 +2,11 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DependencySnapshotStore, dependencySnapshotFromBot } from './snapshot-store.js'
+import {
+  assertBotDefinitionDependencyReadiness,
+  DependencySnapshotStore,
+  dependencySnapshotFromBot,
+} from './snapshot-store.js'
 import type { DependencySnapshotData, DependencySnapshotTarget } from './types.js'
 
 const REVISION_A = `sha256:${'a'.repeat(64)}`
@@ -14,6 +18,7 @@ const TARGET: DependencySnapshotTarget = {
   workspaceId: 'workspace_exact',
   botId: '42',
 }
+const PROD_TARGET: DependencySnapshotTarget = { ...TARGET, env: 'prod' }
 
 function previousSnapshot(): DependencySnapshotData {
   return {
@@ -49,6 +54,22 @@ function previousSnapshot(): DependencySnapshotData {
         cloudAlias: 'audit',
       },
     },
+  }
+}
+
+function emptyProdSnapshot(): DependencySnapshotData {
+  return {
+    version: 2,
+    env: 'prod',
+    target: {
+      apiUrl: PROD_TARGET.apiUrl,
+      workspaceId: PROD_TARGET.workspaceId,
+      botId: PROD_TARGET.botId,
+    },
+    fetchedAt: '2026-07-10T00:00:00.000Z',
+    botUpdatedAt: '2026-07-10T00:00:00.000Z',
+    integrations: {},
+    plugins: {},
   }
 }
 
@@ -89,6 +110,23 @@ function cloudBot(opts: {
     integrations: opts.integrations ?? {},
     plugins: opts.plugins ?? {},
     devReadiness,
+  }
+}
+
+function legacyProdBot(overrides: Record<string, unknown> = {}): any {
+  return {
+    id: PROD_TARGET.botId,
+    dev: false,
+    updatedAt: '2026-07-10T00:00:00.000Z',
+    integrations: {},
+    plugins: {},
+    devReadiness: {
+      schemaVersion: 1,
+      lastDevDeployment: { authority: 'unknown', reason: 'not_applicable' },
+      integrations: { authority: 'authoritative', source: 'integration_installation' },
+      plugins: { authority: 'unknown', reason: 'bot_definition_plugins_missing' },
+    },
+    ...overrides,
   }
 }
 
@@ -169,6 +207,170 @@ describe('DependencySnapshotStore readiness refresh', () => {
       integrations: {},
       plugins: {},
     })
+  })
+
+  it('keeps legacy empty-plugin recovery fail-closed without an explicit deploy opt-in', async () => {
+    await store.write(PROD_TARGET, emptyProdSnapshot())
+    const client = { getBot: vi.fn().mockResolvedValue({ bot: legacyProdBot() }) }
+
+    await expect(
+      store.refreshFromCloud({
+        client: client as any,
+        target: PROD_TARGET,
+        requireAuthoritative: true,
+      })
+    ).rejects.toThrow(/plugin.*authority|authority.*plugin/i)
+  })
+
+  it('recovers only the exact opted-in legacy production empty-plugin state from its committed snapshot', async () => {
+    await store.write(PROD_TARGET, emptyProdSnapshot())
+    const bot = legacyProdBot()
+    const client = { getBot: vi.fn().mockResolvedValue({ bot }) }
+
+    const refreshed = await store.refreshFromCloud({
+      client: client as any,
+      target: PROD_TARGET,
+      requireAuthoritative: true,
+      allowLegacyEmptyPluginDefinitionRecovery: true,
+    })
+
+    expect(refreshed).toEqual(emptyProdSnapshot())
+    expect(() =>
+      assertBotDefinitionDependencyReadiness({
+        bot,
+        target: PROD_TARGET,
+        previous: refreshed,
+        allowLegacyEmptyPluginDefinitionRecovery: true,
+      })
+    ).not.toThrow()
+  })
+
+  it.each([
+    [
+      'development target',
+      () => ({
+        target: TARGET,
+        previous: { ...emptyProdSnapshot(), env: 'dev' as const },
+        bot: cloudBot({
+          pluginAuthority: 'unknown',
+          plugins: {},
+        }),
+      }),
+    ],
+    [
+      'missing snapshot',
+      () => ({ target: PROD_TARGET, previous: null, bot: legacyProdBot() }),
+    ],
+    [
+      'nonempty previous plugins',
+      () => ({
+        target: PROD_TARGET,
+        previous: { ...emptyProdSnapshot(), plugins: previousSnapshot().plugins },
+        bot: legacyProdBot(),
+      }),
+    ],
+    [
+      'nonempty public plugins',
+      () => ({
+        target: PROD_TARGET,
+        previous: emptyProdSnapshot(),
+        bot: legacyProdBot({ plugins: { audit: cloudPlugin() } }),
+      }),
+    ],
+    [
+      'different unknown reason',
+      () => ({
+        target: PROD_TARGET,
+        previous: emptyProdSnapshot(),
+        bot: legacyProdBot({
+          devReadiness: {
+            ...legacyProdBot().devReadiness,
+            plugins: { authority: 'unknown', reason: 'plugin_store_unavailable' },
+          },
+        }),
+      }),
+    ],
+    [
+      'unknown integration authority',
+      () => ({
+        target: PROD_TARGET,
+        previous: emptyProdSnapshot(),
+        bot: legacyProdBot({
+          devReadiness: {
+            ...legacyProdBot().devReadiness,
+            integrations: { authority: 'unknown', reason: 'integration_store_unavailable' },
+          },
+        }),
+      }),
+    ],
+  ] as const)('rejects legacy empty-plugin recovery for %s', async (_label, arrange) => {
+    const { target, previous, bot } = arrange()
+    if (previous) {
+      await store.write(target, previous)
+    }
+    const client = { getBot: vi.fn().mockResolvedValue({ bot }) }
+
+    await expect(
+      store.refreshFromCloud({
+        client: client as any,
+        target,
+        ...(target.env === 'dev' ? { runtimeBotId: 'dev_opaque' } : {}),
+        requireAuthoritative: true,
+        allowLegacyEmptyPluginDefinitionRecovery: true,
+      })
+    ).rejects.toThrow(/plugin|integration|prod target|authority/i)
+  })
+
+  it('rejects a Cloud plugin projection that changes after the committed snapshot refresh', () => {
+    const previous = emptyProdSnapshot()
+    const bot = legacyProdBot({
+      plugins: { audit: cloudPlugin() },
+      devReadiness: {
+        ...legacyProdBot().devReadiness,
+        plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+      },
+    })
+
+    expect(() =>
+      assertBotDefinitionDependencyReadiness({ bot, target: PROD_TARGET, previous })
+    ).toThrow(/changed after.*snapshot/i)
+  })
+
+  it('rejects a Cloud integration projection that changes after the committed snapshot refresh', () => {
+    const bot = legacyProdBot({
+      integrations: { telegram: cloudIntegration() },
+      devReadiness: {
+        ...legacyProdBot().devReadiness,
+        plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+      },
+    })
+
+    expect(() =>
+      assertBotDefinitionDependencyReadiness({
+        bot,
+        target: PROD_TARGET,
+        previous: emptyProdSnapshot(),
+      })
+    ).toThrow(/integration.*changed after.*snapshot/i)
+  })
+
+  it('accepts an unchanged authoritative installed plugin projection', () => {
+    const previous = {
+      ...emptyProdSnapshot(),
+      plugins: previousSnapshot().plugins,
+    }
+    const audit = cloudPlugin()
+    const bot = legacyProdBot({
+      plugins: { audit },
+      devReadiness: {
+        ...legacyProdBot().devReadiness,
+        plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+      },
+    })
+
+    expect(() =>
+      assertBotDefinitionDependencyReadiness({ bot, target: PROD_TARGET, previous })
+    ).not.toThrow()
   })
 
   it('round-trips a strict authoritative plugin projection', () => {

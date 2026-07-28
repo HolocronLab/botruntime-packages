@@ -70,6 +70,7 @@ export { IntegrationResolver } from './resolvers/integration-resolver.js'
 export { PluginResolver } from './resolvers/plugin-resolver.js'
 
 export {
+  assertBotDefinitionDependencyReadiness,
   DependencySnapshotStore,
   emptyDependencySnapshot,
   dependencySnapshotFromBot,

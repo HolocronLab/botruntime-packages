@@ -1,13 +1,20 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import {
+  assertBotDefinitionDependencyReadiness as actualAssertBotDefinitionDependencyReadiness,
+  DependencySnapshotStore as ActualDependencySnapshotStore,
+  migrateFromConfig as actualMigrateFromConfig,
+} from '@holocronlab/botruntime-adk/dependencies'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const migrationToolsMock = vi.hoisted(() => ({ load: vi.fn() }))
+const dependencyToolsMock = vi.hoisted(() => ({ load: vi.fn() }))
 
 vi.mock('../adk-bundle', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../adk-bundle')>()),
   loadAgentDeploymentConfig: vi.fn(async () => ({ recurringEvents: {} })),
+  loadAdkDependencyTools: dependencyToolsMock.load,
   loadAdkMigrationTools: migrationToolsMock.load,
 }))
 
@@ -37,6 +44,21 @@ function devBot(runtimeBotId: string, targetBotId: string) {
     id: runtimeBotId,
     dev: true,
     tags: { 'botruntime.devTargetBotId': targetBotId },
+    integrations: {},
+    plugins: {},
+    devReadiness: {
+      schemaVersion: 1,
+      integrations: { authority: 'authoritative', source: 'integration_installation' },
+      plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+      lastDevDeployment: { authority: 'unknown', reason: 'not_required_by_hook_test' },
+    },
+  }
+}
+
+function prodBot(botId: string) {
+  return {
+    id: botId,
+    dev: false,
     integrations: {},
     plugins: {},
     devReadiness: {
@@ -145,6 +167,27 @@ describe('agent command dependency migration hooks', () => {
 
   beforeEach(() => {
     migrationToolsMock.load.mockReset()
+    dependencyToolsMock.load.mockReset()
+    dependencyToolsMock.load.mockResolvedValue({
+      DependencySnapshotStore: class {
+        async read(target: any) {
+          return {
+            version: 2,
+            env: target.env,
+            target: {
+              apiUrl: target.apiUrl,
+              workspaceId: target.workspaceId,
+              botId: target.botId,
+            },
+            fetchedAt: '2026-07-28T00:00:00.000Z',
+            integrations: {},
+            plugins: {},
+          }
+        }
+      },
+      assertBotDefinitionDependencyReadiness: vi.fn(),
+      reconcileDependencyReadiness: vi.fn(),
+    })
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-hook-'))
     botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-home-'))
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}\n')
@@ -471,6 +514,7 @@ describe('agent command dependency migration hooks', () => {
         workspaceId: CLOUD_PROFILE.workspaceId,
         botId: '42',
       },
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: { source: 'agent' },
     })
     expect(build).not.toHaveBeenCalled()
@@ -520,7 +564,10 @@ describe('agent command dependency migration hooks', () => {
   it('valid noBuild with argv-only bot id uses explicit authority before staged deployment and does not persist a link', async () => {
     const target = { ...CLOUD_PROFILE, botId: '55' }
     writeVerifiedBundle(workDir, 'verified explicit bundle', target)
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('55') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const order: string[] = []
     const migrateFromConfig = vi.fn(async () => {
@@ -546,6 +593,7 @@ describe('agent command dependency migration hooks', () => {
       projectPath: workDir,
       client: migrationClient,
       target: { env: 'prod', apiUrl: target.apiUrl, workspaceId: target.workspaceId, botId: target.botId },
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: { source: 'explicit', botId: target.botId },
     })
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)
@@ -570,7 +618,10 @@ describe('agent command dependency migration hooks', () => {
       })
     )
     writeVerifiedBundle(workDir, 'verified local bundle', { ...LOCAL_PROFILE, botId: '202' })
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('202') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const order: string[] = []
     const migrateFromConfig = vi.fn(async () => {
@@ -595,9 +646,84 @@ describe('agent command dependency migration hooks', () => {
         workspaceId: LOCAL_PROFILE.workspaceId,
         botId: '202',
       },
+      allowLegacyEmptyPluginDefinitionRecovery: true,
       authority: { source: 'agentLocalBot' },
     })
     expect(fs.readFileSync(path.join(workDir, 'agent.json'), 'utf8')).toBe(prodBytes)
+  })
+
+  it('repairs a committed legacy empty plugin projection atomically and the next refresh is authoritative', async () => {
+    const target = { ...CLOUD_PROFILE, botId: '55' }
+    const dependencyTarget = {
+      env: 'prod' as const,
+      apiUrl: target.apiUrl,
+      workspaceId: target.workspaceId,
+      botId: target.botId,
+    }
+    writeVerifiedBundle(workDir, 'legacy projection repair bundle', target)
+    const store = new ActualDependencySnapshotStore({ projectPath: workDir })
+    await store.write(dependencyTarget, {
+      version: 2,
+      env: 'prod',
+      target: {
+        apiUrl: dependencyTarget.apiUrl,
+        workspaceId: dependencyTarget.workspaceId,
+        botId: dependencyTarget.botId,
+      },
+      fetchedAt: '2026-07-28T00:00:00.000Z',
+      integrations: {},
+      plugins: {},
+    })
+    await store.commitMigrationCompletion({
+      target: dependencyTarget,
+      provenance: { kind: 'cloud' },
+      plan: { integrations: [], plugins: [] },
+      completed: { integrations: [], plugins: [] },
+      completedAt: '2026-07-28T00:00:00.000Z',
+    })
+
+    let botState: any = {
+      ...prodBot(target.botId),
+      devReadiness: {
+        ...prodBot(target.botId).devReadiness,
+        plugins: { authority: 'unknown' as const, reason: 'bot_definition_plugins_missing' },
+      },
+    }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: botState })),
+      updateBot: vi.fn(),
+    }
+    const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
+    migrationToolsMock.load.mockResolvedValue({ migrateFromConfig: actualMigrateFromConfig })
+    dependencyToolsMock.load.mockResolvedValue({
+      DependencySnapshotStore: ActualDependencySnapshotStore,
+      assertBotDefinitionDependencyReadiness: actualAssertBotDefinitionDependencyReadiness,
+      reconcileDependencyReadiness: vi.fn(),
+    })
+    const command = makeDeployCommand({
+      workDir,
+      botpressHome,
+      apiFactory,
+      noBuild: true,
+      botId: target.botId,
+    })
+    vi.mocked(stagedDeployment.runStagedDeployment).mockImplementation(async (_client, input) => {
+      expect(input.definition).toMatchObject({ plugins: {} })
+      botState = prodBot(target.botId)
+      return { phase: 'activated' } as any
+    })
+
+    await (command as any)._deployAdkBundle()
+
+    expect(migrationClient.getBot).toHaveBeenCalledTimes(2)
+    await expect(
+      store.refreshFromCloud({
+        client: migrationClient as any,
+        target: dependencyTarget,
+        requireAuthoritative: true,
+      })
+    ).resolves.toMatchObject({ env: 'prod', plugins: {} })
+    expect(migrationClient.getBot).toHaveBeenCalledTimes(3)
   })
 
   it('explicit noBuild target differing from agent.json uses explicit proof and preserves prod link bytes', async () => {
@@ -608,7 +734,10 @@ describe('agent command dependency migration hooks', () => {
     })
     fs.writeFileSync(path.join(workDir, 'agent.json'), agentBytes)
     writeVerifiedBundle(workDir, 'explicit prod override', { ...CLOUD_PROFILE, botId: '55' })
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('55') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const migrateFromConfig = vi.fn(async () => undefined)
     mockMigrationLoader(migrateFromConfig)
@@ -634,7 +763,10 @@ describe('agent command dependency migration hooks', () => {
     })
     fs.writeFileSync(path.join(workDir, 'agent.local.json'), localBytes)
     writeVerifiedBundle(workDir, 'explicit local override', { ...LOCAL_PROFILE, botId: '404' })
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('404') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const migrateFromConfig = vi.fn(async () => undefined)
     mockMigrationLoader(migrateFromConfig)

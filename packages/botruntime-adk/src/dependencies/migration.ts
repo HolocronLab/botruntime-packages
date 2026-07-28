@@ -74,6 +74,12 @@ export interface MigrateOptions {
   target: DependencySnapshotTarget
   runtimeBotId?: string
   authority?: DependencyMigrationAuthority
+  /**
+   * Narrow BRT production-deploy compatibility path for targets that have an
+   * exact committed empty v2 snapshot but predate bot-definition plugin
+   * projection. General ADK refreshes remain fail-closed.
+   */
+  allowLegacyEmptyPluginDefinitionRecovery?: boolean
   resolvers?: DependencyMigrationResolvers
   integrationResolver?: MigrationIntegrationResolver
   pluginResolver?: MigrationPluginResolver
@@ -136,6 +142,7 @@ export class DependencyMigrationManager {
   private readonly target: DependencySnapshotTarget
   private readonly runtimeBotId?: string
   private readonly authority: DependencyMigrationAuthority
+  private readonly allowLegacyEmptyPluginDefinitionRecovery: boolean
   private readonly snapshotStore: DependencySnapshotStore
   private readonly integrationResolver: MigrationIntegrationResolver
   private readonly pluginResolver: MigrationPluginResolver
@@ -146,6 +153,8 @@ export class DependencyMigrationManager {
     this.target = normalizeDependencySnapshotTarget(opts.target)
     this.runtimeBotId = normalizeRuntimeBotId(this.target, opts.runtimeBotId)
     this.authority = normalizeMigrationAuthority(this.target, opts.authority)
+    this.allowLegacyEmptyPluginDefinitionRecovery =
+      opts.allowLegacyEmptyPluginDefinitionRecovery === true
     this.snapshotStore = new DependencySnapshotStore({ projectPath: opts.projectPath })
 
     const integrationRegistry = new IntegrationRegistry()
@@ -196,6 +205,8 @@ export class DependencyMigrationManager {
         target: this.target,
         ...(this.target.env === 'dev' ? { runtimeBotId: this.runtimeBotId } : {}),
         requireAuthoritative: true,
+        allowLegacyEmptyPluginDefinitionRecovery:
+          this.allowLegacyEmptyPluginDefinitionRecovery,
       })
       result.snapshotWrites?.push(this.target.env)
       await this.finishCommittedCleanup({ marker, completion, pending })
