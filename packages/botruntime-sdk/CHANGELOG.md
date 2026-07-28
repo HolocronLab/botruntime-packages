@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/sdk@6.13.0` src, repointed at `botruntime-client` + `botruntime-zui`. SDK for
 building bots and integrations on botruntime. See README.md.
 
-## 6.20.0 (current) — 2026-07-27
+## 7.0.0 (current) — 2026-07-28
+
+- Made durable file streams resume the exact pinned generation after a bounded
+transport interruption.
+
+Durable operation handlers now receive an `abortSignal` for cooperative
+cancellation and no longer receive the general integration client. The
+operation token remains private to the scoped files and checkpoint transports.
+
+## 6.20.0 — 2026-07-27
 
 - Added the durable integration-operation v1 boundary: operation-scoped streaming
 access to pinned file generations, fenced append-only checkpoints, strict
