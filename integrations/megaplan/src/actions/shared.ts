@@ -1,4 +1,4 @@
-import { RuntimeError } from '@holocronlab/botruntime-client'
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { MegaplanApiClient, type TokenStore } from '../megaplan-api'
 import type { ApiError } from '../types'
 import type { Context, Client } from '../bp'
@@ -28,6 +28,17 @@ export function buildClient(ctx: Context, client: Client): MegaplanApiClient {
     username: ctx.configuration.username,
     password: ctx.configuration.password,
     tokenStore: tokenStore(ctx, client),
+  })
+}
+
+// Durable attempts run with an operation-scoped token that deliberately cannot
+// access generic state. The isolated process keeps its Megaplan token in memory
+// for this one attempt; no state-based checkpoint or credential fallback exists.
+export function buildOperationClient(ctx: Context): MegaplanApiClient {
+  return new MegaplanApiClient({
+    baseUrl: ctx.configuration.baseUrl,
+    username: ctx.configuration.username,
+    password: ctx.configuration.password,
   })
 }
 

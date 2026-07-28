@@ -305,19 +305,43 @@ test('listPrograms and programStates', async () => {
   })
 })
 
-test('addComment posts HTML content', async () => {
+test('addComment posts HTML content and ordered File link-entities', async () => {
   const env = makeEnv((req, body, url) => {
     expect(req.method).toBe('POST')
     expect(url.pathname).toBe('/api/v3/deal/77/comments')
     const b = JSON.parse(body)
     expect(b.contentType).toBe('Comment')
     expect(b.content).toBe('Диалог: https://t.me/c/123/77')
-    return json(200, wrap('{"contentType":"Comment","id":"555"}'))
+    expect(b.attaches).toEqual([
+      { contentType: 'File', id: 'F1' },
+      { contentType: 'File', id: 'F2' },
+    ])
+    return json(200, wrap('{"contentType":"Comment","id":"555","attaches":[{"id":"F1"},{"id":"F2"}]}'))
   })
   await withEnv(env, async () => {
     const c = newClient(env.url)
-    const comment = await c.addComment('deal', '77', 'Диалог: https://t.me/c/123/77')
+    const comment = await c.addComment('deal', '77', 'Диалог: https://t.me/c/123/77', ['F1', 'F2'])
     expect(comment.id).toBe('555')
+    expect(comment.attaches?.map((file) => file.id)).toEqual(['F1', 'F2'])
+  })
+})
+
+test('findCommentByMarker performs one bounded read and never writes', async () => {
+  const env = makeEnv((req, _body, url) => {
+    expect(req.method).toBe('GET')
+    expect(url.pathname).toBe('/api/v3/deal/77/comments')
+    expect(JSON.parse(decodeURIComponent(url.search.slice(1)))).toEqual({ limit: 100 })
+    return json(200, wrap(
+      '[{"contentType":"Comment","id":"554","content":"другое"},'
+      + '{"contentType":"Comment","id":"554b","content":"Документы BF-PUB-abc","attaches":[{"id":"OTHER"}]},'
+      + '{"contentType":"Comment","id":"555","content":"Документы BF-PUB-abc","attaches":[{"id":"F1"}]}]'
+    ))
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const comment = await c.findCommentByMarker('deal', '77', 'BF-PUB-abc', ['F1'])
+    expect(comment?.id).toBe('555')
+    expect(comment?.attaches?.[0]?.id).toBe('F1')
   })
 })
 
@@ -377,6 +401,58 @@ test('uploadFile sends multipart files[] and returns the uploaded Megaplan file'
     const c = newClient(env.url)
     const file = await c.uploadFile('claim.docx', new TextEncoder().encode('claim-v1'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     expect(file).toEqual({ contentType: 'File', id: 'F1', name: 'claim.docx', path: '/attach/claim.docx' })
+  })
+})
+
+test('uploadFileStreamOnce streams one exact multipart body with content length', async () => {
+  const env = makeEnv(async (req, body, url) => {
+    expect(req.method).toBe('POST')
+    expect(url.pathname).toBe('/api/file')
+    expect(req.headers.get('authorization')).toBe('Bearer tok-1')
+    expect(req.headers.get('content-type')).toStartWith('multipart/form-data; boundary=')
+    expect(Number(req.headers.get('content-length'))).toBe(new TextEncoder().encode(body).byteLength)
+    expect(body).toContain('name="files[]"; filename="_.docx"')
+    expect(body).toContain("filename*=UTF-8''%D0%B8%D1%81%D0%BA.docx")
+    expect(body).toContain('claim-v1')
+    return json(200, wrap('[{"contentType":"File","id":"F1","name":"иск.docx"}]'))
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const bytes = new TextEncoder().encode('claim-v1')
+    let pulls = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++
+        controller.enqueue(bytes)
+        controller.close()
+      },
+    })
+    const file = await c.uploadFileStreamOnce(
+      'иск.docx',
+      stream,
+      bytes.byteLength,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+    expect(file.id).toBe('F1')
+    expect(pulls).toBe(1)
+  })
+})
+
+test('uploadFileStreamOnce rejects a stream that differs from the pinned size', async () => {
+  const env = makeEnv(() => {
+    throw new Error('provider handler must not complete')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('too-long'))
+        controller.close()
+      },
+    })
+    await expect(c.uploadFileStreamOnce('claim.pdf', stream, 3, 'application/pdf')).rejects.toThrow(
+      /pinned FileRef size|POST \/api\/file/i,
+    )
   })
 })
 

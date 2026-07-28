@@ -39,6 +39,7 @@ const MAX_ATTEMPTS = 3
 // unbounded read is pointless.
 const MAX_BODY_BYTES = 10 << 20
 export const MAX_APPROVAL_FILE_BYTES = 20 << 20
+const DISPLAY_NAME = /^[^\r\n]*[^ \t\r\n][^\r\n]*$/
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>
 
@@ -255,11 +256,43 @@ export class MegaplanApiClient {
     return this.do<ProgramState[]>('GET', `/api/v3/program/${esc(programId)}/states`, undefined, undefined)
   }
 
-  // addComment — HTML comment on an entity: the Telegram dialog link on a lead, the
-  // Yandex.Disk doc links on a deal. owner ∈ {deal, contractor, task}.
-  async addComment(owner: CommentOwnerName, ownerId: string, contentHtml: string): Promise<Comment> {
-    const body = { contentType: ContentType.Comment, content: contentHtml }
-    return this.do<Comment>('POST', `/api/v3/${owner}/${esc(ownerId)}/comments`, undefined, body)
+  // addComment — HTML comment on an entity, optionally with already-uploaded
+  // Megaplan File link-entities. The order of attaches is the journal order.
+  async addComment(
+    owner: CommentOwnerName,
+    ownerId: string,
+    contentHtml: string,
+    attachmentIds: string[] = [],
+    signal?: AbortSignal,
+  ): Promise<Comment> {
+    const body = prune({
+      contentType: ContentType.Comment,
+      content: contentHtml,
+      attaches: attachmentIds.map((id) => ({ contentType: ContentType.File, id }) satisfies Ref),
+    })
+    return this.do<Comment>('POST', `/api/v3/${owner}/${esc(ownerId)}/comments`, undefined, body, signal)
+  }
+
+  // findCommentByMarker is reconciliation-only. It performs no writes and scans
+  // one bounded provider page; absence is not proof that a prior POST failed.
+  async findCommentByMarker(
+    owner: CommentOwnerName,
+    ownerId: string,
+    marker: string,
+    expectedAttachmentIds: string[],
+    signal?: AbortSignal,
+  ): Promise<Comment | undefined> {
+    const comments = await this.do<Comment[]>(
+      'GET',
+      `/api/v3/${owner}/${esc(ownerId)}/comments`,
+      { limit: 100 },
+      undefined,
+      signal,
+    )
+    return comments.find((comment) =>
+      comment.content?.includes(marker)
+      && sameIds(comment.attaches?.map((file) => file.id), expectedAttachmentIds)
+    )
   }
 
   // createTodo — checklist item inside a deal card. Bound only via the sub-resource
@@ -416,6 +449,70 @@ export class MegaplanApiClient {
     }
   }
 
+  // uploadFileStreamOnce is the Files API -> Megaplan data plane used by the
+  // durable publication action. It does exactly one provider POST and never
+  // buffers the document. The caller owns retry/outcome classification: after
+  // fetch starts, a network error, 5xx, or malformed success is ambiguous.
+  async uploadFileStreamOnce(
+    name: string,
+    stream: ReadableStream<Uint8Array>,
+    size: number,
+    contentType: string,
+    signal?: AbortSignal,
+  ): Promise<FileRef> {
+    if (!DISPLAY_NAME.test(name)) throw new Error('megaplan: uploadFileStreamOnce requires a file name')
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error('megaplan: uploadFileStreamOnce requires a valid size')
+    }
+    if (size === 0) throw new Error('megaplan: uploadFileStreamOnce requires non-empty bytes')
+    if (!contentType.trim() || /[\r\n]/.test(contentType)) {
+      throw new Error('megaplan: upload MIME type is invalid')
+    }
+
+    if (signal?.aborted) throw abortedBeforeBusinessDispatch()
+    let token: string
+    try {
+      token = await this.accessToken()
+    } catch (err) {
+      throw beforeBusinessDispatch(err)
+    }
+    if (signal?.aborted) throw abortedBeforeBusinessDispatch()
+    let multipart: ReturnType<typeof multipartFileBody>
+    try {
+      multipart = multipartFileBody(name, stream, size, contentType)
+    } catch (err) {
+      throw beforeBusinessDispatch(err)
+    }
+    if (signal?.aborted) throw abortedBeforeBusinessDispatch()
+    let response: Response
+    try {
+      response = await this.fetchImpl(this.baseUrl + '/api/file', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': `multipart/form-data; boundary=${multipart.boundary}`,
+          'content-length': String(multipart.contentLength),
+        },
+        body: multipart.body,
+        signal,
+        // Required by standards-compliant fetch implementations for a streamed
+        // request body; Bun accepts the same option.
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' })
+    } catch (err) {
+      throw new ApiError(
+        0,
+        [{ message: `POST /api/file: ${(err as Error)?.message ?? String(err)}` }],
+        true,
+      )
+    }
+
+    const text = await readCapped(response, MAX_BODY_BYTES)
+    if (response.status === 401) await this.clearToken(token)
+    if (!response.ok) throw parseApiError(response.status, text, true)
+    return parseUploadedFile(text)
+  }
+
   async getNegotiationDecision(taskId: string): Promise<{
     status: 'pending' | 'approved' | 'rejected'
     itemId?: string
@@ -550,12 +647,21 @@ export class MegaplanApiClient {
   // do — one API call: auth, JSON params in the query string (APIv3: GET
   // /resource?{json}), 429/5xx/network retries, a single token re-issue on 401, and
   // {meta,data} unwrap.
-  private async do<T>(method: Method, path: string, query: object | undefined, body: unknown | undefined): Promise<T> {
+  private async do<T>(
+    method: Method,
+    path: string,
+    query: object | undefined,
+    body: unknown | undefined,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const rawQuery = query === undefined ? '' : encodeURIComponent(JSON.stringify(query))
     const payload = body === undefined ? undefined : encodeBody(body)
 
     let reauthed = false
     for (let attempt = 1; ; ) {
+      if (signal?.aborted) {
+        throw method === 'POST' ? abortedBeforeBusinessDispatch() : signal.reason
+      }
       let token: string
       try {
         token = await this.accessToken()
@@ -568,11 +674,14 @@ export class MegaplanApiClient {
           await this.backoff(attempt)
           continue
         }
-        throw err
+        throw method === 'POST' ? beforeBusinessDispatch(err) : err
       }
 
+      if (signal?.aborted) {
+        throw method === 'POST' ? abortedBeforeBusinessDispatch() : signal.reason
+      }
       try {
-        return await this.once<T>(method, path, rawQuery, payload, token)
+        return await this.once<T>(method, path, rawQuery, payload, token, signal)
       } catch (err) {
         const status = err instanceof ApiError ? err.status : 0
         if (status === 401 && !reauthed) {
@@ -597,7 +706,8 @@ export class MegaplanApiClient {
     path: string,
     rawQuery: string,
     payload: string | undefined,
-    token: string
+    token: string,
+    signal?: AbortSignal,
   ): Promise<T> {
     const url = this.baseUrl + path + (rawQuery ? `?${rawQuery}` : '')
     const headers: Record<string, string> = { authorization: `Bearer ${token}` }
@@ -607,22 +717,30 @@ export class MegaplanApiClient {
 
     let res: Response
     try {
-      res = await this.fetchImpl(url, { method, headers, body: payload })
+      res = await this.fetchImpl(url, { method, headers, body: payload, signal })
     } catch (err) {
       // Transport failure -> status 0 (transient): canRetry(GET, 0) is true.
-      throw new ApiError(0, [{ message: `${method} ${path}: ${(err as Error)?.message ?? String(err)}` }])
+      throw new ApiError(
+        0,
+        [{ message: `${method} ${path}: ${(err as Error)?.message ?? String(err)}` }],
+        true,
+      )
     }
 
     const text = await readCapped(res, MAX_BODY_BYTES)
     if (res.status >= 400) {
-      throw parseApiError(res.status, text)
+      throw parseApiError(res.status, text, true)
     }
     // No-out callers (none today) would early-return here; every method awaits data.
     let wrapper: { data?: unknown }
     try {
       wrapper = JSON.parse(text) as { data?: unknown }
     } catch (err) {
-      throw new ApiError(res.status, [{ message: `${method} ${path}: response envelope parse: ${(err as Error)?.message}` }])
+      throw new ApiError(
+        res.status,
+        [{ message: `${method} ${path}: response envelope parse: ${(err as Error)?.message}` }],
+        true,
+      )
     }
     return wrapper.data as T
   }
@@ -734,6 +852,85 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!)
 }
 
+function sameIds(actual: string[] | undefined, expected: string[]): boolean {
+  return actual !== undefined
+    && actual.length === expected.length
+    && actual.every((id, index) => id === expected[index])
+}
+
+function multipartFileBody(
+  name: string,
+  source: ReadableStream<Uint8Array>,
+  size: number,
+  contentType: string,
+): { boundary: string; contentLength: number; body: ReadableStream<Uint8Array> } {
+  const boundary = `----botruntime-${crypto.randomUUID()}`
+  const wellFormedName = Array.from(name, (character) => {
+    const codePoint = character.codePointAt(0)!
+    return codePoint >= 0xd800 && codePoint <= 0xdfff ? '\ufffd' : character
+  }).join('')
+  const fallbackName = wellFormedName
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7e]+/g, '_')
+    .replace(/["\\]/g, '_')
+    .slice(0, 180) || 'document'
+  const encodedName = encodeURIComponent(wellFormedName)
+    .replace(/['()]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/\*/g, '%2A')
+  const encoder = new TextEncoder()
+  const prefix = encoder.encode(
+    `--${boundary}\r\n`
+    + `Content-Disposition: form-data; name="files[]"; filename="${fallbackName}"; filename*=UTF-8''${encodedName}\r\n`
+    + `Content-Type: ${contentType}\r\n\r\n`,
+  )
+  const suffix = encoder.encode(`\r\n--${boundary}--\r\n`)
+  const contentLength = prefix.byteLength + size + suffix.byteLength
+  const reader = source.getReader()
+  let phase: 'prefix' | 'content' | 'suffix' | 'done' = 'prefix'
+  let seen = 0
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (phase === 'prefix') {
+        phase = 'content'
+        controller.enqueue(prefix)
+        return
+      }
+      if (phase === 'content') {
+        const { done, value } = await reader.read()
+        if (!done) {
+          if (seen + value.byteLength > size) {
+            await reader.cancel('Files API stream exceeded the pinned FileRef size')
+            controller.error(new Error('megaplan: Files API stream exceeded the pinned FileRef size'))
+            phase = 'done'
+            return
+          }
+          seen += value.byteLength
+          controller.enqueue(value)
+          return
+        }
+        if (seen !== size) {
+          controller.error(new Error('megaplan: Files API stream ended before the pinned FileRef size'))
+          phase = 'done'
+          return
+        }
+        phase = 'suffix'
+      }
+      if (phase === 'suffix') {
+        phase = 'done'
+        controller.enqueue(suffix)
+        controller.close()
+      }
+    },
+    async cancel(reason) {
+      phase = 'done'
+      await reader.cancel(reason)
+    },
+  })
+
+  return { boundary, contentLength, body }
+}
+
 function parseUploadedFile(text: string): FileRef {
   let parsed: unknown
   try {
@@ -826,7 +1023,30 @@ function fileTooLarge(max: number): ApiError {
 // parseApiError unwraps {"meta":{"errors":[{field,message,...}]}} and keeps ONLY
 // field+message. type/internalType (Symfony class names) and trace (encrypted blob)
 // are dropped — they must never be surfaced.
-export function parseApiError(status: number, text: string): ApiError {
+function beforeBusinessDispatch(error: unknown): ApiError {
+  if (error instanceof ApiError) {
+    return new ApiError(error.status, error.errors, false)
+  }
+  return new ApiError(
+    0,
+    [{ message: (error as Error)?.message ?? String(error) }],
+    false,
+  )
+}
+
+function abortedBeforeBusinessDispatch(): ApiError {
+  return new ApiError(
+    0,
+    [{ message: 'operation aborted before provider request dispatch' }],
+    false,
+  )
+}
+
+export function parseApiError(
+  status: number,
+  text: string,
+  operationDispatched?: boolean,
+): ApiError {
   let errors: { field?: string; message: string }[] = []
   try {
     const wrapper = JSON.parse(text) as { meta?: { errors?: { field?: string | null; message?: string }[] } }
@@ -839,5 +1059,5 @@ export function parseApiError(status: number, text: string): ApiError {
   } catch {
     // non-JSON error body: status alone, no blob.
   }
-  return new ApiError(status, errors)
+  return new ApiError(status, errors, operationDispatched)
 }

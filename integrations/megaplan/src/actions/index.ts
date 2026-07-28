@@ -1,6 +1,6 @@
 import { searchContractors, createContractorHuman } from './contractor'
 import { createDeal, getDeal, updateDealFields, moveDealStage, listPrograms, programStates } from './deal'
-import { addComment } from './comment'
+import { addComment, publishCaseDocument } from './comment'
 import { createTodo, listTodos, finishTodo } from './todo'
 import { createTask, getTask, taskDoAction } from './task'
 import { createNegotiationTask, getNegotiationDecision } from './approval'
@@ -16,6 +16,7 @@ export default {
   listPrograms,
   programStates,
   addComment,
+  publishCaseDocument,
   createTodo,
   listTodos,
   finishTodo,

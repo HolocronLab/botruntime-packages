@@ -112,7 +112,7 @@ export type Deal = {
 // (and there is no float-precision contract on read, only on write — see Money).
 export type ResponseMoney = { value: number | string; currency: string; valueInMain?: number | string; rate?: number }
 
-export type Comment = { contentType?: string; id: string; content?: string }
+export type Comment = { contentType?: string; id: string; content?: string; attaches?: FileRef[] }
 export type Todo = { contentType?: string; id: string; name?: string }
 export type FileRef = { contentType?: string; id: string; path?: string; name?: string; fileName?: string }
 export type EmployeeRef = Ref & { name?: string }
@@ -257,11 +257,16 @@ export type FieldError = { field?: string; message: string }
 export class ApiError extends Error {
   readonly status: number
   readonly errors: FieldError[]
-  constructor(status: number, errors: FieldError[]) {
+  // For business-effect classification in durable handlers. false means the
+  // provider rejected/failed before the requested domain operation was sent.
+  // undefined is intentionally conservative and must be treated as ambiguous.
+  readonly operationDispatched?: boolean
+  constructor(status: number, errors: FieldError[], operationDispatched?: boolean) {
     super(ApiError.format(status, errors))
     this.name = 'MegaplanApiError'
     this.status = status
     this.errors = errors
+    this.operationDispatched = operationDispatched
   }
   private static format(status: number, errors: FieldError[]): string {
     if (errors.length === 0) {
