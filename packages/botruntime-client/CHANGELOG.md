@@ -5,7 +5,16 @@ Changelog starts 2026-07-18 (DEVLP-174) — earlier history: `git log -- package
 Fork of `@botpress/client@1.46.0` src; `gen/` is codegenerated from the pinned API. Byte-exact type
 surface (71 `/v1` path templates) — see `docs/adr/0005-opapi-as-source-of-truth.md` and README.md.
 
-## 1.55.0 (current) — 2026-07-27
+## 1.55.1 (current) — 2026-07-28
+
+- Made durable file streams resume the exact pinned generation after a bounded
+transport interruption.
+
+Durable operation handlers now receive an `abortSignal` for cooperative
+cancellation and no longer receive the general integration client. The
+operation token remains private to the scoped files and checkpoint transports.
+
+## 1.55.0 — 2026-07-27
 
 - Added the durable integration-operation v1 boundary: operation-scoped streaming
 access to pinned file generations, fenced append-only checkpoints, strict

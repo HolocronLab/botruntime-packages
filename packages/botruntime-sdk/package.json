@@ -1,6 +1,6 @@
 {
   "name": "@holocronlab/botruntime-sdk",
-  "version": "6.20.0",
+  "version": "7.0.0",
   "description": "SDK for building bots and integrations on botruntime",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
