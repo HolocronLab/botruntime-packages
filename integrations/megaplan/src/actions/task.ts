@@ -1,21 +1,11 @@
-import { DateTime } from '../types'
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import type { Task } from '../types'
 import type { IntegrationProps } from '../bp'
 import { buildClient, run } from './shared'
 
-export const createTask: IntegrationProps['actions']['createTask'] = async ({ ctx, input, client }) =>
-  run(async () => {
-    const api = buildClient(ctx, client)
-    const created = await api.createTask({
-      name: input.name,
-      responsibleId: input.responsibleId,
-      dealIds: input.dealIds,
-      deadline: input.deadline ? new DateTime(input.deadline) : undefined,
-      isUrgent: input.isUrgent,
-      statement: input.statement,
-    })
-    return { id: created.id, status: created.status }
-  })
+export const createTask: IntegrationProps['actions']['createTask'] = async () => {
+  throw new RuntimeError('createTask: используйте startIntegrationOperation')
+}
 
 export function projectTask(task: Task): {
   id: string

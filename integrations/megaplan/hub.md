@@ -17,21 +17,25 @@
 ## Действия
 
 - **Поиск контрагентов** — поиск по телефону, имени или email.
-- **Создать контрагента (физлицо)** — через `/contractorHuman`.
-- **Создать / Получить / Обновить поля сделки**.
+- **Создать контрагента (физлицо)** — durable operation через
+  `/contractorHuman`.
+- **Создать сделку** — durable operation; **получить / обновить поля сделки** —
+  обычные действия.
 - **Сменить этап сделки** — перевод по воронке через `applyTransition`
   (прямая запись статуса API игнорирует); недоступный переход возвращается ошибкой.
 - **Список программ / Статусы программы** — разрешение `programId`/`stateId` по имени.
-- **Добавить комментарий** — HTML-комментарий к сделке, контрагенту или задаче.
+- **Добавить комментарий** — durable HTML-комментарий к сделке, контрагенту
+  или задаче.
 - **Опубликовать документы дела** — durable action `publishCaseDocument`:
   потоково читает упорядоченные immutable `FileRef` из Botruntime Files,
   загружает каждый файл через `POST /api/file` и создаёт одну запись журнала
   с `attaches: [{ contentType: "File", id }]`. Возвращает `commentId` и
   `attachmentIds` в исходном порядке.
 - **Чек-лист сделки** — создать / список / завершить пункт.
-- **Задачи** — создать задачу сотруднику, безопасно прочитать её текущее
-  состояние и менять статус через `doAction`.
-- **Задача-согласование** — загрузить материал в Megaplan, создать нативный
+- **Задачи** — создать задачу сотруднику через durable operation, безопасно
+  прочитать её текущее состояние и менять статус через `doAction`.
+- **Задача-согласование** — через durable operation открыть точный `FileRef`,
+  потоково загрузить материал в Megaplan и создать нативный
   элемент согласования с файлом и SHA-256 и разрешить link-entity
   `actualVersion` по `id` через соответствующую полную запись в `versions[]`,
   где API возвращает статус и визы. Если ссылка есть, но соответствующая полная
@@ -129,8 +133,76 @@ const operation = await client.startIntegrationOperation({
 - `reconcile` не делает POST. Он читает checkpoint и ищет детерминированный
   маркер комментария; отсутствие маркера не доказывает, что POST не применился.
 
-Версия `0.2.9` требует backend/runtime-host с nested FileRef admission и
+## Durable-создание сущностей
+
+Начиная с `0.2.10`, действия `createContractorHuman`, `createDeal`,
+`createTask`, `addComment` и `createNegotiationTask` запускаются только через
+`startIntegrationOperation`. Обычный `callAction` отклоняется, чтобы
+не обходить tenant-scoped idempotency, resource serialization и recovery.
+
+Для каждого действия задаются:
+
+- `botruntime.durableOperation = v1`;
+- `botruntime.operationCheckpoint = v1`;
+- bounded checkpoint: один provider entity ID, а для
+  `createNegotiationTask` — сначала File ID, затем Task ID;
+- `botruntime.fileRefAdmission = schema-v1` только для
+  `createNegotiationTask`.
+
+Пример:
+
+```ts
+import type {
+  Integration_Actions_BotruntimeMegaplan,
+} from '../../.adk/integrations/botruntime_megaplan/actions'
+
+type ContractorInput =
+  Integration_Actions_BotruntimeMegaplan['createContractorHuman']['input']
+
+const input = {
+  firstName: 'Иван',
+  lastName: 'Иванов',
+  contactInfo: [{ type: 'phone', value: '+79990000000' }],
+} satisfies ContractorInput
+
+const operation = await client.startIntegrationOperation({
+  type: 'botruntime/megaplan:createContractorHuman',
+  idempotencyKey: `megaplan-contractor:${immutableProvisionId}`,
+  resourceKey: `megaplan:contractor:${semanticOwnerId}`,
+  timeoutSeconds: 120,
+  input,
+})
+```
+
+Внешняя запись получает маркер, вычисленный из `action + operationId`.
+Для контрагентов, сделок и задач маркер записывается также в индексируемое имя
+как суффикс `[BF-OP-…]`; для комментариев — в HTML. Оригинальные `name` и
+`description` возвращаются вызывающему коду без технического суффикса.
+
+Перед первым POST интеграция ищет точный маркер. После POST она повторно
+проверяет маркер в ответе или чтением по точному ID и только затем сохраняет ID
+Мегаплана в защищённой контрольной точке. Повтор операции с контрольной точкой
+читает сущность по точному ID и снова проверяет маркер. После тайм-аута,
+разрыва соединения, `5xx` или некорректного ответа интеграция подтверждает
+эффект только чтением; если подтверждения нет, возвращается `outcome_unknown`.
+Фазы `reconcile` и `cancel` никогда не повторяют POST. Несколько сущностей с
+одним маркером дают `MEGAPLAN_OPERATION_MARKER_NOT_UNIQUE` и требуют проверки
+оператором. После проверки владелец рабочей области может завершить неизвестную
+операцию через `POST /v1/admin/workspaces/{workspaceId}/bots/{botId}/integration-operations/{operationId}/abandon`
+с телом `{ "reason": "..." }`; операция и контрольные точки сохраняются как
+аудиторская запись.
+
+`createNegotiationTask` принимает только `materialFile: { id }` размером не
+более 20 МиБ. CloudAPI закрепляет его поколение, checksum и размер, а интеграция
+читает поток через `OperationFilesClient.openRef()`. Пользовательские URL,
+base64, байты и прежние
+`materialFileId`/`materialUrl`/`materialSha256` отклоняются. SHA-256 в
+Megaplan берётся только из подготовленной платформой ссылки. Неоднозначный
+`POST /api/file` не повторяется: без подтверждённого File ID операция
+остаётся `outcome_unknown`.
+
+Версии `0.2.9+` требуют backend/runtime-host с nested FileRef admission и
 operation-owned fenced checkpoints. Сначала обновляется ядро, затем новая
 версия публикуется в каталоге и существующая установка атомарно переводится
-командой `brt integrations upgrade botruntime/megaplan@0.2.9`. Одна публикация
-не меняет установки, закреплённые на `0.2.8`.
+командой `brt integrations upgrade botruntime/megaplan@0.2.10`. Одна публикация
+не меняет установки, закреплённые на предыдущей версии.

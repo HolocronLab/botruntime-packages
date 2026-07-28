@@ -7,9 +7,9 @@ const admittedFileRef = operationFileRef('resolve-current')
 
 const addCommentInput = z.object({
   owner: z.enum(['deal', 'contractor', 'task']).title('Тип владельца'),
-  ownerId: z.string().min(1).title('ID владельца'),
-  contentHtml: z.string().min(1).title('HTML-содержимое').describe('Текст комментария в HTML'),
-})
+  ownerId: z.string().min(1).max(256).title('ID владельца'),
+  contentHtml: z.string().min(1).max(65_000).title('HTML-содержимое').describe('Текст комментария в HTML'),
+}).strict()
 const addCommentOutput = z.object({ id: z.string().title('ID комментария') })
 
 const publishCaseDocumentInput = z.object({
@@ -40,6 +40,13 @@ const publishCaseDocumentOutput = z.object({
 export const addComment: ActionDefinition = {
   title: 'Добавить комментарий',
   description: 'HTML-комментарий к сделке, контрагенту или задаче.',
+  attributes: {
+    'botruntime.durableOperation': 'v1',
+    'botruntime.operationCheckpoint': 'v1',
+    'botruntime.operationCheckpoint.maxEntries': '1',
+    'botruntime.operationCheckpoint.maxValueBytes': '512',
+    'botruntime.operationCheckpoint.maxBytes': '1024',
+  },
   input: { schema: addCommentInput },
   output: { schema: addCommentOutput },
 }

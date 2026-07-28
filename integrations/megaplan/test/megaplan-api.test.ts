@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { MegaplanApiClient } from '../src/megaplan-api'
+import { MarkerInvariantError, MegaplanApiClient } from '../src/megaplan-api'
 import { ApiError, DateOnly, DateTime, Money, encodeBody, selectTransition } from '../src/types'
 
 // Response shapes mirror live probes of m58160596.megaplan.ru: the token is an
@@ -225,6 +225,36 @@ test('searchContractors encodes JSON params in the query', async () => {
     expect(got).toHaveLength(2)
     expect(got[0]!.firstName).toBe('Иван')
     expect(got[1]!.name).toBe('ООО Ромашка')
+  })
+})
+
+test('findContractorHumanByMarker verifies one full indexed-name match', async () => {
+  const marker = 'BF-OP-abc123'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/contractor') {
+      expect(JSON.parse(decodeURIComponent(url.search.slice(1)))).toEqual({
+        q: marker,
+        limit: 10,
+      })
+      return json(200, wrap(
+        `[{"contentType":"ContractorHuman","id":"1000011","name":"Иванов [${marker}]"},`
+        + `{"contentType":"ContractorCompany","id":"1000012","name":"ООО [${marker}]"}]`,
+      ))
+    }
+    if (url.pathname === '/api/v3/contractorHuman/1000011') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'ContractorHuman',
+        id: '1000011',
+        lastName: `Иванов [${marker}]`,
+        description: `Botruntime operation: [${marker}]`,
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    expect((await c.findContractorHumanByMarker(marker))?.id).toBe('1000011')
+    expect(env.apiCalls()).toBe(2)
   })
 })
 
@@ -925,6 +955,92 @@ test('getTask reads one task with deadline and deal references', async () => {
     expect(task.id).toBe('task/42')
     expect(task.deadline?.value).toBe('2026-07-24 12:00:00')
     expect(task.deals).toEqual([{ contentType: 'Deal', id: 'deal-7' }])
+  })
+})
+
+test('findTaskByMarker treats an omitted isNegotiation flag as an ordinary task', async () => {
+  const marker = 'BF-OP-task123'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/task' && url.search) {
+      expect(JSON.parse(decodeURIComponent(url.search.slice(1)))).toEqual({
+        q: marker,
+        limit: 10,
+      })
+      return json(200, wrap(JSON.stringify([{
+        contentType: 'Task',
+        id: 'T-42',
+        name: `Проверить документы [${marker}]`,
+      }])))
+    }
+    if (url.pathname === '/api/v3/task/T-42') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'Task',
+        id: 'T-42',
+        name: `Проверить документы [${marker}]`,
+        status: 'assigned',
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    expect((await c.findTaskByMarker(marker, false))?.id).toBe('T-42')
+    expect(env.apiCalls()).toBe(2)
+  })
+})
+
+test('findTaskByMarker revalidates the marker on the detailed entity', async () => {
+  const marker = 'BF-OP-task-edited'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/task' && url.search) {
+      return json(200, wrap(JSON.stringify([{
+        contentType: 'Task',
+        id: 'T-edited',
+        name: `Проверить документы [${marker}]`,
+      }])))
+    }
+    if (url.pathname === '/api/v3/task/T-edited') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'Task',
+        id: 'T-edited',
+        name: 'Маркер удалён после поисковой проекции',
+        status: 'assigned',
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    expect(await c.findTaskByMarker(marker, false)).toBeUndefined()
+    expect(env.apiCalls()).toBe(2)
+  })
+})
+
+test('findTaskByMarker reports duplicate detailed markers as an invariant error', async () => {
+  const marker = 'BF-OP-task-duplicate'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/task' && url.search) {
+      return json(200, wrap(JSON.stringify([
+        { contentType: 'Task', id: 'T-1', name: `Задача [${marker}]` },
+        { contentType: 'Task', id: 'T-2', name: `Задача [${marker}]` },
+      ])))
+    }
+    if (url.pathname === '/api/v3/task/T-1' || url.pathname === '/api/v3/task/T-2') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'Task',
+        id: url.pathname.endsWith('T-1') ? 'T-1' : 'T-2',
+        name: `Задача [${marker}]`,
+        status: 'assigned',
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    await expect(c.findTaskByMarker(marker, false)).rejects.toBeInstanceOf(
+      MarkerInvariantError,
+    )
+    expect(env.apiCalls()).toBe(3)
   })
 })
 

@@ -10,12 +10,12 @@ const searchContractorsOutput = z.object({
 })
 
 const createContractorHumanInput = z.object({
-  firstName: z.string().optional().title('Имя'),
-  middleName: z.string().optional().title('Отчество'),
-  lastName: z.string().optional().title('Фамилия'),
-  description: z.string().optional().title('Описание'),
-  contactInfo: z.array(contactInfoSchema).default([]).title('Контакты'),
-})
+  firstName: z.string().max(256).optional().title('Имя'),
+  middleName: z.string().max(256).optional().title('Отчество'),
+  lastName: z.string().max(220).optional().title('Фамилия'),
+  description: z.string().max(65_000).optional().title('Описание'),
+  contactInfo: z.array(contactInfoSchema).max(32).title('Контакты'),
+}).strict()
 const createContractorHumanOutput = z.object({
   id: z.string().title('ID контрагента'),
 })
@@ -30,6 +30,13 @@ export const searchContractors: ActionDefinition = {
 export const createContractorHuman: ActionDefinition = {
   title: 'Создать контрагента (физлицо)',
   description: 'Создаёт контрагента-физлицо через /contractorHuman.',
+  attributes: {
+    'botruntime.durableOperation': 'v1',
+    'botruntime.operationCheckpoint': 'v1',
+    'botruntime.operationCheckpoint.maxEntries': '1',
+    'botruntime.operationCheckpoint.maxValueBytes': '512',
+    'botruntime.operationCheckpoint.maxBytes': '1024',
+  },
   input: { schema: createContractorHumanInput },
   output: { schema: createContractorHumanOutput },
 }

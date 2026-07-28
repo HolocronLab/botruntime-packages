@@ -116,6 +116,22 @@ function prune<T extends Record<string, unknown>>(obj: T): T {
   return out as T
 }
 
+export class MarkerInvariantError extends Error {
+  public readonly code = 'MEGAPLAN_OPERATION_MARKER_NOT_UNIQUE'
+
+  public constructor(label: string) {
+    super(`megaplan: multiple ${label} entities match one operation marker`)
+    this.name = 'MarkerInvariantError'
+  }
+}
+
+function uniqueMarkerMatch<T>(matches: T[], label: string): T | undefined {
+  if (matches.length > 1) {
+    throw new MarkerInvariantError(label)
+  }
+  return matches[0]
+}
+
 export class MegaplanApiClient {
   private readonly baseUrl: string
   private readonly username: string
@@ -146,12 +162,31 @@ export class MegaplanApiClient {
 
   // ── Operations (ported from api.go) ────────────────────────────────────────
 
-  // searchContractors — full-text contractor search (q = phone, name, email). Use
-  // before create to dedup. NOTE: q-search returns empty on a fresh account (the
-  // index is not built) — treat as best-effort; real dedup is our own stored
-  // megaplan_contractor_id map.
-  async searchContractors(q: string, limit?: number): Promise<Contractor[]> {
-    return this.do<Contractor[]>('GET', '/api/v3/contractor', prune({ q, limit }), undefined)
+  // searchContractors — full-text contractor search (q = phone, name, email).
+  // Durable creation puts its opaque marker in lastName so reconciliation uses
+  // the same name index and then verifies the full entity by id + description.
+  async searchContractors(q: string, limit?: number, signal?: AbortSignal): Promise<Contractor[]> {
+    return this.do<Contractor[]>('GET', '/api/v3/contractor', prune({ q, limit }), undefined, signal)
+  }
+
+  async getContractorHuman(id: string, signal?: AbortSignal): Promise<ContractorHuman> {
+    return this.do<ContractorHuman>('GET', `/api/v3/contractorHuman/${esc(id)}`, undefined, undefined, signal)
+  }
+
+  async findContractorHumanByMarker(marker: string, signal?: AbortSignal): Promise<ContractorHuman | undefined> {
+    const candidates = await this.searchContractors(marker, 10, signal)
+    const detailed = await Promise.all(
+      candidates
+        .filter((candidate) => candidate.contentType === ContentType.ContractorHuman)
+        .map((candidate) => this.getContractorHuman(candidate.id, signal)),
+    )
+    return uniqueMarkerMatch(
+      detailed.filter((contractor) =>
+        contractor.lastName?.includes(`[${marker}]`)
+        && contractor.description?.includes(marker)
+      ),
+      'contractor',
+    )
   }
 
   // createContractorHuman — create a physical person. The generic /contractor is
@@ -163,7 +198,7 @@ export class MegaplanApiClient {
     lastName?: string
     description?: string
     contactInfo: { type: string; value: string; comment?: string }[]
-  }): Promise<ContractorHuman> {
+  }, signal?: AbortSignal): Promise<ContractorHuman> {
     const body = prune({
       contentType: ContentType.ContractorHuman,
       firstName: h.firstName,
@@ -174,11 +209,29 @@ export class MegaplanApiClient {
         prune({ contentType: ContentType.ContactInfo, type: c.type, value: c.value, comment: c.comment })
       ),
     })
-    return this.do<ContractorHuman>('POST', '/api/v3/contractorHuman', undefined, body)
+    return this.do<ContractorHuman>('POST', '/api/v3/contractorHuman', undefined, body, signal)
   }
 
-  async getDeal(id: string): Promise<Deal> {
-    return this.do<Deal>('GET', `/api/v3/deal/${esc(id)}`, undefined, undefined)
+  async getDeal(id: string, signal?: AbortSignal): Promise<Deal> {
+    return this.do<Deal>('GET', `/api/v3/deal/${esc(id)}`, undefined, undefined, signal)
+  }
+
+  async findDealByMarker(marker: string, signal?: AbortSignal): Promise<Deal | undefined> {
+    const candidates = await this.do<Deal[]>(
+      'GET',
+      '/api/v3/deal',
+      { q: marker, limit: 10 },
+      undefined,
+      signal,
+    )
+    const detailed = await Promise.all(candidates.map((candidate) => this.getDeal(candidate.id, signal)))
+    return uniqueMarkerMatch(
+      detailed.filter((deal) =>
+        deal.name?.includes(`[${marker}]`)
+        && deal.description?.includes(marker)
+      ),
+      'deal',
+    )
   }
 
   // createDeal — only Program is required; custom program fields are account-specific
@@ -191,7 +244,7 @@ export class MegaplanApiClient {
     description?: string
     stateId?: string
     price?: Money
-  }): Promise<Deal> {
+  }, signal?: AbortSignal): Promise<Deal> {
     const body = prune({
       contentType: ContentType.Deal,
       name: d.name,
@@ -202,7 +255,7 @@ export class MegaplanApiClient {
       state: d.stateId ? { contentType: ContentType.ProgramState, id: d.stateId } : undefined,
       price: d.price,
     })
-    return this.do<Deal>('POST', '/api/v3/deal', undefined, body)
+    return this.do<Deal>('POST', '/api/v3/deal', undefined, body, signal)
   }
 
   // updateDealFields — partial field edit (APIv3: update = POST on /{id}); sends ONLY
@@ -289,10 +342,10 @@ export class MegaplanApiClient {
       undefined,
       signal,
     )
-    return comments.find((comment) =>
+    return uniqueMarkerMatch(comments.filter((comment) =>
       comment.content?.includes(marker)
       && sameIds(comment.attaches?.map((file) => file.id), expectedAttachmentIds)
-    )
+    ), 'comment')
   }
 
   // createTodo — checklist item inside a deal card. Bound only via the sub-resource
@@ -330,7 +383,7 @@ export class MegaplanApiClient {
     deadline?: DateTime
     isUrgent?: boolean
     statement?: string
-  }): Promise<Task> {
+  }, signal?: AbortSignal): Promise<Task> {
     const body = prune({
       contentType: ContentType.Task,
       isTemplate: false,
@@ -341,11 +394,35 @@ export class MegaplanApiClient {
       deals: t.dealIds.map((id) => ({ contentType: ContentType.Deal, id }) satisfies Ref),
       statement: t.statement,
     })
-    return this.do<Task>('POST', '/api/v3/task', undefined, body)
+    return this.do<Task>('POST', '/api/v3/task', undefined, body, signal)
   }
 
-  async getTask(id: string): Promise<Task> {
-    return this.do<Task>('GET', `/api/v3/task/${esc(id)}`, undefined, undefined)
+  async getTask(id: string, signal?: AbortSignal): Promise<Task> {
+    return this.do<Task>('GET', `/api/v3/task/${esc(id)}`, undefined, undefined, signal)
+  }
+
+  async findTaskByMarker(
+    operationMarker: string,
+    isNegotiation: boolean,
+    signal?: AbortSignal,
+  ): Promise<Task | undefined> {
+    const candidates = await this.do<Task[]>(
+      'GET',
+      '/api/v3/task',
+      { q: operationMarker, limit: 10 },
+      undefined,
+      signal,
+    )
+    const detailed = await Promise.all(
+      candidates.map((candidate) => this.getTask(candidate.id, signal)),
+    )
+    return uniqueMarkerMatch(
+      detailed.filter((task) =>
+        (isNegotiation ? task.isNegotiation === true : task.isNegotiation !== true)
+        && task.name?.includes(`[${operationMarker}]`)
+      ),
+      isNegotiation ? 'negotiation task' : 'task',
+    )
   }
 
   async createNegotiationTask(t: {
@@ -357,7 +434,7 @@ export class MegaplanApiClient {
     materialSha256: string
     materialFile: FileRef
     statement?: string
-  }): Promise<Task> {
+  }, signal?: AbortSignal): Promise<Task> {
     if (t.approverIds.length === 0) {
       throw new Error('megaplan: createNegotiationTask requires at least one approver')
     }
@@ -390,12 +467,11 @@ export class MegaplanApiClient {
         },
       ],
     })
-    return this.do<Task>('POST', '/api/v3/task', undefined, body)
+    return this.do<Task>('POST', '/api/v3/task', undefined, body, signal)
   }
 
-  async findNegotiationTask(operationMarker: string): Promise<Task | undefined> {
-    const tasks = await this.do<Task[]>('GET', '/api/v3/task', { q: operationMarker, limit: 10 }, undefined)
-    return tasks.find((task) => task.isNegotiation === true && task.name?.includes(`[${operationMarker}]`))
+  async findNegotiationTask(operationMarker: string, signal?: AbortSignal): Promise<Task | undefined> {
+    return this.findTaskByMarker(operationMarker, true, signal)
   }
 
   // Megaplan's file API is intentionally outside /api/v3. A file must be
