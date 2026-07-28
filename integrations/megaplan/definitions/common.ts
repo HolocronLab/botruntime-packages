@@ -16,9 +16,10 @@ export const configSchema = z.object({
 export const contactInfoSchema = z
   .object({
     type: z.enum(['phone', 'email', 'telegram']).title('Тип').describe('Тип контакта'),
-    value: z.string().min(1).title('Значение').describe('Телефон / email / telegram'),
-    comment: z.string().optional().title('Комментарий').describe('Необязательная подпись контакта'),
+    value: z.string().min(1).max(512).title('Значение').describe('Телефон / email / telegram'),
+    comment: z.string().max(1024).optional().title('Комментарий').describe('Необязательная подпись контакта'),
   })
+  .strict()
   .title('Контакт')
 
 // Money — value as a DECIMAL STRING (деньги считает код, не LLM; JS-float исказил
@@ -27,10 +28,11 @@ export const moneySchema = z
   .object({
     value: z
       .string()
+      .max(128)
       .regex(/^-?\d+(\.\d+)?$/)
       .title('Сумма')
       .describe('Десятичная строка, например "60000.50"'),
-    currency: z.string().default('RUB').title('Валюта').describe('ISO-код валюты'),
+    currency: z.string().min(1).max(16).default('RUB').title('Валюта').describe('ISO-код валюты'),
   })
   .title('Деньги')
 

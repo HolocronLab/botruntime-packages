@@ -6,6 +6,11 @@ import {
   handleCaseDocumentOperation,
   validatePublishCaseDocumentInput,
 } from './case-document-operation'
+import {
+  handleDurableEntityOperation,
+  isDurableEntityAction,
+  type DurableEntityInput,
+} from './entity-operation'
 import { webhookHandler } from './webhook'
 
 // register — validate creds loudly at install time: issue a token and hit a cheap
@@ -42,33 +47,66 @@ const durableOperationHandler: sdk.DurableOperationHandler<TMegaplan> = async ({
   ctx,
   logger,
 }: sdk.DurableOperationHandlerProps<TMegaplan>) => {
+  if (action === 'publishCaseDocument') {
+    if (
+      !files
+      || !checkpoint
+      || !validatePublishCaseDocumentInput(input)
+    ) {
+      return {
+        kind: 'failed',
+        errorCode: 'INVALID_OPERATION_CAPABILITIES',
+        errorMessage: 'Некорректный durable-контракт публикации документов',
+      }
+    }
+    return handleCaseDocumentOperation(
+      phase,
+      {
+        operationId,
+        attempt,
+        action,
+        idempotencyKey,
+        input,
+        deadline,
+        cancelRequestedAt,
+        checkpoint,
+      },
+      {
+        files,
+        provider: buildOperationClient(ctx),
+      },
+      logger,
+      abortSignal,
+    )
+  }
+
   if (
-    action !== 'publishCaseDocument'
-    || !files
+    !isDurableEntityAction(action)
     || !checkpoint
-    || !validatePublishCaseDocumentInput(input)
+    || (action === 'createNegotiationTask' ? !files : files !== undefined)
   ) {
     return {
       kind: 'failed',
       errorCode: 'INVALID_OPERATION_CAPABILITIES',
-      errorMessage: 'Некорректный durable-контракт публикации документов',
+      errorMessage: 'Некорректный durable-контракт Megaplan action',
     }
   }
-  return handleCaseDocumentOperation(
+
+  return handleDurableEntityOperation(
     phase,
     {
       operationId,
       attempt,
       action,
       idempotencyKey,
-      input,
+      input: input as DurableEntityInput,
       deadline,
       cancelRequestedAt,
       checkpoint,
     },
     {
-      files,
       provider: buildOperationClient(ctx),
+      ...(files ? { files } : {}),
     },
     logger,
     abortSignal,

@@ -228,6 +228,36 @@ test('searchContractors encodes JSON params in the query', async () => {
   })
 })
 
+test('findContractorHumanByMarker verifies one full indexed-name match', async () => {
+  const marker = 'BF-OP-abc123'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/contractor') {
+      expect(JSON.parse(decodeURIComponent(url.search.slice(1)))).toEqual({
+        q: marker,
+        limit: 10,
+      })
+      return json(200, wrap(
+        `[{"contentType":"ContractorHuman","id":"1000011","name":"Иванов [${marker}]"},`
+        + `{"contentType":"ContractorCompany","id":"1000012","name":"ООО [${marker}]"}]`,
+      ))
+    }
+    if (url.pathname === '/api/v3/contractorHuman/1000011') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'ContractorHuman',
+        id: '1000011',
+        lastName: `Иванов [${marker}]`,
+        description: `Botruntime operation: [${marker}]`,
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    expect((await c.findContractorHumanByMarker(marker))?.id).toBe('1000011')
+    expect(env.apiCalls()).toBe(2)
+  })
+})
+
 // Money.value is a raw JSON NUMBER token straight from the decimal string (no float drift).
 test('createDeal serializes Money as a precise number', async () => {
   const env = makeEnv((req, body, url) => {
@@ -925,6 +955,37 @@ test('getTask reads one task with deadline and deal references', async () => {
     expect(task.id).toBe('task/42')
     expect(task.deadline?.value).toBe('2026-07-24 12:00:00')
     expect(task.deals).toEqual([{ contentType: 'Deal', id: 'deal-7' }])
+  })
+})
+
+test('findTaskByMarker treats an omitted isNegotiation flag as an ordinary task', async () => {
+  const marker = 'BF-OP-task123'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/task' && url.search) {
+      expect(JSON.parse(decodeURIComponent(url.search.slice(1)))).toEqual({
+        q: marker,
+        limit: 10,
+      })
+      return json(200, wrap(JSON.stringify([{
+        contentType: 'Task',
+        id: 'T-42',
+        name: `Проверить документы [${marker}]`,
+      }])))
+    }
+    if (url.pathname === '/api/v3/task/T-42') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'Task',
+        id: 'T-42',
+        name: `Проверить документы [${marker}]`,
+        status: 'assigned',
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    expect((await c.findTaskByMarker(marker, false))?.id).toBe('T-42')
+    expect(env.apiCalls()).toBe(2)
   })
 })
 

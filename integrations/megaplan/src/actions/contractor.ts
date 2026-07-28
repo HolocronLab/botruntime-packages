@@ -1,3 +1,4 @@
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import type { IntegrationProps } from '../bp'
 import { buildClient, run } from './shared'
 
@@ -16,15 +17,6 @@ export const searchContractors: IntegrationProps['actions']['searchContractors']
     }
   })
 
-export const createContractorHuman: IntegrationProps['actions']['createContractorHuman'] = async ({ ctx, input, client }) =>
-  run(async () => {
-    const api = buildClient(ctx, client)
-    const created = await api.createContractorHuman({
-      firstName: input.firstName,
-      middleName: input.middleName,
-      lastName: input.lastName,
-      description: input.description,
-      contactInfo: input.contactInfo,
-    })
-    return { id: created.id }
-  })
+export const createContractorHuman: IntegrationProps['actions']['createContractorHuman'] = async () => {
+  throw new RuntimeError('createContractorHuman: используйте startIntegrationOperation')
+}

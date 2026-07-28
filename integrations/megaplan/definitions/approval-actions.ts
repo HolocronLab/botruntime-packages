@@ -1,16 +1,17 @@
-import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
+import { type ActionDefinition, operationFileRef, z } from '@holocronlab/botruntime-sdk'
+
+const admittedMaterialFile = operationFileRef('resolve-current')
+  .describe('Bot-scoped immutable approval material')
 
 const createNegotiationTaskInput = z.object({
-  name: z.string().min(1).title('Название'),
-  responsibleId: z.string().min(1).title('ID ответственного'),
-  approverIds: z.array(z.string().min(1)).min(1).title('ID согласователей'),
-  dealIds: z.array(z.string().min(1)).default([]).title('ID сделок'),
-  materialName: z.string().min(1).title('Название материала'),
-  materialFileId: z.string().min(1).optional().title('ID неизменяемого файла Botruntime'),
-  materialUrl: z.string().url().optional().title('URL файла Botruntime (совместимость)'),
-  materialSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).title('SHA-256 материала'),
-  statement: z.string().optional().title('Постановка задачи'),
-})
+  name: z.string().min(1).max(960).title('Название'),
+  responsibleId: z.string().min(1).max(256).title('ID ответственного'),
+  approverIds: z.array(z.string().min(1).max(256)).min(1).max(32).title('ID согласователей'),
+  dealIds: z.array(z.string().min(1).max(256)).max(64).title('ID сделок'),
+  materialName: z.string().min(1).max(1024).title('Название материала'),
+  materialFile: admittedMaterialFile.title('Неизменяемый файл Botruntime'),
+  statement: z.string().max(65_000).optional().title('Постановка задачи'),
+}).strict()
 
 const createNegotiationTaskOutput = z.object({
   taskId: z.string(),
@@ -45,6 +46,14 @@ const getNegotiationDecisionOutput = z.object({
 export const createNegotiationTask: ActionDefinition = {
   title: 'Создать задачу-согласование',
   description: 'Создаёт нативное согласование конкретной неизменяемой версии материала.',
+  attributes: {
+    'botruntime.durableOperation': 'v1',
+    'botruntime.fileRefAdmission': 'schema-v1',
+    'botruntime.operationCheckpoint': 'v1',
+    'botruntime.operationCheckpoint.maxEntries': '2',
+    'botruntime.operationCheckpoint.maxValueBytes': '512',
+    'botruntime.operationCheckpoint.maxBytes': '2048',
+  },
   input: { schema: createNegotiationTaskInput },
   output: { schema: createNegotiationTaskOutput },
 }

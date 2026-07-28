@@ -1,9 +1,9 @@
 import { type ActionDefinition, z } from '@holocronlab/botruntime-sdk'
 
 const createTaskInput = z.object({
-  name: z.string().min(1).title('Название'),
-  responsibleId: z.string().min(1).title('ID ответственного'),
-  dealIds: z.array(z.string()).default([]).title('ID сделок').describe('Привязка задачи к карточкам сделок'),
+  name: z.string().min(1).max(960).title('Название'),
+  responsibleId: z.string().min(1).max(256).title('ID ответственного'),
+  dealIds: z.array(z.string().min(1).max(256)).max(64).title('ID сделок').describe('Привязка задачи к карточкам сделок'),
   // DateTime: "YYYY-MM-DD HH:MM:SS" (пробел, не ISO-T).
   deadline: z
     .string()
@@ -12,8 +12,8 @@ const createTaskInput = z.object({
     .title('Дедлайн')
     .describe('Формат "YYYY-MM-DD HH:MM:SS"'),
   isUrgent: z.boolean().optional().title('Срочная'),
-  statement: z.string().optional().title('Постановка задачи'),
-})
+  statement: z.string().max(64 * 1024).optional().title('Постановка задачи'),
+}).strict()
 const taskOutput = z.object({
   id: z.string().title('ID задачи'),
   status: z.string().optional().title('Статус'),
@@ -40,6 +40,13 @@ const taskDoActionInput = z.object({
 export const createTask: ActionDefinition = {
   title: 'Создать задачу',
   description: 'Создаёт задачу сотруднику; deals[] связывает её со сделками.',
+  attributes: {
+    'botruntime.durableOperation': 'v1',
+    'botruntime.operationCheckpoint': 'v1',
+    'botruntime.operationCheckpoint.maxEntries': '1',
+    'botruntime.operationCheckpoint.maxValueBytes': '512',
+    'botruntime.operationCheckpoint.maxBytes': '1024',
+  },
   input: { schema: createTaskInput },
   output: { schema: taskOutput },
 }

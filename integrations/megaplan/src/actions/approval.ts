@@ -1,132 +1,9 @@
-import type { Client, IntegrationProps } from '../bp'
-import type { ApprovalOperationStatePayload } from '../../definitions/state'
-import { MAX_APPROVAL_FILE_BYTES, readBytesCapped } from '../megaplan-api'
-import { ApiError } from '../types'
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
+import type { IntegrationProps } from '../bp'
 import { buildClient, run } from './shared'
 
-const APPROVAL_CLAIM_EXPIRY_MS = 15 * 60 * 1000
-const APPROVAL_RELEASE_EXPIRY_MS = 1
-
-export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async ({ ctx, input, client }) =>
-  run(async () => {
-    const api = buildClient(ctx, client)
-    const operationMarker = await approvalOperationMarker(input)
-    const existing = await api.findNegotiationTask(operationMarker)
-    if (existing) {
-      return { taskId: existing.id, itemId: undefined, versionId: undefined }
-    }
-    const claimId = crypto.randomUUID()
-    const claimRef = {
-      type: 'integration' as const,
-      id: ctx.integrationId,
-      name: 'approvalOperation' as const,
-    }
-    const { state: operation } = await client.getOrSetState({
-      ...claimRef,
-      payload: { claimId, operationMarker, status: 'claimed' },
-      expiry: APPROVAL_CLAIM_EXPIRY_MS,
-    })
-    if (
-      operation.payload.operationMarker === operationMarker &&
-      operation.payload.status === 'completed' &&
-      operation.payload.taskId
-    ) {
-      return {
-        taskId: operation.payload.taskId,
-        itemId: operation.payload.itemId,
-        versionId: operation.payload.versionId,
-      }
-    }
-    if (operation.payload.claimId !== claimId) {
-      const recovered = await api.findNegotiationTask(operationMarker)
-      if (recovered) return { taskId: recovered.id, itemId: undefined, versionId: undefined }
-      throw new Error(`megaplan: approval operation ${operationMarker} is already in progress; retry later`)
-    }
-    let materialFile: Awaited<ReturnType<typeof api.uploadFile>>
-    try {
-      let materialUrl: string
-      if (input.materialFileId) {
-        const { file: storedMaterial } = await client.getFile({ id: input.materialFileId })
-        materialUrl = storedMaterial.url
-      } else if (input.materialUrl && isBotruntimeFileDownloadUrl(input.materialUrl)) {
-        // Compatibility with the canonical lawyer bot that persisted the Files
-        // download URL before stable file IDs were introduced. Restrict this
-        // legacy input to our own origins so it cannot become an SSRF primitive.
-        materialUrl = input.materialUrl
-      } else {
-        throw new Error('megaplan: approval material requires a stable file ID or Botruntime URL')
-      }
-      const material = await downloadApprovalMaterial(materialUrl)
-      const actualSha256 = await sha256(material.bytes)
-      if (actualSha256 !== input.materialSha256.toLowerCase()) {
-        throw new Error(`megaplan: approval material SHA-256 mismatch`)
-      }
-      materialFile = await api.uploadFile(input.materialName, material.bytes, material.contentType)
-    } catch (error) {
-      // Everything before createNegotiationTask is safe to retry. Expire the
-      // installation lock immediately; a failed release still self-heals at the
-      // original claim TTL and must not hide the actionable source error.
-      await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {
-        claimId,
-        operationMarker,
-        status: 'claimed',
-      })
-      throw error
-    }
-    let task: Awaited<ReturnType<typeof api.createNegotiationTask>>
-    try {
-      task = await api.createNegotiationTask({
-        ...input,
-        name: `${input.name} [${operationMarker}]`,
-        statement: [input.statement, `Botforge operation: ${operationMarker}`].filter(Boolean).join('\n\n'),
-        materialFile,
-      })
-    } catch (error) {
-      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-        await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {
-          claimId,
-          operationMarker,
-          status: 'claimed',
-        })
-      }
-      // Network and 5xx outcomes remain fenced: the task may have been created
-      // even though its response did not reach the integration.
-      throw error
-    }
-    const item = task.negotiationItems?.[0]
-    const output = { taskId: task.id, itemId: item?.id, versionId: item?.actualVersion?.id }
-    await releaseApprovalClaim(client, claimRef, claimId, operationMarker, {
-      claimId,
-      operationMarker,
-      status: 'completed',
-      ...output,
-    })
-    return output
-  })
-
-type ApprovalClaimRef = {
-  type: 'integration'
-  id: string
-  name: 'approvalOperation'
-}
-
-async function releaseApprovalClaim(
-  client: Client,
-  claimRef: ApprovalClaimRef,
-  claimId: string,
-  operationMarker: string,
-  payload: ApprovalOperationStatePayload,
-): Promise<void> {
-  try {
-    // GET renews an active idle lease. That closes the expiry race before the
-    // owner check and prevents an old worker from overwriting a successor claim.
-    const { state } = await client.getState(claimRef)
-    if (state.payload.claimId !== claimId || state.payload.operationMarker !== operationMarker) return
-    await client.setState({ ...claimRef, payload, expiry: APPROVAL_RELEASE_EXPIRY_MS })
-  } catch {
-    // Release is best-effort. A missing/expired state is already released; a
-    // transient read/write failure still self-heals at the original lease TTL.
-  }
+export const createNegotiationTask: IntegrationProps['actions']['createNegotiationTask'] = async () => {
+  throw new RuntimeError('createNegotiationTask: используйте startIntegrationOperation с immutable FileRef')
 }
 
 export const getNegotiationDecision: IntegrationProps['actions']['getNegotiationDecision'] = async ({ ctx, input, client }) =>
@@ -200,65 +77,8 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function approvalOperationMarker(input: {
-  name: string
-  responsibleId: string
-  approverIds: string[]
-  dealIds: string[]
-  materialName: string
-  materialSha256: string
-  statement?: string
-}): Promise<string> {
-  const canonical = JSON.stringify({
-    name: input.name,
-    responsibleId: input.responsibleId,
-    approverIds: [...input.approverIds].sort(),
-    dealIds: [...input.dealIds].sort(),
-    materialName: input.materialName,
-    materialSha256: input.materialSha256.toLowerCase(),
-    statement: input.statement ?? '',
-  })
-  const digest = await sha256(new TextEncoder().encode(canonical))
-  return `BF-${digest.slice(0, 20)}`
-}
-
-async function downloadApprovalMaterial(url: string): Promise<{ bytes: Uint8Array; contentType: string }> {
-  if (!isSafeHttpUrl(url)) {
-    throw new Error('megaplan: Botruntime file did not resolve to a safe HTTP URL')
-  }
-  if (isBotruntimeOrigin(url) && !isBotruntimeFileDownloadUrl(url)) {
-    throw new Error('megaplan: Botruntime file URL must use the file-download endpoint')
-  }
-  // The Files API can return either a same-origin, auth-gated URL (Botforge)
-  // or a cross-origin presigned storage URL. Credentials only go to a known
-  // Botruntime origin.
-  const response = await fetch(url, { headers: botruntimeHeadersForUrl(url) })
-  if (!response.ok) throw new Error(`megaplan: download approval material -> ${response.status}`)
-  const bytes = await readBytesCapped(response, MAX_APPROVAL_FILE_BYTES)
-  if (bytes.byteLength === 0) throw new Error('megaplan: approval material is empty')
-  return { bytes, contentType: response.headers.get('content-type') ?? 'application/octet-stream' }
-}
-
-function isSafeHttpUrl(url: string): boolean {
-  try {
-    return ['http:', 'https:'].includes(new URL(url).protocol)
-  } catch {
-    return false
-  }
-}
-
 function isBotruntimeOrigin(url: string): boolean {
   return botruntimeOrigins().some((origin) => sameOrigin(url, origin))
-}
-
-function isBotruntimeFileDownloadUrl(url: string): boolean {
-  if (!isBotruntimeOrigin(url)) return false
-  try {
-    const parsed = new URL(url)
-    return parsed.pathname === '/v1/files/download' && Boolean(parsed.searchParams.get('key')?.trim())
-  } catch {
-    return false
-  }
 }
 
 function isBotruntimeFileUploadUrl(url: string): boolean {
@@ -274,7 +94,7 @@ function botruntimeHeadersForUrl(url: string, contentType?: string): Record<stri
   const headers: Record<string, string> = {}
   if (contentType) headers['content-type'] = contentType
   if (!isBotruntimeOrigin(url)) return headers
-  const expectedEndpoint = contentType ? isBotruntimeFileUploadUrl(url) : isBotruntimeFileDownloadUrl(url)
+  const expectedEndpoint = contentType ? isBotruntimeFileUploadUrl(url) : false
   if (!expectedEndpoint) throw new Error('megaplan: Botruntime file URL uses an unexpected endpoint')
   const token = process.env.BP_TOKEN
   const botId = process.env.BP_BOT_ID

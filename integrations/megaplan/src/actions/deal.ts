@@ -1,3 +1,4 @@
+import { RuntimeError } from '@holocronlab/botruntime-sdk'
 import { Money, type Deal, type ProgramState } from '../types'
 import type { DealOutput } from '../../definitions/deal-actions'
 import type { IntegrationProps } from '../bp'
@@ -10,7 +11,7 @@ function mapState(s: ProgramState | undefined): DealOutput['deal']['state'] {
   return { id: s.id, name: s.name, type: s.type, isEntry: s.isEntry }
 }
 
-function mapDeal(d: Deal): DealOutput['deal'] {
+export function projectDeal(d: Deal): DealOutput['deal'] {
   return {
     id: d.id,
     number: d.number,
@@ -30,25 +31,14 @@ function mapDeal(d: Deal): DealOutput['deal'] {
   }
 }
 
-export const createDeal: IntegrationProps['actions']['createDeal'] = async ({ ctx, input, client }) =>
-  run(async () => {
-    const api = buildClient(ctx, client)
-    const deal = await api.createDeal({
-      programId: input.programId,
-      contractorId: input.contractorId,
-      managerId: input.managerId,
-      name: input.name,
-      description: input.description,
-      stateId: input.stateId,
-      price: input.price ? new Money(input.price.value, input.price.currency) : undefined,
-    })
-    return { deal: mapDeal(deal) }
-  })
+export const createDeal: IntegrationProps['actions']['createDeal'] = async () => {
+  throw new RuntimeError('createDeal: используйте startIntegrationOperation')
+}
 
 export const getDeal: IntegrationProps['actions']['getDeal'] = async ({ ctx, input, client }) =>
   run(async () => {
     const api = buildClient(ctx, client)
-    return { deal: mapDeal(await api.getDeal(input.id)) }
+    return { deal: projectDeal(await api.getDeal(input.id)) }
   })
 
 export const updateDealFields: IntegrationProps['actions']['updateDealFields'] = async ({ ctx, input, client }) =>
@@ -60,7 +50,7 @@ export const updateDealFields: IntegrationProps['actions']['updateDealFields'] =
       managerId: input.managerId,
       price: input.price ? new Money(input.price.value, input.price.currency) : undefined,
     })
-    return { deal: mapDeal(deal) }
+    return { deal: projectDeal(deal) }
   })
 
 export const moveDealStage: IntegrationProps['actions']['moveDealStage'] = async ({ ctx, input, client }) =>
