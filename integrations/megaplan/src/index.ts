@@ -38,9 +38,10 @@ const durableOperationHandler: sdk.DurableOperationHandler<TMegaplan> = async ({
   cancelRequestedAt,
   files,
   checkpoint,
+  abortSignal,
   ctx,
   logger,
-}) => {
+}: sdk.DurableOperationHandlerProps<TMegaplan> & { abortSignal?: AbortSignal }) => {
   if (
     action !== 'publishCaseDocument'
     || !files
@@ -70,6 +71,7 @@ const durableOperationHandler: sdk.DurableOperationHandler<TMegaplan> = async ({
       provider: buildOperationClient(ctx),
     },
     logger,
+    abortSignal,
   )
 }
 

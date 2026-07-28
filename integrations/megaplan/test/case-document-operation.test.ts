@@ -408,6 +408,26 @@ test('an expired deadline stops before Files API or provider handoff', async () 
   expect(observed.comments).toHaveLength(0)
 })
 
+test('a host abort stops before Files API or provider handoff', async () => {
+  const cp = checkpoint()
+  const observed = calls()
+  const hostAbort = new AbortController()
+  hostAbort.abort(new Error('runtime host cancelled the attempt'))
+
+  const outcome = await handleCaseDocumentOperation(
+    'execute',
+    request(cp.client),
+    dependencies(observed),
+    logger,
+    hostAbort.signal,
+  )
+
+  expect(outcome).toEqual({ kind: 'retry_safe' })
+  expect(observed.downloads).toHaveLength(0)
+  expect(observed.uploads).toHaveLength(0)
+  expect(observed.comments).toHaveLength(0)
+})
+
 test('a lost operation lease stops the stale attempt without a provider request', async () => {
   const cp = checkpoint()
   const observed = calls()
