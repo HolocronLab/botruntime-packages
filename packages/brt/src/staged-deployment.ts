@@ -237,12 +237,6 @@ export async function runStagedDeployment(
     log(`deployment ${deployment.id}: staged version ${deployment.stagedVersionId}`)
   }
 
-  if (!input.tableContractChanged && deployment.phase === 'staged') {
-    ;({ deployment } = await client.activateBotDeployment(scoped))
-    log(`deployment ${deployment.id}: activated without table mutation`)
-    return deployment
-  }
-
   if (deployment.phase === 'staged') {
     environment ??= (await client.getDeploymentEnvironment(input.botId, input.workspaceId)).environment
     ;({ deployment } = await client.setBotDeploymentFence({
