@@ -6,7 +6,11 @@ Full fork of `@botpress/cli` (MIT), rebranded and repointed at our cloudapi (bot
 the native build (codegen + esbuild bundle), local dev/serve, and the cloud deploy/login flow
 against our host. **Zero** `@botpress/*` / `@bpinternal/*` deps. See README.md.
 
-## 0.12.2 (current) — 2026-07-28
+## 0.12.3 (current) — 2026-07-28
+
+- Кодовые production-деплои теперь устанавливают traffic fence и дожидаются завершения закреплённых за старым bundle задач перед активацией новой версии.
+
+## 0.12.2 — 2026-07-28
 
 - Исправлены повторный production deploy legacy agent targets с подтверждённо пустым plugin snapshot, атомарное восстановление plugin definition без перезаписи конкурентных изменений и чтение `brt link --key-stdin` из перенаправленного stdin.
 
