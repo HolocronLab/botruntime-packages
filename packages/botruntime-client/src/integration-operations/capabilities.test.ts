@@ -57,6 +57,29 @@ describe('operation-scoped file capability', () => {
     expect(requestUrl).not.toContain(ref.id)
   })
 
+  test('authorizes an empty pinned generation instead of bypassing the lease', async () => {
+    const emptyRef = { ...ref, size: 0 }
+    const fetchImpl = vi.fn(async () =>
+      new Response(null, {
+        status: 200,
+        headers: {
+          'content-length': '0',
+          etag: `"${emptyRef.checksum}"`,
+          'accept-ranges': 'bytes',
+          'content-type': 'application/pdf',
+        },
+      })
+    )
+    const files = createOperationFilesClient({
+      config,
+      operationId: 'op-42',
+      fetchImpl: fetchImpl as typeof fetch,
+    })
+
+    expect(await new Response(await files.openRef(emptyRef)).text()).toBe('')
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
   test('uses one bounded range and checks the canonical ETag', async () => {
     const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('range')).toBe('bytes=1-3')
@@ -67,6 +90,7 @@ describe('operation-scoped file capability', () => {
           'content-length': '3',
           etag: `"${ref.checksum}"`,
           'accept-ranges': 'bytes',
+          'content-range': 'bytes 1-3/5',
           'content-type': 'application/pdf',
         },
       })
@@ -79,6 +103,56 @@ describe('operation-scoped file capability', () => {
 
     expect(await new Response(await files.openRef(ref, { range: { start: 1, end: 3 } })).text()).toBe('irs')
     await expect(files.openRef(ref, { range: { start: 4, end: 5 } })).rejects.toThrow(/range/i)
+  })
+
+  test('continues an interrupted lease-bounded stream with the exact remaining range', async () => {
+    const encoder = new TextEncoder()
+    let firstPull = true
+    const interrupted = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (firstPull) {
+          firstPull = false
+          controller.enqueue(encoder.encode('fi'))
+          return
+        }
+        controller.error(new Error('lease-bounded response ended'))
+      },
+    })
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      if (fetchImpl.mock.calls.length === 1) {
+        expect(headers.get('range')).toBeNull()
+        return new Response(interrupted, {
+          status: 200,
+          headers: {
+            'content-length': '5',
+            etag: `"${ref.checksum}"`,
+            'accept-ranges': 'bytes',
+            'content-type': 'application/pdf',
+          },
+        })
+      }
+      expect(headers.get('range')).toBe('bytes=2-4')
+      expect(headers.get('if-range')).toBe(`"${ref.checksum}"`)
+      return new Response('rst', {
+        status: 206,
+        headers: {
+          'content-length': '3',
+          etag: `"${ref.checksum}"`,
+          'accept-ranges': 'bytes',
+          'content-range': 'bytes 2-4/5',
+          'content-type': 'application/pdf',
+        },
+      })
+    })
+    const files = createOperationFilesClient({
+      config,
+      operationId: 'op-42',
+      fetchImpl: fetchImpl as typeof fetch,
+    })
+
+    expect(await new Response(await files.openRef(ref)).text()).toBe('first')
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
   test('preserves the server status and stable error code without exposing the token', async () => {

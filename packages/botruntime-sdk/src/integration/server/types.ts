@@ -164,7 +164,7 @@ export type DurableOperationOutcome =
 export type DurableOperationHandlerProps<
   TIntegration extends BaseIntegration,
   TPreparedInput = Record<string, unknown>,
-> = CommonHandlerProps<TIntegration> & {
+> = Omit<CommonHandlerProps<TIntegration>, 'client'> & {
   phase: DurableOperationPhase
   operationId: string
   attempt: number
@@ -173,6 +173,7 @@ export type DurableOperationHandlerProps<
   input: TPreparedInput
   deadline: string
   cancelRequestedAt: string | null
+  abortSignal?: AbortSignal
   files?: OperationFilesClient
   checkpoint?: OperationCheckpointClient
 }
