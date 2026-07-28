@@ -58,6 +58,12 @@ const getServerProps = (
     headers: instance.managesOwnTracePropagation ? {} : extractTracingHeaders(req.headers),
   })
   const client = new IntegrationSpecificClient<BaseIntegration>(vanillaClient)
+  if (ctx.operation === 'integration_operation') {
+    // The one-shot operation token is captured in the private transport above.
+    // Durable application handlers receive only the scoped files/checkpoint
+    // facades, so keeping the raw environment value would recreate an escape.
+    delete process.env.BP_TOKEN
+  }
   const logger = new IntegrationLogger({
     traceId,
     botId: ctx.botId,
@@ -257,10 +263,11 @@ const onDurableOperationHandler = async ({
   ctx,
   logger,
   req,
+  abortSignal,
 }: ServerProps): Promise<Response | void> => {
   if (ctx.operation !== 'integration_operation' || !instance.durableOperationHandler) return
   return invokeDurableOperationHandler(
-    { client, ctx, logger },
+    { client, ctx, logger, abortSignal },
     req,
     instance.durableOperationHandler,
   )

@@ -164,7 +164,7 @@ const validOutcome = (value: unknown): value is DurableOperationOutcome => {
 }
 
 export const invokeDurableOperationHandler = async (
-  common: CommonHandlerProps<BaseIntegration>,
+  common: CommonHandlerProps<BaseIntegration> & { abortSignal?: AbortSignal },
   req: Request,
   handler: DurableOperationHandler<BaseIntegration>
 ): Promise<Response> => {
@@ -185,7 +185,8 @@ export const invokeDurableOperationHandler = async (
     : undefined
 
   const outcome = await handler({
-    ...common,
+    ctx: common.ctx,
+    logger: common.logger,
     phase: envelope.phase,
     operationId: envelope.operationId,
     attempt: envelope.attempt,
@@ -194,6 +195,7 @@ export const invokeDurableOperationHandler = async (
     input: envelope.input,
     deadline: envelope.deadline,
     cancelRequestedAt: envelope.cancelRequestedAt,
+    ...(common.abortSignal ? { abortSignal: common.abortSignal } : {}),
     ...(files ? { files } : {}),
     ...(checkpoint ? { checkpoint } : {}),
   })

@@ -5,6 +5,8 @@ const MAX_OPERATION_ID_BYTES = 1024
 const MAX_FILE_REF_TEXT_BYTES = 1024
 const MAX_CHECKPOINT_ENTRIES = 32
 const MAX_CHECKPOINT_VALUE_BYTES = 512
+const MAX_FILE_STREAM_RESUMES = 4096
+const MAX_FILE_STREAM_RESUMES_WITHOUT_PROGRESS = 3
 const FILE_REF_CHECKSUM = /^sha256:[0-9a-f]{64}$/i
 const CHECKPOINT_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/
 
@@ -198,6 +200,47 @@ const fileContentUrl = (config: Readonly<types.ClientConfig>, operationId: strin
     config.apiUrl
   )
 
+const validateFileResponse = async (
+  response: Response,
+  ref: FileRefV1,
+  start: number,
+  end: number,
+  rangeRequest: boolean
+): Promise<void> => {
+  const expectedStatus = rangeRequest ? 206 : 200
+  if (response.status !== expectedStatus) throw await capabilityError(response)
+  const expectedSize = end >= start ? end - start + 1 : 0
+  const declaredSize = response.headers.get('content-length')
+  if (
+    declaredSize === null
+    || !/^\d+$/.test(declaredSize)
+    || Number(declaredSize) !== expectedSize
+  ) {
+    await response.body?.cancel()
+    throw new Error('operation file response length does not match FileRefV1')
+  }
+  if (
+    rangeRequest
+    && response.headers.get('content-range') !== `bytes ${start}-${end}/${ref.size}`
+  ) {
+    await response.body?.cancel()
+    throw new Error('operation file response range does not match FileRefV1')
+  }
+  const etag = response.headers.get('etag')
+  if (etag !== `"${ref.checksum}"`) {
+    await response.body?.cancel()
+    throw new Error('operation file response checksum does not match FileRefV1')
+  }
+  if (response.headers.get('accept-ranges') !== 'bytes') {
+    await response.body?.cancel()
+    throw new Error('operation file response does not advertise bounded byte ranges')
+  }
+  if (ref.contentType && response.headers.get('content-type') !== ref.contentType) {
+    await response.body?.cancel()
+    throw new Error('operation file response content type does not match FileRefV1')
+  }
+}
+
 export const createOperationFilesClient = (
   options: TransportOptions
 ): OperationFilesClient => {
@@ -212,46 +255,108 @@ export const createOperationFilesClient = (
     ): Promise<ReadableStream<Uint8Array>> {
       validateFileRefV1(ref)
       validateRange(openOptions?.range, ref.size)
-      const headers = new Headers({ authorization })
-      if (openOptions?.range) {
-        headers.set('range', `bytes=${openOptions.range.start}-${openOptions.range.end ?? ''}`)
-        headers.set('if-range', `"${ref.checksum}"`)
-      }
-      const response = await fetchImpl(fileContentUrl(config, operationId, ref.generation), {
-        method: 'GET',
-        headers,
-        credentials: config.withCredentials ? 'include' : 'same-origin',
-        signal: openOptions?.signal,
-      })
-      const expectedStatus = openOptions?.range ? 206 : 200
-      if (response.status !== expectedStatus) throw await capabilityError(response)
 
-      const declaredSize = response.headers.get('content-length')
-      const expectedSize = openOptions?.range
-        ? (openOptions.range.end ?? (ref.size - 1)) - openOptions.range.start + 1
-        : ref.size
-      if (
-        declaredSize === null
-        || !/^\d+$/.test(declaredSize)
-        || Number(declaredSize) !== expectedSize
-      ) {
-        await response.body?.cancel()
-        throw new Error('operation file response length does not match FileRefV1')
+      const start = openOptions?.range?.start ?? 0
+      const end = openOptions?.range?.end ?? (ref.size - 1)
+      const abort = new AbortController()
+      const forwardAbort = () => abort.abort(openOptions?.signal?.reason)
+      if (openOptions?.signal?.aborted) {
+        forwardAbort()
+      } else {
+        openOptions?.signal?.addEventListener('abort', forwardAbort, { once: true })
       }
-      const etag = response.headers.get('etag')
-      if (etag !== `"${ref.checksum}"`) {
-        await response.body?.cancel()
-        throw new Error('operation file response checksum does not match FileRefV1')
+      const cleanup = () => {
+        openOptions?.signal?.removeEventListener('abort', forwardAbort)
       }
-      if (response.headers.get('accept-ranges') !== 'bytes') {
-        await response.body?.cancel()
-        throw new Error('operation file response does not advertise bounded byte ranges')
+      const fetchPart = async (
+        partStart: number,
+        rangeRequest: boolean
+      ): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+        const headers = new Headers({ authorization })
+        if (rangeRequest) {
+          headers.set('range', `bytes=${partStart}-${end}`)
+          headers.set('if-range', `"${ref.checksum}"`)
+        }
+        const response = await fetchImpl(fileContentUrl(config, operationId, ref.generation), {
+          method: 'GET',
+          headers,
+          credentials: config.withCredentials ? 'include' : 'same-origin',
+          signal: abort.signal,
+        })
+        await validateFileResponse(response, ref, partStart, end, rangeRequest)
+        return (response.body ?? emptyStream()).getReader()
       }
-      if (ref.contentType && response.headers.get('content-type') !== ref.contentType) {
-        await response.body?.cancel()
-        throw new Error('operation file response content type does not match FileRefV1')
+
+      let offset = start
+      let reader: ReadableStreamDefaultReader<Uint8Array>
+      try {
+        reader = await fetchPart(start, openOptions?.range !== undefined)
+      } catch (error) {
+        cleanup()
+        abort.abort(error)
+        throw error
       }
-      return response.body ?? emptyStream()
+      let responseOffset = offset
+      let resumes = 0
+      let resumesWithoutProgress = 0
+
+      return new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            for (;;) {
+              let chunk: ReadableStreamReadResult<Uint8Array>
+              try {
+                chunk = await reader.read()
+              } catch (error) {
+                if (abort.signal.aborted) throw error
+                chunk = { done: true, value: undefined }
+              }
+              if (!chunk.done) {
+                if (!chunk.value || chunk.value.byteLength === 0) continue
+                if (chunk.value.byteLength > end - offset + 1) {
+                  throw new Error('operation file response exceeded the requested range')
+                }
+                offset += chunk.value.byteLength
+                controller.enqueue(chunk.value)
+                return
+              }
+              reader.releaseLock()
+              if (offset > end) {
+                cleanup()
+                controller.close()
+                return
+              }
+              if (resumes >= MAX_FILE_STREAM_RESUMES) {
+                throw new Error('operation file stream exceeded its continuation limit')
+              }
+              resumes++
+              if (offset === responseOffset) {
+                resumesWithoutProgress++
+                if (resumesWithoutProgress > MAX_FILE_STREAM_RESUMES_WITHOUT_PROGRESS) {
+                  throw new Error('operation file stream made no continuation progress')
+                }
+              } else {
+                resumesWithoutProgress = 0
+              }
+              responseOffset = offset
+              reader = await fetchPart(offset, true)
+            }
+          } catch (error) {
+            cleanup()
+            abort.abort(error)
+            controller.error(error)
+          }
+        },
+        async cancel(reason) {
+          cleanup()
+          abort.abort(reason)
+          try {
+            await reader.cancel(reason)
+          } catch {
+            // Cancellation is already observable to the caller.
+          }
+        },
+      })
     },
 
     async statRef(ref: FileRefV1, statOptions?: { signal?: AbortSignal }): Promise<OperationFileStat> {

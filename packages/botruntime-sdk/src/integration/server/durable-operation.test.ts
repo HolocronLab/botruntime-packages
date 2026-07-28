@@ -68,6 +68,7 @@ describe('durable operation SDK boundary', () => {
   })
 
   test('materializes scoped clients and keeps token and lease generation out of handler props', async () => {
+    const abortController = new AbortController()
     const requests: Array<{ url: string; init?: RequestInit }> = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(input), init })
@@ -96,6 +97,10 @@ describe('durable operation SDK boundary', () => {
       expect(props.operationId).toBe('op-42')
       expect(props.leaseGeneration).toBeUndefined()
       expect(props.operationCapability).toBeUndefined()
+      expect(props.client).toBeUndefined()
+      expect(props.abortSignal).toBe(abortController.signal)
+      expect(process.env.BP_TOKEN).toBeUndefined()
+      expect(JSON.stringify(props)).not.toContain('operation-token')
       expect(await new Response(await props.files.openRef(props.input.attachments[0].fileRef)).text()).toBe('first')
       await props.checkpoint.append('comment', 'C-1')
       return {
@@ -107,7 +112,7 @@ describe('durable operation SDK boundary', () => {
       durableOperationHandler,
     } as never)
 
-    const response = await handler(request())
+    const response = await handler(request(), { abortSignal: abortController.signal })
 
     expect(JSON.parse(response?.body ?? '')).toEqual({
       kind: 'succeeded',
