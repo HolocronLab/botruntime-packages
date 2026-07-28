@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { beforeEach, expect, test } from 'bun:test'
 import type {
   IntegrationLogger,
   OperationCheckpointClient,
@@ -6,15 +6,25 @@ import type {
 } from '@holocronlab/botruntime-sdk'
 import {
   handleDurableEntityOperation,
+  MEGAPLAN_NEGOTIATION_FILE_MAX_BYTES,
   type DurableEntityOperationDependencies,
   type DurableEntityOperationRequest,
 } from '../src/entity-operation'
+import { MarkerInvariantError } from '../src/megaplan-api'
 import { ApiError } from '../src/types'
 
 const encoder = new TextEncoder()
+const observedErrors: string[] = []
 const logger = {
-  forBot: () => ({ info: () => undefined }),
+  forBot: () => ({
+    info: () => undefined,
+    error: (message: string) => observedErrors.push(message),
+  }),
 } as unknown as IntegrationLogger
+
+beforeEach(() => {
+  observedErrors.length = 0
+})
 
 type CheckpointHarness = {
   client: OperationCheckpointClient
@@ -233,6 +243,51 @@ test('createContractorHuman crosses the provider boundary once and checkpoints i
   expect(observed.contractor?.lastName).toContain('BF-OP-')
   expect(observed.contractor?.description).toContain('BF-OP-')
   expect(cp.entries()).toEqual({ entity: 'C-42' })
+})
+
+test('a successful POST is not checkpointed until its marker is confirmed', async () => {
+  const cp = checkpoint()
+  const observed = state()
+  const deps = dependencies(observed, {
+    async createDeal() {
+      observed.creates.push('deal')
+      return {
+        contentType: 'Deal',
+        id: 'D-unconfirmed',
+        number: '88',
+      } as never
+    },
+    async getDeal(id) {
+      observed.lookups.push(`deal-id:${id}`)
+      return {
+        contentType: 'Deal',
+        id,
+        number: '88',
+        name: 'Megaplan нормализовал ответ без operation marker',
+      } as never
+    },
+  })
+  const outcome = await handleDurableEntityOperation(
+    'execute',
+    request(
+      'createDeal',
+      {
+        programId: 'P-1',
+        name: 'Новое дело',
+      },
+      cp.client,
+    ),
+    deps,
+    logger,
+  )
+
+  expect(outcome).toMatchObject({
+    kind: 'outcome_unknown',
+    errorCode: 'MEGAPLAN_OPERATION_CONFIRMATION_UNKNOWN',
+  })
+  expect(observed.creates).toEqual(['deal'])
+  expect(observed.lookups).toContain('deal-id:D-unconfirmed')
+  expect(cp.appends).toHaveLength(0)
 })
 
 test('an ambiguous createDeal POST is recovered by marker without a duplicate', async () => {
@@ -533,6 +588,75 @@ test('caller URLs and caller-authored checksums fail before I/O', async () => {
   expect(observed.uploads).toHaveLength(0)
   expect(observed.creates).toHaveLength(0)
   expect(observed.lookups).toHaveLength(0)
+})
+
+test('provider file ceiling is explicit and fails before Files or Megaplan I/O', async () => {
+  const cp = checkpoint()
+  const observed = state()
+  const outcome = await handleDurableEntityOperation(
+    'execute',
+    request(
+      'createNegotiationTask',
+      {
+        name: 'Согласовать претензию',
+        responsibleId: 'E-1',
+        approverIds: ['E-2'],
+        dealIds: [],
+        materialName: 'claim.pdf',
+        materialFile: {
+          version: '1',
+          id: 'cases/1/claim.pdf',
+          generation: 'generation-large',
+          size: MEGAPLAN_NEGOTIATION_FILE_MAX_BYTES + 1,
+          checksum: `sha256:${'a'.repeat(64)}`,
+        },
+      },
+      cp.client,
+    ),
+    dependencies(observed),
+    logger,
+  )
+
+  expect(outcome).toMatchObject({
+    kind: 'failed',
+    errorCode: 'MEGAPLAN_NEGOTIATION_FILE_TOO_LARGE',
+  })
+  expect(observed.lookups).toHaveLength(0)
+  expect(observed.uploads).toHaveLength(0)
+  expect(observed.creates).toHaveLength(0)
+})
+
+test('duplicate operation markers enter an observable operator path without POST', async () => {
+  const cp = checkpoint()
+  const observed = state()
+  const deps = dependencies(observed, {
+    async findDealByMarker() {
+      throw new MarkerInvariantError('deal')
+    },
+  })
+  const outcome = await handleDurableEntityOperation(
+    'execute',
+    request(
+      'createDeal',
+      {
+        programId: 'P-1',
+        name: 'Новое дело',
+      },
+      cp.client,
+    ),
+    deps,
+    logger,
+  )
+
+  expect(outcome).toMatchObject({
+    kind: 'outcome_unknown',
+    errorCode: 'MEGAPLAN_OPERATION_MARKER_NOT_UNIQUE',
+  })
+  expect(observed.creates).toHaveLength(0)
+  expect(cp.appends).toHaveLength(0)
+  expect(observedErrors).toEqual([
+    'MEGAPLAN_OPERATION_MARKER_NOT_UNIQUE: найдено несколько сущностей с operation marker',
+  ])
 })
 
 test('checkpoint failure after a confirmed create is outcome_unknown', async () => {

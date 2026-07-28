@@ -1,7 +1,7 @@
 import { type ActionDefinition, operationFileRef, z } from '@holocronlab/botruntime-sdk'
 
 const admittedMaterialFile = operationFileRef('resolve-current')
-  .describe('Bot-scoped immutable approval material')
+  .describe('Закрепляемый файл Botruntime размером не более 20 МиБ')
 
 const createNegotiationTaskInput = z.object({
   name: z.string().min(1).max(960).title('Название'),
@@ -45,7 +45,7 @@ const getNegotiationDecisionOutput = z.object({
 
 export const createNegotiationTask: ActionDefinition = {
   title: 'Создать задачу-согласование',
-  description: 'Создаёт нативное согласование конкретной неизменяемой версии материала.',
+  description: 'Создаёт согласование закреплённой версии материала размером не более 20 МиБ.',
   attributes: {
     'botruntime.durableOperation': 'v1',
     'botruntime.fileRefAdmission': 'schema-v1',

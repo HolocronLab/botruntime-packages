@@ -174,24 +174,30 @@ const operation = await client.startIntegrationOperation({
 })
 ```
 
-Provider-effect получает marker, вычисленный из `action + operationId`.
-Для контрагентов, сделок и задач marker записывается также в индексируемое имя
+Внешняя запись получает маркер, вычисленный из `action + operationId`.
+Для контрагентов, сделок и задач маркер записывается также в индексируемое имя
 как суффикс `[BF-OP-…]`; для комментариев — в HTML. Оригинальные `name` и
 `description` возвращаются вызывающему коду без технического суффикса.
 
-Перед первым POST интеграция ищет точный marker. После подтверждённого POST она
-сохраняет provider ID в fenced checkpoint. Replay с checkpoint читает сущность
-по точному ID и проверяет marker. После timeout, disconnect, `5xx` или
-некорректного success-ответа интеграция может подтвердить эффект только
-read-only поиском; если подтверждения нет, возвращается `outcome_unknown`.
-`reconcile` и `cancel` никогда не повторяют provider POST. Не разрешившаяся
-операция остаётся в `still_unknown` для штатного operator resolution/retention.
+Перед первым POST интеграция ищет точный маркер. После POST она повторно
+проверяет маркер в ответе или чтением по точному ID и только затем сохраняет ID
+Мегаплана в защищённой контрольной точке. Повтор операции с контрольной точкой
+читает сущность по точному ID и снова проверяет маркер. После тайм-аута,
+разрыва соединения, `5xx` или некорректного ответа интеграция подтверждает
+эффект только чтением; если подтверждения нет, возвращается `outcome_unknown`.
+Фазы `reconcile` и `cancel` никогда не повторяют POST. Несколько сущностей с
+одним маркером дают `MEGAPLAN_OPERATION_MARKER_NOT_UNIQUE` и требуют проверки
+оператором. После проверки владелец рабочей области может завершить неизвестную
+операцию через `POST /v1/admin/workspaces/{workspaceId}/bots/{botId}/integration-operations/{operationId}/abandon`
+с телом `{ "reason": "..." }`; операция и контрольные точки сохраняются как
+аудиторская запись.
 
-`createNegotiationTask` принимает только `materialFile: { id }`. CloudAPI
-закрепляет его поколение, checksum и размер, а интеграция читает поток через
-`OperationFilesClient.openRef()`. Caller URL, base64, байты и прежние
+`createNegotiationTask` принимает только `materialFile: { id }` размером не
+более 20 МиБ. CloudAPI закрепляет его поколение, checksum и размер, а интеграция
+читает поток через `OperationFilesClient.openRef()`. Пользовательские URL,
+base64, байты и прежние
 `materialFileId`/`materialUrl`/`materialSha256` отклоняются. SHA-256 в
-Megaplan берётся только из authoritative prepared ref. Неоднозначный
+Megaplan берётся только из подготовленной платформой ссылки. Неоднозначный
 `POST /api/file` не повторяется: без подтверждённого File ID операция
 остаётся `outcome_unknown`.
 

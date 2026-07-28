@@ -8,7 +8,7 @@ import type {
 } from '@holocronlab/botruntime-sdk'
 import { projectDeal } from './actions/deal'
 import { projectTask } from './actions/task'
-import type { MegaplanApiClient } from './megaplan-api'
+import { MarkerInvariantError, type MegaplanApiClient } from './megaplan-api'
 import {
   ContentType,
   DateTime,
@@ -124,8 +124,12 @@ export type DurableEntityOperationDependencies = {
 
 type ProviderEntity = Comment | ContractorHuman | Deal | Task
 
-const MAX_FILE_BYTES = 20 << 20
+export const MEGAPLAN_NEGOTIATION_FILE_MAX_BYTES = 20 << 20
 const PROVIDER_ID_BYTES = 512
+// Names/text stop below provider ceilings so the semantic marker always fits.
+const CONTRACTOR_LAST_NAME_INPUT_MAX = 220
+const ENTITY_NAME_INPUT_MAX = 960
+const PROVIDER_TEXT_INPUT_MAX = 65_000
 const DECIMAL = /^-?\d+(\.\d+)?$/
 const DEADLINE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 const DISPLAY_NAME = /^[^\r\n]*[^ \t\r\n][^\r\n]*$/
@@ -145,6 +149,16 @@ const unknown = (
   errorCode,
   errorMessage: 'Megaplan не подтвердил итог durable-операции',
 })
+
+const markerInvariantOutcome = (
+  error: unknown,
+  kind: 'still_unknown' | 'outcome_unknown',
+  logger: IntegrationLogger,
+): DurableOperationOutcome | undefined => {
+  if (!(error instanceof MarkerInvariantError)) return undefined
+  logger.forBot().error(`${error.code}: найдено несколько сущностей с operation marker`)
+  return unknown(kind, error.code)
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -203,7 +217,6 @@ const validatePreparedFileRef = (value: unknown): value is PreparedFileRefV1 => 
     && requiredString(value.generation, 1024)
     && Number.isSafeInteger(value.size)
     && Number(value.size) >= 1
-    && Number(value.size) <= MAX_FILE_BYTES
     && optionalString(value.contentType, 255)
     && optionalString(value.filename, 1024)
     && typeof value.checksum === 'string'
@@ -217,8 +230,8 @@ const validateContractorInput = (value: unknown): value is CreateContractorHuman
     || !hasOnly(value, ['firstName', 'middleName', 'lastName', 'description', 'contactInfo'])
     || !optionalString(value.firstName, 256)
     || !optionalString(value.middleName, 256)
-    || !optionalString(value.lastName, 220)
-    || !optionalString(value.description, 65_000)
+    || !optionalString(value.lastName, CONTRACTOR_LAST_NAME_INPUT_MAX)
+    || !optionalString(value.description, PROVIDER_TEXT_INPUT_MAX)
     || !Array.isArray(value.contactInfo)
     || value.contactInfo.length > 32
   ) {
@@ -242,8 +255,8 @@ const validateDealInput = (value: unknown): value is CreateDealInput => {
     || !requiredString(value.programId, 256)
     || !optionalString(value.contractorId, 256)
     || !optionalString(value.managerId, 256)
-    || !optionalString(value.name, 960)
-    || !optionalString(value.description, 65_000)
+    || !optionalString(value.name, ENTITY_NAME_INPUT_MAX)
+    || !optionalString(value.description, PROVIDER_TEXT_INPUT_MAX)
     || !optionalString(value.stateId, 256)
   ) {
     return false
@@ -265,7 +278,7 @@ const validateTaskInput = (value: unknown): value is CreateTaskInput => {
   if (
     !isRecord(value)
     || !hasOnly(value, ['name', 'responsibleId', 'dealIds', 'deadline', 'isUrgent', 'statement'])
-    || !requiredString(value.name, 960)
+    || !requiredString(value.name, ENTITY_NAME_INPUT_MAX)
     || !requiredString(value.responsibleId, 256)
     || !stringArray(value.dealIds, 0, 64)
     || !optionalString(value.deadline, 19)
@@ -284,7 +297,7 @@ const validateCommentInput = (value: unknown): value is AddCommentInput => {
     || !hasOnly(value, ['owner', 'ownerId', 'contentHtml'])
     || !['deal', 'contractor', 'task'].includes(String(value.owner))
     || !requiredString(value.ownerId, 256)
-    || !requiredString(value.contentHtml, 65_000)
+    || !requiredString(value.contentHtml, PROVIDER_TEXT_INPUT_MAX)
   ) {
     return false
   }
@@ -303,14 +316,14 @@ const validateNegotiationInput = (value: unknown): value is CreateNegotiationTas
       'materialFile',
       'statement',
     ])
-    || !requiredString(value.name, 960)
+    || !requiredString(value.name, ENTITY_NAME_INPUT_MAX)
     || !requiredString(value.responsibleId, 256)
     || !stringArray(value.approverIds, 1, 32)
     || !stringArray(value.dealIds, 0, 64)
     || !requiredString(value.materialName, 1024)
     || !DISPLAY_NAME.test(value.materialName)
     || !validatePreparedFileRef(value.materialFile)
-    || !optionalString(value.statement, 65_000)
+    || !optionalString(value.statement, PROVIDER_TEXT_INPUT_MAX)
   ) {
     return false
   }
@@ -452,6 +465,37 @@ const optionalNameWithMarker = (value: string | undefined, marker: string): stri
 const providerEntityId = (entity: ProviderEntity): string | undefined =>
   validProviderId(entity.id) ? entity.id : undefined
 
+const entityMatchesMarker = (
+  action: DurableEntityAction,
+  entity: ProviderEntity,
+  marker: string,
+): boolean => {
+  switch (action) {
+    case 'createContractorHuman': {
+      const contractor = entity as ContractorHuman
+      return contractor.lastName?.includes(`[${marker}]`) === true
+        && contractor.description?.includes(marker) === true
+    }
+    case 'createDeal': {
+      const deal = entity as Deal
+      return deal.name?.includes(`[${marker}]`) === true
+        && deal.description?.includes(marker) === true
+    }
+    case 'createNegotiationTask': {
+      const task = entity as Task
+      return task.isNegotiation === true
+        && task.name?.includes(`[${marker}]`) === true
+    }
+    case 'createTask': {
+      const task = entity as Task
+      return task.isNegotiation !== true
+        && task.name?.includes(`[${marker}]`) === true
+    }
+    case 'addComment':
+      return (entity as Comment).content?.includes(marker) === true
+  }
+}
+
 const recoveredEntity = async (
   action: DurableEntityAction,
   input: DurableEntityInput,
@@ -492,30 +536,20 @@ const checkpointedEntity = async (
   switch (action) {
     case 'createContractorHuman': {
       const entity = await provider.getContractorHuman(id, signal)
-      return entity.id === id
-        && entity.lastName?.includes(`[${marker}]`)
-        && entity.description?.includes(marker)
+      return entity.id === id && entityMatchesMarker(action, entity, marker)
         ? entity
         : undefined
     }
     case 'createDeal': {
       const entity = await provider.getDeal(id, signal)
-      return entity.id === id
-        && entity.name?.includes(`[${marker}]`)
-        && entity.description?.includes(marker)
+      return entity.id === id && entityMatchesMarker(action, entity, marker)
         ? entity
         : undefined
     }
     case 'createNegotiationTask':
     case 'createTask': {
       const entity = await provider.getTask(id, signal)
-      return entity.id === id
-        && (
-          action === 'createNegotiationTask'
-            ? entity.isNegotiation === true
-            : entity.isNegotiation !== true
-        )
-        && entity.name?.includes(`[${marker}]`)
+      return entity.id === id && entityMatchesMarker(action, entity, marker)
         ? entity
         : undefined
     }
@@ -776,7 +810,9 @@ const execute = async (
       logger.forBot().info(`Megaplan: ${request.action} восстановлена по operation marker`)
       return successFrom(request, recovered)
     }
-  } catch {
+  } catch (error) {
+    const invariant = markerInvariantOutcome(error, 'outcome_unknown', logger)
+    if (invariant) return invariant
     // No POST has started in this attempt. A failed marker lookup cannot prove
     // absence, so the scheduler may retry this read-only preflight safely.
     return { kind: 'retry_safe' }
@@ -818,23 +854,54 @@ const execute = async (
         logger.forBot().info(`Megaplan: ${request.action} восстановлена после неоднозначного POST`)
         return successFrom(request, recovered)
       }
-    } catch {
+    } catch (recoveryError) {
+      const invariant = markerInvariantOutcome(
+        recoveryError,
+        'outcome_unknown',
+        logger,
+      )
+      if (invariant) return invariant
       // The provider boundary has already been crossed. Reconciliation remains
       // read-only and a failed lookup can never authorize a second POST.
     }
     return unknown('outcome_unknown', 'MEGAPLAN_OPERATION_OUTCOME_UNKNOWN')
   }
 
-  if (!providerEntityId(entity)) {
+  const providerId = providerEntityId(entity)
+  if (!providerId) {
     return unknown('outcome_unknown', 'MEGAPLAN_OPERATION_OUTCOME_UNKNOWN')
   }
+  let confirmed: ProviderEntity | undefined
   try {
-    await checkpointEntity(request, entity, signal)
+    confirmed = entityMatchesMarker(request.action, entity, marker)
+      ? entity
+      : await checkpointedEntity(
+        request.action,
+        request.input,
+        providerId,
+        marker,
+        dependencies.provider,
+        signal,
+      )
+  } catch (confirmationError) {
+    const invariant = markerInvariantOutcome(
+      confirmationError,
+      'outcome_unknown',
+      logger,
+    )
+    if (invariant) return invariant
+    return unknown('outcome_unknown', 'MEGAPLAN_OPERATION_CONFIRMATION_UNKNOWN')
+  }
+  if (!confirmed) {
+    return unknown('outcome_unknown', 'MEGAPLAN_OPERATION_CONFIRMATION_UNKNOWN')
+  }
+  try {
+    await checkpointEntity(request, confirmed, signal)
   } catch {
     return unknown('outcome_unknown', 'OPERATION_CHECKPOINT_OUTCOME_UNKNOWN')
   }
   logger.forBot().info(`Megaplan: ${request.action} подтверждена`)
-  return successFrom(request, entity)
+  return successFrom(request, confirmed)
 }
 
 export async function handleDurableEntityOperation(
@@ -856,6 +923,16 @@ export async function handleDurableEntityOperation(
   ) {
     return failed('INVALID_OPERATION', 'Некорректный durable-контракт Megaplan action')
   }
+  if (
+    request.action === 'createNegotiationTask'
+    && (request.input as CreateNegotiationTaskInput).materialFile.size
+      > MEGAPLAN_NEGOTIATION_FILE_MAX_BYTES
+  ) {
+    return failed(
+      'MEGAPLAN_NEGOTIATION_FILE_TOO_LARGE',
+      `Материал согласования превышает лимит ${MEGAPLAN_NEGOTIATION_FILE_MAX_BYTES} байт`,
+    )
+  }
 
   const operation = operationController(request.deadline, hostSignal)
   try {
@@ -873,7 +950,13 @@ export async function handleDurableEntityOperation(
         if (recovered?.id === snapshot.entries.entity) {
           return successFrom(request, recovered)
         }
-      } catch {
+      } catch (error) {
+        const invariant = markerInvariantOutcome(
+          error,
+          phase === 'execute' ? 'outcome_unknown' : 'still_unknown',
+          logger,
+        )
+        if (invariant) return invariant
         // A confirmed provider id remains fenced in checkpoint. Failure to read
         // the provider cannot authorize another mutation.
       }
@@ -911,7 +994,9 @@ export async function handleDurableEntityOperation(
         operation.signal,
       )
       if (recovered) return recovered
-    } catch {
+    } catch (error) {
+      const invariant = markerInvariantOutcome(error, 'still_unknown', logger)
+      if (invariant) return invariant
       // Reconcile is provider-read-only. A failed or ambiguous lookup stays
       // unknown and is left for the operator/retention path.
     }

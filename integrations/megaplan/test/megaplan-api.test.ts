@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { MegaplanApiClient } from '../src/megaplan-api'
+import { MarkerInvariantError, MegaplanApiClient } from '../src/megaplan-api'
 import { ApiError, DateOnly, DateTime, Money, encodeBody, selectTransition } from '../src/types'
 
 // Response shapes mirror live probes of m58160596.megaplan.ru: the token is an
@@ -986,6 +986,61 @@ test('findTaskByMarker treats an omitted isNegotiation flag as an ordinary task'
     const c = newClient(env.url)
     expect((await c.findTaskByMarker(marker, false))?.id).toBe('T-42')
     expect(env.apiCalls()).toBe(2)
+  })
+})
+
+test('findTaskByMarker revalidates the marker on the detailed entity', async () => {
+  const marker = 'BF-OP-task-edited'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/task' && url.search) {
+      return json(200, wrap(JSON.stringify([{
+        contentType: 'Task',
+        id: 'T-edited',
+        name: `Проверить документы [${marker}]`,
+      }])))
+    }
+    if (url.pathname === '/api/v3/task/T-edited') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'Task',
+        id: 'T-edited',
+        name: 'Маркер удалён после поисковой проекции',
+        status: 'assigned',
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    expect(await c.findTaskByMarker(marker, false)).toBeUndefined()
+    expect(env.apiCalls()).toBe(2)
+  })
+})
+
+test('findTaskByMarker reports duplicate detailed markers as an invariant error', async () => {
+  const marker = 'BF-OP-task-duplicate'
+  const env = makeEnv((_req, _body, url) => {
+    if (url.pathname === '/api/v3/task' && url.search) {
+      return json(200, wrap(JSON.stringify([
+        { contentType: 'Task', id: 'T-1', name: `Задача [${marker}]` },
+        { contentType: 'Task', id: 'T-2', name: `Задача [${marker}]` },
+      ])))
+    }
+    if (url.pathname === '/api/v3/task/T-1' || url.pathname === '/api/v3/task/T-2') {
+      return json(200, wrap(JSON.stringify({
+        contentType: 'Task',
+        id: url.pathname.endsWith('T-1') ? 'T-1' : 'T-2',
+        name: `Задача [${marker}]`,
+        status: 'assigned',
+      })))
+    }
+    return json(404, '{}')
+  })
+  await withEnv(env, async () => {
+    const c = newClient(env.url)
+    await expect(c.findTaskByMarker(marker, false)).rejects.toBeInstanceOf(
+      MarkerInvariantError,
+    )
+    expect(env.apiCalls()).toBe(3)
   })
 })
 

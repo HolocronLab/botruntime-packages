@@ -116,9 +116,18 @@ function prune<T extends Record<string, unknown>>(obj: T): T {
   return out as T
 }
 
+export class MarkerInvariantError extends Error {
+  public readonly code = 'MEGAPLAN_OPERATION_MARKER_NOT_UNIQUE'
+
+  public constructor(label: string) {
+    super(`megaplan: multiple ${label} entities match one operation marker`)
+    this.name = 'MarkerInvariantError'
+  }
+}
+
 function uniqueMarkerMatch<T>(matches: T[], label: string): T | undefined {
   if (matches.length > 1) {
-    throw new Error(`megaplan: multiple ${label} entities match one operation marker`)
+    throw new MarkerInvariantError(label)
   }
   return matches[0]
 }
@@ -397,21 +406,23 @@ export class MegaplanApiClient {
     isNegotiation: boolean,
     signal?: AbortSignal,
   ): Promise<Task | undefined> {
-    const tasks = await this.do<Task[]>(
+    const candidates = await this.do<Task[]>(
       'GET',
       '/api/v3/task',
       { q: operationMarker, limit: 10 },
       undefined,
       signal,
     )
-    const match = uniqueMarkerMatch(
-      tasks.filter((task) =>
+    const detailed = await Promise.all(
+      candidates.map((candidate) => this.getTask(candidate.id, signal)),
+    )
+    return uniqueMarkerMatch(
+      detailed.filter((task) =>
         (isNegotiation ? task.isNegotiation === true : task.isNegotiation !== true)
         && task.name?.includes(`[${operationMarker}]`)
       ),
       isNegotiation ? 'negotiation task' : 'task',
     )
-    return match ? this.getTask(match.id, signal) : undefined
   }
 
   async createNegotiationTask(t: {
