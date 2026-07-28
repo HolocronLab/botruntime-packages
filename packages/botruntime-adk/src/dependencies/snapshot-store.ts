@@ -346,7 +346,10 @@ export class DependencySnapshotStore {
       if (authorities.integrations.authority !== 'authoritative') {
         throw snapshotReadinessError(`integration authority is unknown: ${authorities.integrations.reason}`)
       }
-      if (authorities.plugins.authority !== 'authoritative') {
+      if (
+        authorities.plugins.authority !== 'authoritative' &&
+        !canRecoverLegacyEmptyPluginAuthority({ target, previous, bot, authorities })
+      ) {
         throw snapshotReadinessError(`plugin authority is unknown: ${authorities.plugins.reason}`)
       }
     }
@@ -493,6 +496,50 @@ export function dependencySnapshotFromBot(opts: {
     integrations,
     plugins,
   }
+}
+
+export function botDefinitionPluginsFromCloud(opts: {
+  bot: Awaited<ReturnType<Client['getBot']>>['bot']
+  target: DependencySnapshotTarget
+  previous?: DependencySnapshotData | null
+}): Record<string, unknown> {
+  const target = normalizeDependencySnapshotTarget(opts.target)
+  if (target.env !== 'prod') {
+    throw invalidSnapshotTarget('bot definition plugins can only be resolved for a prod target')
+  }
+  if (opts.bot.id !== target.botId) {
+    throw new DependencyError({
+      code: 'INVALID_CONFIG',
+      message: `Prod bot definition plugin resolution returned bot ${opts.bot.id}; expected exact target bot ${target.botId}.`,
+    })
+  }
+  const previous = opts.previous ? dependencySnapshotSchema.parse(opts.previous) : null
+  if (previous) assertSnapshotTarget(previous, target, 'previous dependency snapshot')
+  const authorities = parseSnapshotReadinessAuthorities(opts.bot)
+  if (authorities.integrations.authority !== 'authoritative') {
+    throw snapshotReadinessError(`integration authority is unknown: ${authorities.integrations.reason}`)
+  }
+  const projectedIntegrations = snapshotIntegrationsFromAuthoritativeBot(opts.bot, previous)
+  if (previous && !jsonEqual(projectedIntegrations, previous.integrations)) {
+    throw snapshotReadinessError(
+      'integration projection changed after the dependency snapshot was refreshed; retry the operation'
+    )
+  }
+  if (authorities.plugins.authority === 'authoritative') {
+    const projected = snapshotPluginsFromAuthoritativeBot(opts.bot, previous)
+    if (previous && !jsonEqual(projected, previous.plugins)) {
+      throw snapshotReadinessError(
+        'plugin projection changed after the dependency snapshot was refreshed; retry the operation'
+      )
+    }
+    const plugins = (opts.bot as unknown as { plugins?: unknown }).plugins
+    if (!isRecord(plugins)) throw snapshotReadinessError('bot.plugins must be an object')
+    return cloneSnapshotMap(plugins)
+  }
+  if (canRecoverLegacyEmptyPluginAuthority({ target, previous, bot: opts.bot, authorities })) {
+    return {}
+  }
+  throw snapshotReadinessError(`plugin authority is unknown: ${authorities.plugins.reason}`)
 }
 
 type SnapshotReadinessAuthority =
@@ -672,6 +719,25 @@ function parseSnapshotReadinessAuthorities(
     ),
     plugins: parseSnapshotAuthority(readiness.plugins, 'plugin', 'bot_definition_plugins'),
   }
+}
+
+function canRecoverLegacyEmptyPluginAuthority(opts: {
+  target: DependencySnapshotTarget
+  previous: DependencySnapshotData | null
+  bot: Awaited<ReturnType<Client['getBot']>>['bot']
+  authorities: { integrations: SnapshotReadinessAuthority; plugins: SnapshotReadinessAuthority }
+}): boolean {
+  if (opts.target.env !== 'prod') return false
+  if (opts.authorities.integrations.authority !== 'authoritative') return false
+  if (
+    opts.authorities.plugins.authority !== 'unknown' ||
+    opts.authorities.plugins.reason !== 'bot_definition_plugins_missing'
+  ) {
+    return false
+  }
+  if (!opts.previous || Object.keys(opts.previous.plugins).length !== 0) return false
+  const plugins = (opts.bot as unknown as { plugins?: unknown }).plugins
+  return isRecord(plugins) && Object.keys(plugins).length === 0
 }
 
 function cloneSnapshotMap<T>(value: Record<string, T>): Record<string, T> {

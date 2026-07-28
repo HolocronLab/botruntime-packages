@@ -1042,6 +1042,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       // that legacy bot-scoped commands may still need.
     }
 
+    const dependencyTarget = { env: 'prod' as const, apiUrl, workspaceId, botId }
     const { migrateFromConfig } = await adkBundle.loadAdkMigrationTools()
     const migrationApi = this.api.newClient(
       { token: profile.token, apiUrl, workspaceId },
@@ -1050,7 +1051,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     await migrateFromConfig({
       projectPath: dir,
       client: migrationApi.client as unknown as Parameters<typeof migrateFromConfig>[0]['client'],
-      target: { env: 'prod', apiUrl, workspaceId, botId },
+      target: dependencyTarget,
       authority: hasExplicitBotId
         ? { source: 'explicit', botId }
         : usesLocalTarget
@@ -1098,6 +1099,22 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
     // 3. Resolve and confirm the exact table target before staging anything.
     // The control plane, not this CLI process, owns the durable phase machine.
     const bot = new CloudapiClient(apiUrl, profile.token)
+    const { DependencySnapshotStore, botDefinitionPluginsFromCloud } =
+      await adkBundle.loadAdkDependencyTools()
+    const dependencySnapshot = await new DependencySnapshotStore({ projectPath: dir }).read(
+      dependencyTarget
+    )
+    if (!dependencySnapshot) {
+      throw new errors.BotpressCLIError(
+        'dependency migration completed without an exact production snapshot; refusing to stage'
+      )
+    }
+    const { bot: dependencyBot } = await migrationApi.client.getBot({ id: botId })
+    const plugins = botDefinitionPluginsFromCloud({
+      bot: dependencyBot,
+      target: dependencyTarget,
+      previous: dependencySnapshot,
+    })
     const prepared = await this._prepareAdkStagedDeployment(
       dir,
       apiUrl,
@@ -1109,6 +1126,7 @@ export class DeployCommand extends ProjectCommand<DeployCommandDefinition> {
       name: this.argv.name ?? botId,
       type: 'adk',
       commands,
+      plugins,
       recurringEvents,
       ...(maxExecutionTime === undefined ? {} : { maxExecutionTime }),
     }

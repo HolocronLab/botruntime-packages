@@ -20,8 +20,17 @@ function makeCommand(workDir: string, overrides: Record<string, unknown> = {}): 
     noBuild: false,
     ...overrides,
   }
+  const dependencyClient = {
+    getBot: vi.fn().mockResolvedValue({
+      bot: {
+        id: String(overrides.botId ?? '42'),
+        integrations: {},
+        plugins: {},
+      },
+    }),
+  }
   const command = new DeployCommand(
-    { newClient: vi.fn(() => ({ client: {} })) } as any,
+    { newClient: vi.fn(() => ({ client: dependencyClient })) } as any,
     {} as any,
     new Logger(),
     argv as any
@@ -140,6 +149,26 @@ describe('DeployCommand ADK watch routing', () => {
         warnings: [],
         skipped: [],
       })),
+    } as any)
+    vi.spyOn(adkBundle, 'loadAdkDependencyTools').mockResolvedValue({
+      DependencySnapshotStore: class {
+        async read(target: any) {
+          return {
+            version: 2,
+            env: target.env,
+            target: {
+              apiUrl: target.apiUrl,
+              workspaceId: target.workspaceId,
+              botId: target.botId,
+            },
+            fetchedAt: '2026-07-28T00:00:00.000Z',
+            integrations: {},
+            plugins: {},
+          }
+        }
+      },
+      botDefinitionPluginsFromCloud: vi.fn(() => ({})),
+      reconcileDependencyReadiness: vi.fn(),
     } as any)
   })
 
@@ -585,7 +614,7 @@ describe('DeployCommand ADK watch routing', () => {
         workspaceId: 'ws_profile',
         name: '42',
         code: 'argv-only bundle',
-        definition: { commands: [], recurringEvents: {} },
+        definition: { commands: [], plugins: {}, recurringEvents: {} },
       },
     })
     expect(fs.existsSync(path.join(workDir, 'agent.json'))).toBe(false)

@@ -4,10 +4,12 @@ import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const migrationToolsMock = vi.hoisted(() => ({ load: vi.fn() }))
+const dependencyToolsMock = vi.hoisted(() => ({ load: vi.fn() }))
 
 vi.mock('../adk-bundle', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../adk-bundle')>()),
   loadAgentDeploymentConfig: vi.fn(async () => ({ recurringEvents: {} })),
+  loadAdkDependencyTools: dependencyToolsMock.load,
   loadAdkMigrationTools: migrationToolsMock.load,
 }))
 
@@ -37,6 +39,21 @@ function devBot(runtimeBotId: string, targetBotId: string) {
     id: runtimeBotId,
     dev: true,
     tags: { 'botruntime.devTargetBotId': targetBotId },
+    integrations: {},
+    plugins: {},
+    devReadiness: {
+      schemaVersion: 1,
+      integrations: { authority: 'authoritative', source: 'integration_installation' },
+      plugins: { authority: 'authoritative', source: 'bot_definition_plugins' },
+      lastDevDeployment: { authority: 'unknown', reason: 'not_required_by_hook_test' },
+    },
+  }
+}
+
+function prodBot(botId: string) {
+  return {
+    id: botId,
+    dev: false,
     integrations: {},
     plugins: {},
     devReadiness: {
@@ -145,6 +162,27 @@ describe('agent command dependency migration hooks', () => {
 
   beforeEach(() => {
     migrationToolsMock.load.mockReset()
+    dependencyToolsMock.load.mockReset()
+    dependencyToolsMock.load.mockResolvedValue({
+      DependencySnapshotStore: class {
+        async read(target: any) {
+          return {
+            version: 2,
+            env: target.env,
+            target: {
+              apiUrl: target.apiUrl,
+              workspaceId: target.workspaceId,
+              botId: target.botId,
+            },
+            fetchedAt: '2026-07-28T00:00:00.000Z',
+            integrations: {},
+            plugins: {},
+          }
+        }
+      },
+      botDefinitionPluginsFromCloud: vi.fn(() => ({})),
+      reconcileDependencyReadiness: vi.fn(),
+    })
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-hook-'))
     botpressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brt-adk-migration-home-'))
     fs.writeFileSync(path.join(workDir, 'agent.config.ts'), 'export default {}\n')
@@ -520,7 +558,10 @@ describe('agent command dependency migration hooks', () => {
   it('valid noBuild with argv-only bot id uses explicit authority before staged deployment and does not persist a link', async () => {
     const target = { ...CLOUD_PROFILE, botId: '55' }
     writeVerifiedBundle(workDir, 'verified explicit bundle', target)
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('55') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const order: string[] = []
     const migrateFromConfig = vi.fn(async () => {
@@ -570,7 +611,10 @@ describe('agent command dependency migration hooks', () => {
       })
     )
     writeVerifiedBundle(workDir, 'verified local bundle', { ...LOCAL_PROFILE, botId: '202' })
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('202') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const order: string[] = []
     const migrateFromConfig = vi.fn(async () => {
@@ -608,7 +652,10 @@ describe('agent command dependency migration hooks', () => {
     })
     fs.writeFileSync(path.join(workDir, 'agent.json'), agentBytes)
     writeVerifiedBundle(workDir, 'explicit prod override', { ...CLOUD_PROFILE, botId: '55' })
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('55') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const migrateFromConfig = vi.fn(async () => undefined)
     mockMigrationLoader(migrateFromConfig)
@@ -634,7 +681,10 @@ describe('agent command dependency migration hooks', () => {
     })
     fs.writeFileSync(path.join(workDir, 'agent.local.json'), localBytes)
     writeVerifiedBundle(workDir, 'explicit local override', { ...LOCAL_PROFILE, botId: '404' })
-    const migrationClient = { getBot: vi.fn(), updateBot: vi.fn() }
+    const migrationClient = {
+      getBot: vi.fn(async () => ({ bot: prodBot('404') })),
+      updateBot: vi.fn(),
+    }
     const apiFactory = { newClient: vi.fn(() => ({ client: migrationClient })) }
     const migrateFromConfig = vi.fn(async () => undefined)
     mockMigrationLoader(migrateFromConfig)

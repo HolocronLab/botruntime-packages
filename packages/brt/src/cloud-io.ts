@@ -17,13 +17,10 @@ export function cloudWarn(message: string): void {
   process.stderr.write(`[${BRAND}] warning: ${message}\n`)
 }
 
-// Reads all of stdin as text (portable across bun/node — no Bun-specific global).
+// Reads fd 0 directly. Bun's async iterator over process.stdin can observe an
+// already-ended stream as empty when the CLI is launched with redirected input.
 async function readStdinText(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  }
-  return Buffer.concat(chunks).toString('utf8')
+  return fs.readFileSync(0, 'utf8')
 }
 
 // Secrets/config values are read from stdin or --value-file ONLY, never argv, so
