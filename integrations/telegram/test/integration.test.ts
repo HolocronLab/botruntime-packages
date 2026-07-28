@@ -39,6 +39,34 @@ describe('host<->SDK envelope adapter', () => {
     expect(res && res.status).toBe(200)
   })
 
+  it('does not fall through from a durable envelope to the ordinary createForumTopic action', async () => {
+    const previousToken = process.env.BP_TOKEN
+    process.env.BP_TOKEN = 'operation-token'
+    try {
+      const res = await call(
+        'integration_operation',
+        JSON.stringify({
+          protocolVersion: '1',
+          operationId: '019fa8d8-8cba-7b6d-aaf4-619cccf3459d',
+          phase: 'execute',
+          attempt: 1,
+          action: 'createForumTopic',
+          idempotencyKey: 'topic:test',
+          input: { chatId: '-100123', name: 'Дело № 42' },
+          deadline: '2026-07-28T18:00:00.000Z',
+          cancelRequestedAt: null,
+          capabilities: {},
+        }),
+        { 'x-bp-type': 'execute' },
+      )
+      expect(res && res.status).toBe(400)
+      expect(res && res.body).toContain('Unknown operation integration_operation')
+    } finally {
+      if (previousToken === undefined) delete process.env.BP_TOKEN
+      else process.env.BP_TOKEN = previousToken
+    }
+  })
+
   it('swallows ignorable updates (channel post) as 200, never a silent failure', async () => {
     const res = await call('webhook_received', JSON.stringify({ channel_post: { text: 'x' } }), { 'x-webhook-id': 'wh_test' })
     expect(res && res.status).toBe(200)

@@ -11,7 +11,7 @@ import { telegramMessageChannels } from './definitions/channels'
 //   - channels gain `contactRequest` (definitions/channels.ts) for the share-phone gap.
 export default new IntegrationDefinition({
   name: 'telegram',
-  version: '1.2.3',
+  version: '1.2.4',
   title: 'Telegram',
   description: 'Engage with your audience in real-time.',
   icon: 'icon.svg',
@@ -72,10 +72,7 @@ export default new IntegrationDefinition({
   actions: {
     createForumTopic: {
       title: 'Create forum topic',
-      description: 'Create a topic in a forum-enabled Telegram supergroup',
-      attributes: {
-        'botruntime.durableOperation': 'v1',
-      },
+      description: 'Temporarily unavailable until Telegram topic creation can be reconciled safely',
       input: {
         schema: z.object({
           chatId: z
